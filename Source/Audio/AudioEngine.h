@@ -55,7 +55,7 @@ private:
     juce::AudioBuffer<float> currentWaveform;
     int waveformSampleRate = 44100;
     
-    std::atomic<int64_t> currentPosition { 0 };
+    std::atomic<int64_t> currentPosition { 0 };  // Position in waveform samples
     std::atomic<bool> playing { false };
     std::atomic<bool> shouldStop { false };
     
@@ -63,6 +63,11 @@ private:
     FinishCallback finishCallback;
     
     double currentSampleRate = 44100.0;
+    
+    // For sample rate conversion
+    juce::LagrangeInterpolator interpolator;
+    double playbackRatio = 1.0;  // waveformSampleRate / deviceSampleRate
+    double fractionalPosition = 0.0;  // Sub-sample position for interpolation
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioEngine)
 };

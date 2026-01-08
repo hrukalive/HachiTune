@@ -44,6 +44,13 @@ void AudioEngine::shutdownAudio()
 void AudioEngine::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
 {
     currentSampleRate = sampleRate;
+    playbackRatio = static_cast<double>(waveformSampleRate) / sampleRate;
+    interpolator.reset();
+    fractionalPosition = 0.0;
+    
+    DBG("AudioEngine::prepareToPlay - Device sample rate: " + juce::String(sampleRate) + 
+        " Hz, Waveform sample rate: " + juce::String(waveformSampleRate) + 
+        " Hz, Playback ratio: " + juce::String(playbackRatio));
 }
 
 void AudioEngine::releaseResources()
@@ -59,13 +66,11 @@ void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferTo
     }
     
     auto* outputBuffer = bufferToFill.buffer;
-    auto numSamples = bufferToFill.numSamples;
+    auto numOutputSamples = bufferToFill.numSamples;
     auto startSample = bufferToFill.startSample;
     
     int64_t pos = currentPosition.load();
     int64_t waveformLength = currentWaveform.getNumSamples();
-    
-    int samplesToProcess = numSamples;
     
     if (pos >= waveformLength)
     {
@@ -83,29 +88,45 @@ void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferTo
         return;
     }
     
-    // Check if we'll reach the end
-    if (pos + samplesToProcess > waveformLength)
+    // Use interpolator for sample rate conversion
+    const float* inputData = currentWaveform.getReadPointer(0);
+    float* outputData = outputBuffer->getWritePointer(0, startSample);
+    
+    // Calculate how many input samples we need
+    int inputSamplesAvailable = static_cast<int>(waveformLength - pos);
+    
+    // Process with interpolation
+    int samplesUsed = interpolator.process(
+        playbackRatio,
+        inputData + pos,
+        outputData,
+        numOutputSamples,
+        inputSamplesAvailable,
+        0  // No wrap
+    );
+    
+    // Update position
+    int64_t newPos = pos + samplesUsed;
+    currentPosition.store(newPos);
+    
+    // Copy to other channels (if stereo output)
+    for (int ch = 1; ch < outputBuffer->getNumChannels(); ++ch)
     {
-        samplesToProcess = static_cast<int>(waveformLength - pos);
+        outputBuffer->copyFrom(ch, startSample, outputBuffer->getReadPointer(0, startSample), numOutputSamples);
     }
     
-    // Copy samples to output buffer
-    for (int ch = 0; ch < outputBuffer->getNumChannels(); ++ch)
+    // Check if we've reached the end
+    if (newPos >= waveformLength)
     {
-        // Copy from mono source to all channels
-        outputBuffer->copyFrom(ch, startSample,
-                               currentWaveform.getReadPointer(0, static_cast<int>(pos)),
-                               samplesToProcess);
-        
-        // Clear remaining samples if any
-        if (samplesToProcess < numSamples)
+        playing = false;
+        if (finishCallback)
         {
-            outputBuffer->clear(ch, startSample + samplesToProcess, 
-                               numSamples - samplesToProcess);
+            juce::MessageManager::callAsync([this]() {
+                if (finishCallback)
+                    finishCallback();
+            });
         }
     }
-    
-    currentPosition.store(pos + samplesToProcess);
     
     // Update position callback
     if (positionCallback)
@@ -129,8 +150,17 @@ void AudioEngine::loadWaveform(const juce::AudioBuffer<float>& buffer, int sampl
     waveformSampleRate = sampleRate;
     currentPosition.store(0);
     
+    // Update playback ratio for sample rate conversion
+    if (currentSampleRate > 0)
+        playbackRatio = static_cast<double>(waveformSampleRate) / currentSampleRate;
+    else
+        playbackRatio = 1.0;
+    
+    interpolator.reset();
+    fractionalPosition = 0.0;
+    
     DBG("Loaded waveform: " + juce::String(buffer.getNumSamples()) + " samples at " + 
-        juce::String(sampleRate) + " Hz");
+        juce::String(sampleRate) + " Hz, playback ratio: " + juce::String(playbackRatio));
 }
 
 void AudioEngine::play()
@@ -154,6 +184,8 @@ void AudioEngine::stop()
 {
     playing = false;
     currentPosition.store(0);
+    interpolator.reset();
+    fractionalPosition = 0.0;
 }
 
 void AudioEngine::seek(double timeSeconds)
@@ -161,6 +193,8 @@ void AudioEngine::seek(double timeSeconds)
     int64_t newPos = static_cast<int64_t>(timeSeconds * waveformSampleRate);
     newPos = juce::jlimit<int64_t>(0, currentWaveform.getNumSamples(), newPos);
     currentPosition.store(newPos);
+    interpolator.reset();
+    fractionalPosition = 0.0;
 }
 
 double AudioEngine::getPosition() const
