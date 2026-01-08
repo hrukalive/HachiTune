@@ -133,7 +133,7 @@ if(WIN32)
     target_compile_definitions(PitchEditor PRIVATE
         JUCE_WASAPI=1
         JUCE_DIRECTSOUND=1
-        JUCE_ASIO=1)
+        JUCE_ASIO=0)
 elseif(APPLE)
     target_compile_definitions(PitchEditor PRIVATE
         JUCE_COREAUDIO=1)

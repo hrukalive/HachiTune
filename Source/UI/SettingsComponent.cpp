@@ -14,7 +14,7 @@ SettingsComponent::SettingsComponent()
 {
     // Title
     titleLabel.setText("Settings", juce::dontSendNotification);
-    titleLabel.setFont(juce::FontOptions(20.0f, juce::Font::bold));
+    titleLabel.setFont(juce::Font(20.0f, juce::Font::bold));
     titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     addAndMakeVisible(titleLabel);
     
@@ -60,7 +60,7 @@ SettingsComponent::SettingsComponent()
     
     // Info label
     infoLabel.setColour(juce::Label::textColourId, juce::Colour(0xff888888));
-    infoLabel.setFont(juce::FontOptions(12.0f));
+    infoLabel.setFont(juce::Font(12.0f));
     addAndMakeVisible(infoLabel);
     
     // Load saved settings
