@@ -8,11 +8,11 @@ MelSpectrogram::MelSpectrogram(int sampleRate, int nFft, int hopSize,
       numMels(numMels), fMin(fMin), fMax(fMax),
       fft(static_cast<int>(std::log2(nFft)))
 {
-    // Create Hann window
+    // Create Hann window (periodic, matches librosa default)
     window.resize(nFft);
     for (int i = 0; i < nFft; ++i)
     {
-        window[i] = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * i / (nFft - 1)));
+        window[i] = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * i / nFft));
     }
     
     createMelFilterbank();
@@ -20,14 +20,28 @@ MelSpectrogram::MelSpectrogram(int sampleRate, int nFft, int hopSize,
 
 void MelSpectrogram::createMelFilterbank()
 {
-    // Convert Hz to Mel (Slaney formula)
-    auto hzToMel = [](float hz) {
-        return 2595.0f * std::log10(1.0f + hz / 700.0f);
+    // Slaney-style mel scale (matches librosa default with htk=False)
+    // This is a piecewise linear (below 1000Hz) / log (above 1000Hz) scale
+    const float f_min_mel = 0.0f;
+    const float f_sp = 200.0f / 3.0f;  // ~66.67 Hz per mel below 1000 Hz
+    const float min_log_hz = 1000.0f;
+    const float min_log_mel = (min_log_hz - f_min_mel) / f_sp;  // = 15.0
+    const float logstep = std::log(6.4f) / 27.0f;  // ~0.0687
+    
+    // Convert Hz to Mel (Slaney formula - NOT HTK!)
+    auto hzToMel = [=](float hz) -> float {
+        if (hz < min_log_hz)
+            return (hz - f_min_mel) / f_sp;
+        else
+            return min_log_mel + std::log(hz / min_log_hz) / logstep;
     };
     
-    // Convert Mel to Hz
-    auto melToHz = [](float mel) {
-        return 700.0f * (std::pow(10.0f, mel / 2595.0f) - 1.0f);
+    // Convert Mel to Hz (Slaney formula - NOT HTK!)
+    auto melToHz = [=](float mel) -> float {
+        if (mel < min_log_mel)
+            return f_min_mel + f_sp * mel;
+        else
+            return min_log_hz * std::exp(logstep * (mel - min_log_mel));
     };
     
     float melMin = hzToMel(fMin);

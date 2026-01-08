@@ -31,3 +31,5 @@ JUCE/
 # Temporary files
 *.tmp
 *.log
+
+**/__pycache__/
