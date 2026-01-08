@@ -15,11 +15,13 @@ public:
     void resized() override;
     
     void sliderValueChanged(juce::Slider* slider) override;
+    void sliderDragEnded(juce::Slider* slider) override;
     
     void setSelectedNote(Note* note);
     void updateFromNote();
     
     std::function<void()> onParameterChanged;
+    std::function<void()> onParameterEditFinished;  // Called when slider drag ends
     
 private:
     void setupSlider(juce::Slider& slider, juce::Label& label, 

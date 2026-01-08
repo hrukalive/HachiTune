@@ -68,6 +68,7 @@ MainComponent::MainComponent()
     pianoRoll.onSeek = [this](double time) { seek(time); };
     pianoRoll.onNoteSelected = [this](Note* note) { onNoteSelected(note); };
     pianoRoll.onPitchEdited = [this]() { onPitchEdited(); };
+    pianoRoll.onPitchEditFinished = [this]() { resynthesizeIncremental(); };
     
     // Setup waveform callbacks
     waveform.onSeek = [this](double time) { seek(time); };
@@ -76,6 +77,7 @@ MainComponent::MainComponent()
     
     // Setup parameter panel callbacks
     parameterPanel.onParameterChanged = [this]() { onPitchEdited(); };
+    parameterPanel.onParameterEditFinished = [this]() { resynthesizeIncremental(); };
     
     // Setup audio engine callbacks
     audioEngine->setPositionCallback([this](double position)
@@ -247,6 +249,10 @@ void MainComponent::loadAudioFile(const juce::File& file)
         
         // Set audio to engine
         audioEngine->loadWaveform(audioData.waveform, audioData.sampleRate);
+        
+        // Save original waveform for incremental synthesis
+        originalWaveform.makeCopyOf(audioData.waveform);
+        hasOriginalWaveform = true;
         
         repaint();
     }
@@ -489,6 +495,141 @@ void MainComponent::resynthesize()
                 juce::AlertWindow::InfoIcon,
                 "Resynthesize",
                 "Synthesis complete! " + juce::String(synthesizedAudio.size()) + " samples generated.");
+                
+            // Clear dirty flags after full resynthesis
+            project->clearAllDirty();
+        });
+}
+
+void MainComponent::resynthesizeIncremental()
+{
+    if (!project) return;
+    
+    auto& audioData = project->getAudioData();
+    if (audioData.melSpectrogram.empty() || audioData.f0.empty()) return;
+    if (!vocoder->isLoaded()) return;
+    
+    // Check if there are dirty notes
+    if (!project->hasDirtyNotes())
+    {
+        DBG("No dirty notes, skipping incremental synthesis");
+        return;
+    }
+    
+    auto [dirtyStart, dirtyEnd] = project->getDirtyFrameRange();
+    if (dirtyStart < 0 || dirtyEnd < 0)
+    {
+        DBG("Invalid dirty frame range");
+        return;
+    }
+    
+    // Add padding frames for smooth transitions (vocoder needs context)
+    const int paddingFrames = 10;
+    int startFrame = std::max(0, dirtyStart - paddingFrames);
+    int endFrame = std::min(static_cast<int>(audioData.melSpectrogram.size()), 
+                           dirtyEnd + paddingFrames);
+    
+    DBG("Incremental synthesis: frames " << startFrame << " to " << endFrame);
+    
+    // Extract mel spectrogram range
+    std::vector<std::vector<float>> melRange(
+        audioData.melSpectrogram.begin() + startFrame,
+        audioData.melSpectrogram.begin() + endFrame);
+    
+    // Get adjusted F0 for range
+    std::vector<float> adjustedF0Range = project->getAdjustedF0ForRange(startFrame, endFrame);
+    
+    if (melRange.empty() || adjustedF0Range.empty())
+    {
+        DBG("Empty mel or F0 range");
+        return;
+    }
+    
+    // Disable toolbar during synthesis
+    toolbar.setEnabled(false);
+    
+    // Calculate sample positions
+    int hopSize = vocoder->getHopSize();
+    int startSample = startFrame * hopSize;
+    int endSample = endFrame * hopSize;
+    
+    // Store frame range for callback
+    int capturedStartSample = startSample;
+    int capturedEndSample = endSample;
+    int capturedPaddingFrames = paddingFrames;
+    int capturedHopSize = hopSize;
+    
+    // Run vocoder inference asynchronously
+    vocoder->inferAsync(melRange, adjustedF0Range, 
+        [this, capturedStartSample, capturedEndSample, capturedPaddingFrames, capturedHopSize]
+        (std::vector<float> synthesizedAudio)
+        {
+            toolbar.setEnabled(true);
+            
+            if (synthesizedAudio.empty())
+            {
+                DBG("Incremental synthesis failed: empty output");
+                return;
+            }
+            
+            DBG("Incremental synthesis complete: " << synthesizedAudio.size() << " samples");
+            
+            auto& audioData = project->getAudioData();
+            float* dst = audioData.waveform.getWritePointer(0);
+            int totalSamples = audioData.waveform.getNumSamples();
+            
+            // Calculate actual replace range (skip padding on both ends)
+            int paddingSamples = capturedPaddingFrames * capturedHopSize;
+            int replaceStartSample = capturedStartSample + paddingSamples;
+            int replaceEndSample = capturedEndSample - paddingSamples;
+            
+            // Calculate source offset in synthesized audio
+            int srcOffset = paddingSamples;
+            int replaceSamples = replaceEndSample - replaceStartSample;
+            
+            // Apply crossfade at boundaries for smooth transitions
+            const int crossfadeSamples = 256;
+            
+            // Copy synthesized audio with crossfade
+            for (int i = 0; i < replaceSamples && (replaceStartSample + i) < totalSamples; ++i)
+            {
+                int dstIdx = replaceStartSample + i;
+                int srcIdx = srcOffset + i;
+                
+                if (srcIdx >= 0 && srcIdx < static_cast<int>(synthesizedAudio.size()))
+                {
+                    float srcVal = synthesizedAudio[srcIdx];
+                    
+                    // Crossfade at start
+                    if (i < crossfadeSamples)
+                    {
+                        float t = static_cast<float>(i) / crossfadeSamples;
+                        dst[dstIdx] = dst[dstIdx] * (1.0f - t) + srcVal * t;
+                    }
+                    // Crossfade at end
+                    else if (i >= replaceSamples - crossfadeSamples)
+                    {
+                        float t = static_cast<float>(replaceSamples - i) / crossfadeSamples;
+                        dst[dstIdx] = dst[dstIdx] * (1.0f - t) + srcVal * t;
+                    }
+                    // Direct copy in the middle
+                    else
+                    {
+                        dst[dstIdx] = srcVal;
+                    }
+                }
+            }
+            
+            // Reload waveform in audio engine
+            audioEngine->loadWaveform(audioData.waveform, audioData.sampleRate);
+            
+            // Update UI
+            waveform.repaint();
+            
+            // Clear dirty flags after successful synthesis
+            project->clearAllDirty();
+            
+            DBG("Incremental synthesis applied");
         });
 }
 

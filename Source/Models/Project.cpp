@@ -45,6 +45,52 @@ void Project::deselectAllNotes()
         note.setSelected(false);
 }
 
+std::vector<Note*> Project::getDirtyNotes()
+{
+    std::vector<Note*> result;
+    for (auto& note : notes)
+    {
+        if (note.isDirty())
+            result.push_back(&note);
+    }
+    return result;
+}
+
+void Project::clearAllDirty()
+{
+    for (auto& note : notes)
+        note.clearDirty();
+}
+
+bool Project::hasDirtyNotes() const
+{
+    for (const auto& note : notes)
+    {
+        if (note.isDirty())
+            return true;
+    }
+    return false;
+}
+
+std::pair<int, int> Project::getDirtyFrameRange() const
+{
+    int minStart = -1;
+    int maxEnd = -1;
+    
+    for (const auto& note : notes)
+    {
+        if (note.isDirty())
+        {
+            if (minStart < 0 || note.getStartFrame() < minStart)
+                minStart = note.getStartFrame();
+            if (maxEnd < 0 || note.getEndFrame() > maxEnd)
+                maxEnd = note.getEndFrame();
+        }
+    }
+    
+    return {minStart, maxEnd};
+}
+
 std::vector<float> Project::getAdjustedF0() const
 {
     if (audioData.f0.empty())
@@ -111,6 +157,95 @@ std::vector<float> Project::getAdjustedF0() const
     for (size_t i = 0; i < adjustedF0.size(); ++i)
     {
         if (i < audioData.voicedMask.size() && audioData.voicedMask[i])
+        {
+            adjustedF0[i] *= frameRatios[i];
+        }
+    }
+    
+    return adjustedF0;
+}
+
+std::vector<float> Project::getAdjustedF0ForRange(int startFrame, int endFrame) const
+{
+    if (audioData.f0.empty())
+        return {};
+    
+    // Clamp range
+    startFrame = std::max(0, startFrame);
+    endFrame = std::min(endFrame, static_cast<int>(audioData.f0.size()));
+    
+    if (startFrame >= endFrame)
+        return {};
+    
+    int rangeSize = endFrame - startFrame;
+    
+    // Get slice of original F0
+    std::vector<float> adjustedF0(audioData.f0.begin() + startFrame, 
+                                   audioData.f0.begin() + endFrame);
+    
+    // Apply global pitch offset
+    if (globalPitchOffset != 0.0f)
+    {
+        float globalRatio = std::pow(2.0f, globalPitchOffset / 12.0f);
+        for (auto& f : adjustedF0)
+        {
+            if (f > 0.0f)
+                f *= globalRatio;
+        }
+    }
+    
+    // Calculate per-frame ratios from notes (for the range)
+    std::vector<float> frameRatios(rangeSize, 1.0f);
+    
+    for (const auto& note : notes)
+    {
+        if (note.getPitchOffset() != 0.0f)
+        {
+            float noteRatio = std::pow(2.0f, note.getPitchOffset() / 12.0f);
+            int noteStart = note.getStartFrame();
+            int noteEnd = note.getEndFrame();
+            
+            // Calculate overlap with our range
+            int overlapStart = std::max(noteStart, startFrame) - startFrame;
+            int overlapEnd = std::min(noteEnd, endFrame) - startFrame;
+            
+            for (int i = overlapStart; i < overlapEnd; ++i)
+            {
+                if (i >= 0 && i < rangeSize)
+                    frameRatios[i] = noteRatio;
+            }
+        }
+    }
+    
+    // Apply smoothing at transitions (simplified for range)
+    const int smoothFrames = 5;
+    
+    for (int i = 1; i < rangeSize; ++i)
+    {
+        if (std::abs(frameRatios[i] - frameRatios[i-1]) > 0.001f)
+        {
+            int startIdx = std::max(0, i - smoothFrames / 2);
+            int endIdx = std::min(rangeSize, i + smoothFrames / 2 + 2);
+            
+            if (endIdx - startIdx > 1)
+            {
+                float valBefore = frameRatios[startIdx];
+                float valAfter = frameRatios[endIdx - 1];
+                
+                for (int j = startIdx; j < endIdx; ++j)
+                {
+                    float t = static_cast<float>(j - startIdx) / (endIdx - startIdx - 1);
+                    frameRatios[j] = valBefore + t * (valAfter - valBefore);
+                }
+            }
+        }
+    }
+    
+    // Apply ratios only to voiced regions
+    for (int i = 0; i < rangeSize; ++i)
+    {
+        size_t globalIdx = static_cast<size_t>(startFrame + i);
+        if (globalIdx < audioData.voicedMask.size() && audioData.voicedMask[globalIdx])
         {
             adjustedF0[i] *= frameRatios[i];
         }

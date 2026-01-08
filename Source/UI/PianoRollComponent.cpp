@@ -363,6 +363,7 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
         float deltaSemitones = deltaY / pixelsPerSemitone;
         
         draggedNote->setPitchOffset(originalPitchOffset + deltaSemitones);
+        draggedNote->markDirty();  // Mark as dirty for incremental synthesis
         
         if (onPitchEdited)
             onPitchEdited();
@@ -373,6 +374,13 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
 
 void PianoRollComponent::mouseUp(const juce::MouseEvent& e)
 {
+    if (isDragging && draggedNote)
+    {
+        // Trigger incremental synthesis when pitch edit is finished
+        if (onPitchEditFinished)
+            onPitchEditFinished();
+    }
+    
     isDragging = false;
     draggedNote = nullptr;
 }

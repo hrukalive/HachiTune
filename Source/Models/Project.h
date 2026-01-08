@@ -58,7 +58,9 @@ public:
     Note* getNoteAtFrame(int frame);
     std::vector<Note*> getNotesInRange(int startFrame, int endFrame);
     std::vector<Note*> getSelectedNotes();
+    std::vector<Note*> getDirtyNotes();
     void deselectAllNotes();
+    void clearAllDirty();
     
     // Global settings
     float getGlobalPitchOffset() const { return globalPitchOffset; }
@@ -72,6 +74,16 @@ public:
     
     // Get adjusted F0 with all modifications applied
     std::vector<float> getAdjustedF0() const;
+    
+    // Get adjusted F0 for a specific frame range
+    std::vector<float> getAdjustedF0ForRange(int startFrame, int endFrame) const;
+    
+    // Get frame range that needs resynthesis (based on dirty notes)
+    // Returns {-1, -1} if no dirty notes
+    std::pair<int, int> getDirtyFrameRange() const;
+    
+    // Check if any notes are dirty
+    bool hasDirtyNotes() const;
     
     // Modified state
     bool isModified() const { return modified; }

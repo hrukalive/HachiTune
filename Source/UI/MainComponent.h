@@ -32,6 +32,7 @@ private:
     void stop();
     void seek(double time);
     void resynthesize();
+    void resynthesizeIncremental();  // Incremental synthesis for preview
     void showSettings();
     void applySettings();
     
@@ -60,6 +61,10 @@ private:
     std::unique_ptr<SettingsDialog> settingsDialog;
     
     std::unique_ptr<juce::FileChooser> fileChooser;
+    
+    // Original waveform for incremental synthesis
+    juce::AudioBuffer<float> originalWaveform;
+    bool hasOriginalWaveform = false;
     
     bool isPlaying = false;
     

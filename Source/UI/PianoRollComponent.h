@@ -42,6 +42,7 @@ public:
     // Callbacks
     std::function<void(Note*)> onNoteSelected;
     std::function<void()> onPitchEdited;
+    std::function<void()> onPitchEditFinished;  // Called when dragging ends
     std::function<void(double)> onSeek;
     
 private:

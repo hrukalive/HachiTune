@@ -39,6 +39,12 @@ public:
     juce::Colour getColor() const { return color; }
     void setColor(juce::Colour c) { color = c; }
     
+    // Dirty flag (for incremental synthesis)
+    bool isDirty() const { return dirty; }
+    void setDirty(bool d) { dirty = d; }
+    void markDirty() { dirty = true; }
+    void clearDirty() { dirty = false; }
+    
     // Check if frame is within note
     bool containsFrame(int frame) const;
     
@@ -49,5 +55,6 @@ private:
     float pitchOffset = 0.0f;
     std::vector<float> f0Values;
     bool selected = false;
+    bool dirty = false;  // For incremental synthesis
     juce::Colour color = juce::Colour(0xFF9B59B6);
 };

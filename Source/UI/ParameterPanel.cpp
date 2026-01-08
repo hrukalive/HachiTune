@@ -106,9 +106,20 @@ void ParameterPanel::sliderValueChanged(juce::Slider* slider)
     if (slider == &pitchOffsetSlider && selectedNote)
     {
         selectedNote->setPitchOffset(static_cast<float>(slider->getValue()));
+        selectedNote->markDirty();  // Mark as dirty for incremental synthesis
         
         if (onParameterChanged)
             onParameterChanged();
+    }
+}
+
+void ParameterPanel::sliderDragEnded(juce::Slider* slider)
+{
+    if (slider == &pitchOffsetSlider && selectedNote)
+    {
+        // Trigger incremental synthesis when slider drag ends
+        if (onParameterEditFinished)
+            onParameterEditFinished();
     }
 }
 
