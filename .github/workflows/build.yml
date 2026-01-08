@@ -98,12 +98,17 @@ jobs:
         Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/${{ env.ONNX_VERSION }}" -OutFile "onnxruntime-dml.nupkg"
         Rename-Item "onnxruntime-dml.nupkg" "onnxruntime-dml.zip"
         Expand-Archive -Path "onnxruntime-dml.zip" -DestinationPath "onnxruntime-dml-nuget"
+        # Download DirectML redistributable
+        Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.AI.DirectML/1.13.1" -OutFile "directml.nupkg"
+        Rename-Item "directml.nupkg" "directml.zip"
+        Expand-Archive -Path "directml.zip" -DestinationPath "directml-nuget"
+        # Create merged onnxruntime directory
         New-Item -ItemType Directory -Force -Path onnxruntime
         Copy-Item -Recurse "onnxruntime-win-x64-${{ env.ONNX_VERSION }}/include" onnxruntime/
         New-Item -ItemType Directory -Force -Path onnxruntime/lib
         Copy-Item "onnxruntime-dml-nuget/runtimes/win-x64/native/onnxruntime.dll" onnxruntime/lib/
         Copy-Item "onnxruntime-dml-nuget/runtimes/win-x64/native/onnxruntime.lib" onnxruntime/lib/
-        Copy-Item "onnxruntime-dml-nuget/runtimes/win-x64/native/DirectML.dll" onnxruntime/lib/
+        Copy-Item "directml-nuget/bin/x64-win/DirectML.dll" onnxruntime/lib/
     
     - name: Configure CMake
       run: |

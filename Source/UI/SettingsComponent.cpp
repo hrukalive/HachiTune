@@ -180,18 +180,14 @@ juce::StringArray SettingsComponent::getAvailableDevices()
     // Get providers that are compiled into the ONNX Runtime library
     auto availableProviders = Ort::GetAvailableProviders();
     
-    // Log available providers for debugging
+    // Check which providers are available
+    bool hasCuda = false, hasDml = false, hasCoreML = false, hasTensorRT = false;
+    
     DBG("Available ONNX Runtime providers:");
     for (const auto& provider : availableProviders)
     {
         DBG("  - " + juce::String(provider));
-    }
-    
-    // Check which providers are available
-    bool hasCuda = false, hasDml = false, hasCoreML = false, hasTensorRT = false;
-    
-    for (const auto& provider : availableProviders)
-    {
+        
         if (provider == "CUDAExecutionProvider")
             hasCuda = true;
         else if (provider == "DmlExecutionProvider")
