@@ -1,4 +1,12 @@
-# Pitch Editor (JUCE)
+# 大市修 - PC NSF HifiGAN Pitch Editor
+
+![Logo](logo.jpg)
+
+<center>
+<em>
+大市修于市，音符修于心
+</em>
+</center>
 
 A Melodyne-like pitch editing application built with JUCE framework, designed for use with PC-NSF-HiFiGAN vocoder.
 
