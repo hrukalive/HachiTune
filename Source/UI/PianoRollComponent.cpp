@@ -421,18 +421,12 @@ void PianoRollComponent::drawCursor(juce::Graphics &g) {
   float x = timeToX(cursorTime);
   float height = (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
 
-  // Draw triangle at top
-  constexpr float triSize = 8.0f;
+  // Triangle at top
+  constexpr float triSize = 6.0f;
   juce::Path triangle;
-  triangle.addTriangle(x - triSize, 0.0f, x + triSize, 0.0f, x, triSize * 1.2f);
+  triangle.addTriangle(x - triSize, 0.0f, x + triSize, 0.0f, x, triSize * 1.5f);
 
-  // White border
   g.setColour(juce::Colours::white);
-  g.strokePath(triangle, juce::PathStrokeType(1.5f));
-  g.fillRect(x - 1.5f, triSize, 3.0f, height);
-
-  // Accent fill
-  g.setColour(juce::Colour(COLOR_PRIMARY));
   g.fillPath(triangle);
   g.fillRect(x - 0.5f, triSize, 1.0f, height);
 }

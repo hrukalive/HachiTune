@@ -93,15 +93,8 @@ void WaveformComponent::drawCursor(juce::Graphics& g)
 
     if (x >= 0 && x < bounds.getWidth())
     {
-        float height = static_cast<float>(bounds.getHeight());
-
-        // White border
         g.setColour(juce::Colours::white);
-        g.fillRect(x - 1.5f, 0.0f, 3.0f, height);
-
-        // Accent fill
-        g.setColour(juce::Colour(COLOR_PRIMARY));
-        g.fillRect(x - 0.5f, 0.0f, 1.0f, height);
+        g.fillRect(x - 0.5f, 0.0f, 1.0f, static_cast<float>(bounds.getHeight()));
     }
 }
 
