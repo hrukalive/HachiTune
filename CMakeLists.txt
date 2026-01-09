@@ -122,7 +122,17 @@ if(ARA_AVAILABLE)
         JucePlugin_Enable_ARA=1)
 endif()
 
-# Add source files
+# Add source files - platform-specific files
+if(APPLE)
+    set(MAIN_SOURCE Source/Main.mm)
+    set(MAINCOMPONENT_SOURCE Source/UI/MainComponent.mm)
+    set(TOOLBAR_SOURCE Source/UI/ToolbarComponent.mm)
+else()
+    set(MAIN_SOURCE Source/Main.cpp)
+    set(MAINCOMPONENT_SOURCE Source/UI/MainComponent.cpp)
+    set(TOOLBAR_SOURCE Source/UI/ToolbarComponent.cpp)
+endif()
+
 set(PITCH_EDITOR_COMMON_SOURCES
     Source/JuceHeader.h
     Source/Audio/AudioEngine.cpp
@@ -135,13 +145,13 @@ set(PITCH_EDITOR_COMMON_SOURCES
     Source/Audio/FCPEPitchDetector.h
     Source/UI/CustomTitleBar.cpp
     Source/UI/CustomTitleBar.h
-    Source/UI/MainComponent.mm
+    ${MAINCOMPONENT_SOURCE}
     Source/UI/MainComponent.h
     Source/UI/PianoRollComponent.cpp
     Source/UI/PianoRollComponent.h
     Source/UI/WaveformComponent.cpp
     Source/UI/WaveformComponent.h
-    Source/UI/ToolbarComponent.mm
+    ${TOOLBAR_SOURCE}
     Source/UI/ToolbarComponent.h
     Source/UI/ParameterPanel.cpp
     Source/UI/ParameterPanel.h
@@ -159,7 +169,7 @@ set(PITCH_EDITOR_COMMON_SOURCES
     Source/Utils/MelSpectrogram.h)
 
 target_sources(PitchEditor PRIVATE
-    Source/Main.mm
+    ${MAIN_SOURCE}
     ${PITCH_EDITOR_COMMON_SOURCES})
 
 target_sources(PitchEditorPlugin PRIVATE
