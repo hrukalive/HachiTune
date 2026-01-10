@@ -309,29 +309,47 @@ void SettingsComponent::updateDeviceList()
     
     auto devices = getAvailableDevices();
     int selectedIndex = 0;
-    
-    // Auto-select GPU provider if available and current is still default CPU
+
+    // Auto-select based on compile-time flags
     if (currentDevice == "CPU")
     {
+#ifdef USE_DIRECTML
+        // If DirectML is compiled in, default to DirectML
         for (int i = 0; i < devices.size(); ++i)
         {
-            if (devices[i] == "CUDA" || devices[i] == "DirectML")
+            if (devices[i] == "DirectML")
             {
                 selectedIndex = i;
                 currentDevice = devices[i];
-                DBG("Auto-selecting GPU device: " + currentDevice);
+                DBG("Auto-selecting DirectML (compiled in)");
                 break;
             }
         }
+#elif defined(USE_CUDA)
+        // If CUDA is compiled in, default to CUDA
+        for (int i = 0; i < devices.size(); ++i)
+        {
+            if (devices[i] == "CUDA")
+            {
+                selectedIndex = i;
+                currentDevice = devices[i];
+                DBG("Auto-selecting CUDA (compiled in)");
+                break;
+            }
+        }
+#else
+        // No GPU compiled in, stay on CPU
+        DBG("No GPU provider compiled in, using CPU");
+#endif
     }
-    
+
     for (int i = 0; i < devices.size(); ++i)
     {
         deviceComboBox.addItem(devices[i], i + 1);
         if (devices[i] == currentDevice)
             selectedIndex = i;
     }
-    
+
     deviceComboBox.setSelectedItemIndex(selectedIndex, juce::dontSendNotification);
     
     // Update info for initially selected device
@@ -352,99 +370,89 @@ void SettingsComponent::updateGPUDeviceList(const juce::String& deviceType)
     if (deviceType == "CUDA")
     {
 #ifdef USE_CUDA
-        // Try to detect CUDA devices using CUDA Runtime API if available
         int deviceCount = 0;
-        
-        // Try to detect CUDA devices by attempting to create CUDA provider sessions
-        // This is the most reliable method without requiring CUDA SDK headers
-        try {
-            Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "PitchEditor");
-            
-            // Try up to 8 devices (typical max for consumer systems)
-            for (int deviceId = 0; deviceId < 8; ++deviceId)
-            {
-                try {
-                    Ort::SessionOptions testOptions;
-                    OrtCUDAProviderOptions cudaOptions{};
-                    cudaOptions.device_id = deviceId;
-                    testOptions.AppendExecutionProvider_CUDA(cudaOptions);
-                    
-                    // If we can add the provider without exception, the device likely exists
-                    // Note: We can't get device name without CUDA SDK, so use device ID
-                    gpuDeviceComboBox.addItem("GPU " + juce::String(deviceId) + " (CUDA)", deviceId + 1);
-                    deviceCount++;
-                }
-                catch (const Ort::Exception&)
-                {
-                    // Device doesn't exist or not accessible, stop here
-                    break;
-                }
-            }
-        }
-        catch (const std::exception& e)
-        {
-            DBG("Failed to detect CUDA devices: " + juce::String(e.what()));
-        }
-        
-        // Fallback: Try to load CUDA runtime library directly (Windows only)
+        bool devicesDetected = false;
+
+        // Try to load CUDA runtime library to get actual device count and names
 #ifdef _WIN32
-        if (deviceCount == 0)
+        const char* cudaDllNames[] = {
+            "cudart64_12.dll",  // CUDA 12.x
+            "cudart64_11.dll",  // CUDA 11.x
+            "cudart64_10.dll",  // CUDA 10.x
+            "cudart64.dll"      // Generic
+        };
+
+        HMODULE cudaLib = nullptr;
+        for (const char* dllName : cudaDllNames)
         {
-            // Try common CUDA runtime DLL names
-            const char* cudaDllNames[] = {
-                "cudart64_12.dll",  // CUDA 12.x
-                "cudart64_11.dll",  // CUDA 11.x
-                "cudart64_10.dll",  // CUDA 10.x
-                "cudart64.dll"      // Generic
-            };
-            
-            HMODULE cudaLib = nullptr;
-            for (const char* dllName : cudaDllNames)
-            {
-                cudaLib = LoadLibraryA(dllName);
-                if (cudaLib)
-                    break;
-            }
-            
+            cudaLib = LoadLibraryA(dllName);
             if (cudaLib)
             {
-                typedef int (*cudaGetDeviceCountFunc)(int*);
-                auto cudaGetDeviceCount = (cudaGetDeviceCountFunc)GetProcAddress(cudaLib, "cudaGetDeviceCount");
-                if (cudaGetDeviceCount)
-                {
-                    if (cudaGetDeviceCount(&deviceCount) == 0 && deviceCount > 0)
-                    {
-                        // Get device names
-                        typedef int (*cudaGetDevicePropertiesFunc)(void*, int);
-                        typedef int (*cudaDeviceGetNameFunc)(char*, int, int);
-                        auto cudaGetDeviceProperties = (cudaGetDevicePropertiesFunc)GetProcAddress(cudaLib, "cudaGetDeviceProperties");
-                        auto cudaDeviceGetName = (cudaDeviceGetNameFunc)GetProcAddress(cudaLib, "cudaDeviceGetName");
-                        
-                        for (int deviceId = 0; deviceId < deviceCount; ++deviceId)
-                        {
-                            juce::String deviceName = "GPU " + juce::String(deviceId);
-                            
-                            // Try to get device name
-                            if (cudaDeviceGetName)
-                            {
-                                char name[256];
-                                if (cudaDeviceGetName(name, 256, deviceId) == 0)
-                                {
-                                    deviceName = juce::String(name) + " (GPU " + juce::String(deviceId) + ")";
-                                }
-                            }
-                            
-                            gpuDeviceComboBox.addItem(deviceName, deviceId + 1);
-                        }
-                    }
-                }
-                FreeLibrary(cudaLib);
+                DBG("Loaded CUDA runtime: " + juce::String(dllName));
+                break;
             }
         }
+
+        if (cudaLib)
+        {
+            typedef int (*cudaGetDeviceCountFunc)(int*);
+            typedef int (*cudaGetDevicePropertiesFunc)(void*, int);
+
+            auto cudaGetDeviceCount = (cudaGetDeviceCountFunc)GetProcAddress(cudaLib, "cudaGetDeviceCount");
+
+            if (cudaGetDeviceCount)
+            {
+                int result = cudaGetDeviceCount(&deviceCount);
+                if (result == 0 && deviceCount > 0)
+                {
+                    DBG("CUDA device count: " + juce::String(deviceCount));
+
+                    // Try to get device properties for names
+                    auto cudaGetDeviceProperties = (cudaGetDevicePropertiesFunc)GetProcAddress(cudaLib, "cudaGetDeviceProperties");
+
+                    for (int deviceId = 0; deviceId < deviceCount; ++deviceId)
+                    {
+                        juce::String deviceName = "GPU " + juce::String(deviceId);
+
+                        // Try to get device name from properties
+                        if (cudaGetDeviceProperties)
+                        {
+                            // Allocate full cudaDeviceProp structure (it's large, ~1KB)
+                            // We can't use the actual struct without CUDA headers, so allocate enough space
+                            char propBuffer[2048];  // Large enough for cudaDeviceProp
+                            memset(propBuffer, 0, sizeof(propBuffer));
+
+                            if (cudaGetDeviceProperties(propBuffer, deviceId) == 0)
+                            {
+                                // Device name is at the start of the structure
+                                char* name = propBuffer;
+                                if (name[0] != '\0')
+                                {
+                                    deviceName = juce::String(name);
+                                    DBG("CUDA device " + juce::String(deviceId) + ": " + deviceName);
+                                }
+                            }
+                        }
+
+                        gpuDeviceComboBox.addItem(deviceName, deviceId + 1);
+                    }
+                    devicesDetected = true;
+                }
+                else
+                {
+                    DBG("cudaGetDeviceCount failed or returned 0 devices");
+                }
+            }
+            FreeLibrary(cudaLib);
+        }
+        else
+        {
+            DBG("Failed to load CUDA runtime library");
+        }
 #endif
-        
-        // If still no devices found, add default
-        if (gpuDeviceComboBox.getNumItems() == 0)
+
+        // If no devices detected, add default
+        if (!devicesDetected || gpuDeviceComboBox.getNumItems() == 0)
         {
             gpuDeviceComboBox.addItem("GPU 0 (CUDA)", 1);
             DBG("No CUDA devices detected, using default GPU 0");
@@ -524,17 +532,33 @@ juce::StringArray SettingsComponent::getAvailableDevices()
                 hasTensorRT = true;
         }
         
-        // Add available GPU providers
-        if (hasCuda)
-        {
-            devices.add("CUDA");
-            DBG("CUDA provider: ENABLED");
-        }
+        // Add available GPU providers based on compile-time flags
+        // DML and CUDA are mutually exclusive
+#ifdef USE_DIRECTML
         if (hasDml)
         {
             devices.add("DirectML");
             DBG("DirectML provider: ENABLED");
         }
+#elif defined(USE_CUDA)
+        if (hasCuda)
+        {
+            devices.add("CUDA");
+            DBG("CUDA provider: ENABLED");
+        }
+#else
+        // No GPU compiled in, but show available providers for information
+        if (hasCuda)
+        {
+            devices.add("CUDA");
+            DBG("CUDA provider: AVAILABLE (not compiled in)");
+        }
+        if (hasDml)
+        {
+            devices.add("DirectML");
+            DBG("DirectML provider: AVAILABLE (not compiled in)");
+        }
+#endif
         if (hasCoreML)
         {
             devices.add("CoreML");
