@@ -25,7 +25,7 @@ std::vector<double> BasePitchCurve::createCosineKernel()
 
     for (int i = 0; i < KERNEL_SIZE; ++i)
     {
-        double time = 0.001 * (i - KERNEL_SIZE / 2);  // Time offset in seconds
+        const double time = 0.001 * (i - 59);  // Time offset in seconds: -0.059 to +0.059
         kernel[i] = std::cos(M_PI * time / SMOOTH_WINDOW);
         sum += kernel[i];
     }
@@ -51,45 +51,49 @@ std::vector<float> BasePitchCurve::generateForNotes(const std::vector<NoteSegmen
     // Convert frames to milliseconds (at ~86 fps, each frame is ~11.6ms)
     // We'll work at 1ms resolution for smoothing, then resample
     double msPerFrame = 1000.0 * HOP_SIZE / SAMPLE_RATE;  // ~11.6ms
-    int totalMs = static_cast<int>(totalFrames * msPerFrame) + 200;  // Add padding
+    
+    // Calculate total duration in seconds, add 0.12s padding for convolution kernel
+    // This matches ds-editor-lite's calculation: round(1000 * (end + 0.12)) + 1
+    double lastNoteEndSec = notes.back().endFrame * msPerFrame / 1000.0;
+    int totalMs = static_cast<int>(std::round(1000.0 * (lastNoteEndSec + 0.12))) + 1;
 
-    // Create initial values at 1ms resolution
+    // Create initial step function values at 1ms resolution
+    // This matches ds-editor-lite's BasePitchCurve::Convolve algorithm
     std::vector<double> initValues(totalMs, 0.0);
-    size_t noteIndex = 0;
-
-    for (int ms = 0; ms < totalMs; ++ms)
+    
+    // Convert note segments from frames to seconds for step function
+    struct NoteInSeconds {
+        double start;
+        double end;
+        float midiNote;
+    };
+    std::vector<NoteInSeconds> noteArray;
+    for (const auto& note : notes)
     {
-        // Find which note this millisecond belongs to
-        double framePos = ms / msPerFrame;
-
-        // Find the note containing this position
-        for (size_t i = 0; i < notes.size(); ++i)
+        double startSec = note.startFrame * msPerFrame / 1000.0;
+        double endSec = note.endFrame * msPerFrame / 1000.0;
+        noteArray.push_back({startSec, endSec, note.midiNote});
+    }
+    
+    if (noteArray.empty())
+        return {};
+    
+    // Create step function: each millisecond gets the semitone value of its note
+    // At note boundaries, switch at the midpoint (matching ds-editor-lite)
+    int noteIndex = 0;
+    for (int i = 0; i < totalMs; ++i)
+    {
+        const double time = 0.001 * i;  // Time in seconds
+        
+        // Assign current note's semitone value
+        initValues[i] = noteArray[noteIndex].midiNote;
+        
+        // Check if we should advance to next note at midpoint
+        // Switch at: 0.5 * (current_note_end + next_note_start)
+        if (noteIndex < static_cast<int>(noteArray.size()) - 1 &&
+            time > 0.5 * (noteArray[noteIndex].end + noteArray[noteIndex + 1].start))
         {
-            if (framePos >= notes[i].startFrame && framePos < notes[i].endFrame)
-            {
-                initValues[ms] = notes[i].midiNote;
-                break;
-            }
-            // Between notes - use midpoint transition
-            if (i < notes.size() - 1 &&
-                framePos >= notes[i].endFrame && framePos < notes[i + 1].startFrame)
-            {
-                double midpoint = 0.5 * (notes[i].endFrame + notes[i + 1].startFrame);
-                initValues[ms] = (framePos < midpoint) ? notes[i].midiNote : notes[i + 1].midiNote;
-                break;
-            }
-        }
-
-        // Before first note or after last note
-        if (initValues[ms] == 0.0)
-        {
-            if (!notes.empty())
-            {
-                if (framePos < notes.front().startFrame)
-                    initValues[ms] = notes.front().midiNote;
-                else if (framePos >= notes.back().endFrame)
-                    initValues[ms] = notes.back().midiNote;
-            }
+            noteIndex++;
         }
     }
 

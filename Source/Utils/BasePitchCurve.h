@@ -9,7 +9,15 @@
 
 /**
  * Generates a smoothed base pitch curve from note MIDI values.
- * Uses cosine-windowed convolution (from ds-editor-lite).
+ * 
+ * Algorithm: Step function smoothing with cosine-windowed convolution
+ * Reference: ds-editor-lite BasePitchCurve (based on OpenSVIP Ace plugin)
+ * 
+ * The algorithm:
+ * 1. Creates a step function where each note has a constant semitone value
+ * 2. At note boundaries, switches at the midpoint between notes
+ * 3. Applies cosine-windowed convolution (119-point kernel, ±59ms, 0.12s window)
+ * 4. Results in a smooth base pitch curve that preserves note transitions
  */
 class BasePitchCurve
 {
