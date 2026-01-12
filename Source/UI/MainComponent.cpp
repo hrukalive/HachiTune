@@ -791,27 +791,103 @@ void MainComponent::exportFile()
         {
             auto& audioData = project->getAudioData();
 
-            juce::WavAudioFormat wavFormat;
-            std::unique_ptr<juce::FileOutputStream> outputStream(new juce::FileOutputStream(file));
+            // Show progress
+            toolbar.showProgress("Exporting audio...");
+            toolbar.setProgress(0.0f);
 
-            if (outputStream->openedOk())
+            // Delete existing file if it exists (to ensure clean replacement)
+            if (file.existsAsFile())
             {
-                std::unique_ptr<juce::AudioFormatWriter> writer(
-                    wavFormat.createWriterFor(
-                        outputStream.release(),  // Writer takes ownership
-                        SAMPLE_RATE,
-                        1,
-                        16,
-                        {},
-                        0
-                    )
-                );
-
-                if (writer != nullptr)
+                if (!file.deleteFile())
                 {
-                    writer->writeFromAudioSampleBuffer(
-                        audioData.waveform, 0, audioData.waveform.getNumSamples());
+                    toolbar.hideProgress();
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon,
+                        "Export Failed",
+                        "Could not delete existing file: " + file.getFullPathName(),
+                        "OK"
+                    );
+                    return;
                 }
+            }
+
+            toolbar.setProgress(0.3f);
+
+            // Create output stream
+            std::unique_ptr<juce::FileOutputStream> outputStream = std::make_unique<juce::FileOutputStream>(file);
+
+            if (!outputStream->openedOk())
+            {
+                toolbar.hideProgress();
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Export Failed",
+                    "Could not open file for writing: " + file.getFullPathName(),
+                    "OK"
+                );
+                return;
+            }
+
+            toolbar.setProgress(0.5f);
+
+            // Create writer
+            juce::WavAudioFormat wavFormat;
+            std::unique_ptr<juce::AudioFormatWriter> writer(
+                wavFormat.createWriterFor(
+                    outputStream.release(),  // Writer takes ownership of stream
+                    SAMPLE_RATE,
+                    1,  // mono
+                    16, // 16-bit
+                    {},
+                    0
+                )
+            );
+
+            if (writer == nullptr)
+            {
+                toolbar.hideProgress();
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Export Failed",
+                    "Could not create audio writer for: " + file.getFullPathName(),
+                    "OK"
+                );
+                return;
+            }
+
+            toolbar.setProgress(0.7f);
+
+            // Write audio data
+            bool writeSuccess = writer->writeFromAudioSampleBuffer(
+                audioData.waveform, 0, audioData.waveform.getNumSamples());
+
+            toolbar.setProgress(0.9f);
+
+            // Explicitly flush and close writer (destructor will also do this, but explicit is better)
+            writer->flush();
+            writer.reset();  // Explicitly release writer and underlying stream
+
+            toolbar.setProgress(1.0f);
+
+            if (writeSuccess)
+            {
+                toolbar.hideProgress();
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::InfoIcon,
+                    "Export Complete",
+                    "Audio exported successfully to:\n" + file.getFullPathName(),
+                    "OK"
+                );
+            }
+            else
+            {
+                toolbar.hideProgress();
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Export Failed",
+                    "Failed to write audio data to: " + file.getFullPathName(),
+                    "OK"
+                );
             }
         }
     });

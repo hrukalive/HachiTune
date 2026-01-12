@@ -864,9 +864,12 @@ void MainComponent::analyzeAudio(Project& targetProject, const std::function<voi
     // Segment into notes
     segmentIntoNotes(targetProject);
     
+    // Build dense base/delta curves from the detected pitch
+    PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
+    
     DBG("Loaded audio: " << audioData.waveform.getNumSamples() << " samples");
     DBG("Detected " << audioData.f0.size() << " F0 frames");
-    DBG("Segmented into " << project->getNotes().size() << " notes");
+    DBG("Segmented into " << targetProject.getNotes().size() << " notes");
 }
 
 void MainComponent::exportFile()
@@ -889,32 +892,104 @@ void MainComponent::exportFile()
         if (file != juce::File{})
         {
             auto& audioData = project->getAudioData();
-            
-            juce::WavAudioFormat wavFormat;
-            auto* outputStream = new juce::FileOutputStream(file);
-            
-            if (outputStream->openedOk())
+
+            // Show progress
+            toolbar.showProgress("Exporting audio...");
+            toolbar.setProgress(0.0f);
+
+            // Delete existing file if it exists (to ensure clean replacement)
+            if (file.existsAsFile())
             {
-                std::unique_ptr<juce::AudioFormatWriter> writer(
-                    wavFormat.createWriterFor(
-                        outputStream,
-                        SAMPLE_RATE,
-                        1,
-                        16,
-                        {},
-                        0
-                    )
-                );
-                
-                if (writer != nullptr)
+                if (!file.deleteFile())
                 {
-                    writer->writeFromAudioSampleBuffer(
-                        audioData.waveform, 0, audioData.waveform.getNumSamples());
+                    toolbar.hideProgress();
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon,
+                        "Export Failed",
+                        "Could not delete existing file: " + file.getFullPathName(),
+                        "OK"
+                    );
+                    return;
                 }
+            }
+
+            toolbar.setProgress(0.3f);
+
+            // Create output stream
+            std::unique_ptr<juce::FileOutputStream> outputStream = std::make_unique<juce::FileOutputStream>(file);
+
+            if (!outputStream->openedOk())
+            {
+                toolbar.hideProgress();
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Export Failed",
+                    "Could not open file for writing: " + file.getFullPathName(),
+                    "OK"
+                );
+                return;
+            }
+
+            toolbar.setProgress(0.5f);
+
+            // Create writer
+            juce::WavAudioFormat wavFormat;
+            std::unique_ptr<juce::AudioFormatWriter> writer(
+                wavFormat.createWriterFor(
+                    outputStream.release(),  // Writer takes ownership of stream
+                    SAMPLE_RATE,
+                    1,  // mono
+                    16, // 16-bit
+                    {},
+                    0
+                )
+            );
+
+            if (writer == nullptr)
+            {
+                toolbar.hideProgress();
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Export Failed",
+                    "Could not create audio writer for: " + file.getFullPathName(),
+                    "OK"
+                );
+                return;
+            }
+
+            toolbar.setProgress(0.7f);
+
+            // Write audio data
+            bool writeSuccess = writer->writeFromAudioSampleBuffer(
+                audioData.waveform, 0, audioData.waveform.getNumSamples());
+
+            toolbar.setProgress(0.9f);
+
+            // Explicitly flush and close writer (destructor will also do this, but explicit is better)
+            writer->flush();
+            writer.reset();  // Explicitly release writer and underlying stream
+
+            toolbar.setProgress(1.0f);
+
+            if (writeSuccess)
+            {
+                toolbar.hideProgress();
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::InfoIcon,
+                    "Export Complete",
+                    "Audio exported successfully to:\n" + file.getFullPathName(),
+                    "OK"
+                );
             }
             else
             {
-                delete outputStream;
+                toolbar.hideProgress();
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Export Failed",
+                    "Failed to write audio data to: " + file.getFullPathName(),
+                    "OK"
+                );
             }
         }
     });
@@ -1259,11 +1334,16 @@ void MainComponent::undo()
 {
     if (undoManager && undoManager->canUndo())
     {
-        undoManager->undo();  // Action marks affected note as dirty
+        undoManager->undo();
         pianoRoll.repaint();
-
+        
         if (project)
+        {
+            // Don't mark all notes as dirty - let undo action callbacks handle
+            // the specific dirty range. This avoids synthesizing the entire project.
+            // The undo action's callback will set the correct F0 dirty range.
             resynthesizeIncremental();
+        }
     }
 }
 
@@ -1271,11 +1351,16 @@ void MainComponent::redo()
 {
     if (undoManager && undoManager->canRedo())
     {
-        undoManager->redo();  // Action marks affected note as dirty
+        undoManager->redo();
         pianoRoll.repaint();
-
+        
         if (project)
+        {
+            // Don't mark all notes as dirty - let redo action callbacks handle
+            // the specific dirty range. This avoids synthesizing the entire project.
+            // The redo action's callback will set the correct F0 dirty range.
             resynthesizeIncremental();
+        }
     }
 }
 
@@ -1328,7 +1413,24 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
 
                     if (f0End - f0Start < 3) continue;
 
-                    float midi = someNote.midiNote;
+                    // Calculate average MIDI from actual audio data (not SOME prediction)
+                    // Important: average the MIDI values, not the frequencies, because
+                    // freqToMidi is logarithmic and average(midi) != freqToMidi(average(freq))
+                    float midiSum = 0.0f;
+                    int midiCount = 0;
+                    for (int j = f0Start; j < f0End; ++j) {
+                        if (j < static_cast<int>(audioData.voicedMask.size()) &&
+                            audioData.voicedMask[j] && audioData.f0[j] > 0) {
+                            midiSum += freqToMidi(audioData.f0[j]);
+                            midiCount++;
+                        }
+                    }
+
+                    float midi = someNote.midiNote;  // Fallback to SOME prediction
+                    if (midiCount > 0) {
+                        midi = midiSum / midiCount;  // Average of MIDI values
+                    }
+
                     Note note(f0Start, f0End, midi);
                     std::vector<float> f0Values(audioData.f0.begin() + f0Start,
                                                 audioData.f0.begin() + f0End);
@@ -1338,39 +1440,49 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
 
                 // Update UI on main thread
                 juce::MessageManager::callAsync([this]() {
+                    pianoRoll.invalidateBasePitchCache();  // Regenerate smoothed base pitch
                     pianoRoll.repaint();
                 });
             },
             nullptr  // progress callback
         );
 
+        // Wait a bit for streaming to complete (notes are added asynchronously)
+        juce::Thread::sleep(100);
+        
         DBG("SOME segmented into " << notes.size() << " notes");
+        juce::Logger::writeToLog("SOME segmented into " + juce::String(notes.size()) + " notes");
+        
+        // Write to a debug file on desktop for visibility
+        auto logFile = juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("pitch_editor_some_debug.txt");
+        logFile.appendText("SOME segmented into " + juce::String(notes.size()) + " notes\n");
+
         if (!audioData.f0.empty())
             PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
+        
         return;
     }
 
-    // Fallback: segment based on model's voiced mask only
-    DBG("Using voiced mask fallback for note segmentation");
+    // Fallback: segment based on F0 pitch changes
 
     // Helper to finalize a note
     auto finalizeNote = [&](int start, int end) {
         if (end - start < 5) return;  // Minimum 5 frames
 
-        // Calculate average F0 for this segment (only voiced frames)
-        float f0Sum = 0.0f;
-        int f0Count = 0;
+        // Calculate average MIDI for this segment (only voiced frames)
+        // Important: average the MIDI values, not the frequencies
+        float midiSum = 0.0f;
+        int midiCount = 0;
         for (int j = start; j < end; ++j) {
             if (j < static_cast<int>(audioData.voicedMask.size()) &&
                 audioData.voicedMask[j] && audioData.f0[j] > 0) {
-                f0Sum += audioData.f0[j];
-                f0Count++;
+                midiSum += freqToMidi(audioData.f0[j]);
+                midiCount++;
             }
         }
-        if (f0Count == 0) return;  // No voiced frames at all
+        if (midiCount == 0) return;  // No voiced frames at all
 
-        float avgF0 = f0Sum / f0Count;
-        float midi = freqToMidi(avgF0);
+        float midi = midiSum / midiCount;
 
         Note note(start, end, midi);
         std::vector<float> f0Values(audioData.f0.begin() + start,
@@ -1379,8 +1491,17 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
         notes.push_back(note);
     };
 
+    // Segment F0 into notes, splitting on pitch changes > 0.5 semitones
+    constexpr float pitchSplitThreshold = 0.5f;  // semitones
+    constexpr int minFramesForSplit = 3;  // require consecutive frames to confirm pitch change
+    constexpr int maxUnvoicedGap = INT_MAX;  // never break on unvoiced, only on pitch change
+
     bool inNote = false;
     int noteStart = 0;
+    int currentMidiNote = 0;  // quantized to nearest semitone
+    int pitchChangeCount = 0;
+    int pitchChangeStart = 0;
+    int unvoicedCount = 0;
 
     for (size_t i = 0; i < audioData.f0.size(); ++i)
     {
@@ -1391,12 +1512,49 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
             // Start new note
             inNote = true;
             noteStart = static_cast<int>(i);
+            currentMidiNote = static_cast<int>(std::round(freqToMidi(audioData.f0[i])));
+            pitchChangeCount = 0;
+            unvoicedCount = 0;
+        }
+        else if (voiced && inNote)
+        {
+            // Check for pitch change
+            int frameMidi = static_cast<int>(std::round(freqToMidi(audioData.f0[i])));
+            float midiDiff = std::abs(frameMidi - currentMidiNote);
+
+            if (midiDiff > pitchSplitThreshold)
+            {
+                if (pitchChangeCount == 0)
+                {
+                    pitchChangeStart = static_cast<int>(i);
+                }
+                pitchChangeCount++;
+                unvoicedCount = 0;  // Reset unvoiced count on pitch change
+
+                // Confirm pitch change after minFramesForSplit consecutive frames
+                if (pitchChangeCount >= minFramesForSplit)
+                {
+                    finalizeNote(noteStart, pitchChangeStart);
+                    noteStart = pitchChangeStart;
+                    currentMidiNote = frameMidi;
+                    pitchChangeCount = 0;
+                }
+            }
+            else
+            {
+                // Pitch is stable, reset change counter
+                pitchChangeCount = 0;
+                unvoicedCount = 0;
+            }
         }
         else if (!voiced && inNote)
         {
-            // End note at unvoiced boundary
-            finalizeNote(noteStart, static_cast<int>(i));
-            inNote = false;
+            unvoicedCount++;
+            if (unvoicedCount > maxUnvoicedGap)
+            {
+                finalizeNote(noteStart, static_cast<int>(i) - maxUnvoicedGap);
+                inNote = false;
+            }
         }
     }
 
