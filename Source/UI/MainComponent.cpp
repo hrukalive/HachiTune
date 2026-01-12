@@ -84,10 +84,15 @@ MainComponent::MainComponent(bool enableAudioDevice)
     if (audioEngine)
         audioEngine->initializeAudio();
 
-    // Add child components - menu bar for all platforms
+    // Add child components - macOS uses native menu, others use in-app menu bar
+#if JUCE_MAC
+    if (!isPluginMode())
+        juce::MenuBarModel::setMacMainMenu(this);
+#else
     menuBar.setModel(this);
     menuBar.setLookAndFeel(&menuBarLookAndFeel);
     addAndMakeVisible(menuBar);
+#endif
     addAndMakeVisible(toolbar);
     addAndMakeVisible(pianoRoll);
     addAndMakeVisible(parameterPanel);
@@ -172,7 +177,12 @@ MainComponent::MainComponent(bool enableAudioDevice)
 
 MainComponent::~MainComponent()
 {
+#if JUCE_MAC
+    juce::MenuBarModel::setMacMainMenu(nullptr);
+#else
+    menuBar.setModel(nullptr);
     menuBar.setLookAndFeel(nullptr);
+#endif
     removeKeyListener(this);
     stopTimer();
 
@@ -199,8 +209,10 @@ void MainComponent::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Menu bar at top for all platforms
+#if !JUCE_MAC
+    // Menu bar at top for non-mac platforms
     menuBar.setBounds(bounds.removeFromTop(24));
+#endif
 
     // Toolbar
     toolbar.setBounds(bounds.removeFromTop(40));

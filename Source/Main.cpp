@@ -1,5 +1,4 @@
-// Main.cpp - Entry point for Windows/Linux builds
-// For macOS, use Main.mm which includes Objective-C++ code
+// Main.cpp - Cross-platform entry point (macOS uses native menu inside MainComponent)
 
 #include "JuceHeader.h"
 #include "UI/MainComponent.h"

@@ -168,15 +168,9 @@ if(ARA_AVAILABLE)
 endif()
 
 # Add source files - platform-specific files
-if(APPLE)
-    set(MAIN_SOURCE Source/Main.mm)
-    set(MAINCOMPONENT_SOURCE Source/UI/MainComponent.mm)
-    set(TOOLBAR_SOURCE Source/UI/ToolbarComponent.mm)
-else()
-    set(MAIN_SOURCE Source/Main.cpp)
-    set(MAINCOMPONENT_SOURCE Source/UI/MainComponent.cpp)
-    set(TOOLBAR_SOURCE Source/UI/ToolbarComponent.cpp)
-endif()
+set(MAIN_SOURCE Source/Main.cpp)
+set(MAINCOMPONENT_SOURCE Source/UI/MainComponent.cpp)
+set(TOOLBAR_SOURCE Source/UI/ToolbarComponent.cpp)
 
 set(PITCH_EDITOR_COMMON_SOURCES
     Source/JuceHeader.h
