@@ -172,7 +172,7 @@ file(GLOB_RECURSE PITCH_EDITOR_COMMON_SOURCES
     "Source/Audio/*.cpp" "Source/Audio/*.h"
     "Source/UI/*.cpp" "Source/UI/*.h"
     "Source/Models/*.cpp" "Source/Models/*.h"
-    "Source/Utils/*.cpp" "Source/Utils/*.h"
+    "Source/Utils/*.cpp" "Source/Utils/*.h" "Source/Utils/*.mm"
     "Source/JuceHeader.h"
     "Source/Plugin/HostCompatibility.cpp" "Source/Plugin/HostCompatibility.h")
 
@@ -189,8 +189,13 @@ target_sources(PitchEditorPlugin PRIVATE
     ${PLUGIN_SOURCES}
     ${PITCH_EDITOR_COMMON_SOURCES})
 
+# Binary data for SVG icons
+file(GLOB SVG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/Resources/svg/*.svg")
+juce_add_binary_data(BinaryData SOURCES ${SVG_FILES})
+
 # Link JUCE modules
 target_link_libraries(PitchEditor PRIVATE
+    BinaryData
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_audio_basics
@@ -203,6 +208,7 @@ target_link_libraries(PitchEditor PRIVATE
     juce::juce_recommended_warning_flags)
 
 target_link_libraries(PitchEditorPlugin PRIVATE
+    BinaryData
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_audio_basics

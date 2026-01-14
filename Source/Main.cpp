@@ -5,6 +5,7 @@
 #include "UI/MainComponent.h"
 #include "Utils/Constants.h"
 #include "Utils/Localization.h"
+#include "Utils/PlatformUtils.h"
 
 #if JUCE_WINDOWS
 #include <dwmapi.h>
@@ -81,6 +82,10 @@ public:
                                 &preference, sizeof(preference));
         }
       }
+#elif JUCE_MAC
+      // Enable dark mode for macOS window
+      if (auto* peer = getPeer())
+        PlatformUtils::setDarkAppearance(peer->getNativeHandle());
 #endif
     }
 

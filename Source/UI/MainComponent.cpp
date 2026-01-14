@@ -175,6 +175,23 @@ MainComponent::MainComponent(bool enableAudioDevice)
       "Export SOME Debug", "SOME raw output: " + juce::String(someNotes.size()) + " notes\nSaved to:\n" + debugFile.getFullPathName());
   };
 
+  // View menu callbacks
+  menuHandler->setShowDeltaPitch(settingsManager->getShowDeltaPitch());
+  menuHandler->setShowBasePitch(settingsManager->getShowBasePitch());
+  pianoRoll.setShowDeltaPitch(settingsManager->getShowDeltaPitch());
+  pianoRoll.setShowBasePitch(settingsManager->getShowBasePitch());
+
+  menuHandler->onShowDeltaPitchChanged = [this](bool show) {
+    pianoRoll.setShowDeltaPitch(show);
+    settingsManager->setShowDeltaPitch(show);
+    settingsManager->saveConfig();
+  };
+  menuHandler->onShowBasePitchChanged = [this](bool show) {
+    pianoRoll.setShowBasePitch(show);
+    settingsManager->setShowBasePitch(show);
+    settingsManager->saveConfig();
+  };
+
   // Add child components - macOS uses native menu, others use in-app menu bar
 #if JUCE_MAC
   if (!isPluginMode())
@@ -307,7 +324,7 @@ void MainComponent::resized() {
 #endif
 
   // Toolbar
-  toolbar.setBounds(bounds.removeFromTop(40));
+  toolbar.setBounds(bounds.removeFromTop(52));
 
   // Parameter panel on right
   parameterPanel.setBounds(bounds.removeFromRight(250));
@@ -1728,8 +1745,8 @@ void MainComponent::setHostAudio(const juce::AudioBuffer<float> &buffer,
   originalWaveform = buffer;
   hasOriginalWaveform = true;
 
-  // Show analyzing status
-  toolbar.setStatusMessage("Analyzing...");
+  // Show analyzing progress
+  toolbar.showProgress("Analyzing...");
 
   // Run analysis in background thread to avoid blocking UI
   // Use the same analysis logic as loadAudioFile for code sharing
@@ -1832,25 +1849,8 @@ void MainComponent::setHostAudio(const juce::AudioBuffer<float> &buffer,
       if (safeThis->onProjectDataChanged)
         safeThis->onProjectDataChanged();
 
-      // Update status message (plugin mode specific)
-      juce::String currentStatus = safeThis->toolbar.getStatusText();
-      if (!currentStatus.contains("ARA")) {
-        if (currentStatus.contains(" - ")) {
-          juce::String hostPart =
-              currentStatus.upToFirstOccurrenceOf(" - ", false, false);
-          safeThis->toolbar.setStatusMessage(hostPart + " - Ready");
-        } else {
-          safeThis->toolbar.setStatusMessage("Non-ARA Mode - Ready");
-        }
-      } else {
-        if (currentStatus.contains(" - ")) {
-          juce::String hostPart =
-              currentStatus.upToFirstOccurrenceOf(" - ", false, false);
-          safeThis->toolbar.setStatusMessage(hostPart + " - ARA Mode - Ready");
-        } else {
-          safeThis->toolbar.setStatusMessage("ARA Mode - Ready");
-        }
-      }
+      // Hide progress bar
+      safeThis->toolbar.hideProgress();
 
       DBG("MainComponent::setHostAudio - UI update complete");
     });

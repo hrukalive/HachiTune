@@ -32,6 +32,12 @@ public:
     int getWindowWidth() const { return windowWidth; }
     int getWindowHeight() const { return windowHeight; }
 
+    // View settings
+    void setShowDeltaPitch(bool show) { showDeltaPitch = show; }
+    void setShowBasePitch(bool show) { showBasePitch = show; }
+    bool getShowDeltaPitch() const { return showDeltaPitch; }
+    bool getShowBasePitch() const { return showBasePitch; }
+
     // Callbacks
     std::function<void()> onSettingsChanged;
 
@@ -50,6 +56,8 @@ private:
     juce::File lastFilePath;
     int windowWidth = 1200;
     int windowHeight = 800;
+    bool showDeltaPitch = true;
+    bool showBasePitch = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsManager)
 };

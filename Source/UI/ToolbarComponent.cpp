@@ -2,9 +2,42 @@
 #include "PianoRollComponent.h"  // For EditMode enum
 #include "StyledComponents.h"
 #include "../Utils/Localization.h"
+#include "../Utils/SvgUtils.h"
+#include "BinaryData.h"
 
 ToolbarComponent::ToolbarComponent()
 {
+    // Load SVG icons with white tint
+    auto playIcon = SvgUtils::loadSvg(BinaryData::playline_svg, BinaryData::playline_svgSize, juce::Colours::white);
+    auto pauseIcon = SvgUtils::loadSvg(BinaryData::pauseline_svg, BinaryData::pauseline_svgSize, juce::Colours::white);
+    auto stopIcon = SvgUtils::loadSvg(BinaryData::stopline_svg, BinaryData::stopline_svgSize, juce::Colours::white);
+    auto startIcon = SvgUtils::loadSvg(BinaryData::movestartline_svg, BinaryData::movestartline_svgSize, juce::Colours::white);
+    auto endIcon = SvgUtils::loadSvg(BinaryData::moveendline_svg, BinaryData::moveendline_svgSize, juce::Colours::white);
+    auto cursorIcon = SvgUtils::loadSvg(BinaryData::cursor_24_filled_svg, BinaryData::cursor_24_filled_svgSize, juce::Colours::white);
+    auto pitchEditIcon = SvgUtils::loadSvg(BinaryData::pitch_edit_24_filled_svg, BinaryData::pitch_edit_24_filled_svgSize, juce::Colours::white);
+    auto followIcon = SvgUtils::loadSvg(BinaryData::follow24filled_svg, BinaryData::follow24filled_svgSize, juce::Colours::white);
+
+    playButton.setImages(playIcon.get());
+    stopButton.setImages(stopIcon.get());
+    goToStartButton.setImages(startIcon.get());
+    goToEndButton.setImages(endIcon.get());
+    selectModeButton.setImages(cursorIcon.get());
+    drawModeButton.setImages(pitchEditIcon.get());
+    followButton.setImages(followIcon.get());
+
+    // Set edge indent for icon padding (makes icons smaller within button bounds)
+    goToStartButton.setEdgeIndent(4);
+    playButton.setEdgeIndent(6);
+    stopButton.setEdgeIndent(6);
+    goToEndButton.setEdgeIndent(4);
+    selectModeButton.setEdgeIndent(6);
+    drawModeButton.setEdgeIndent(6);
+    followButton.setEdgeIndent(6);
+
+    // Store pause icon for later use
+    pauseDrawable = std::move(pauseIcon);
+    playDrawable = SvgUtils::loadSvg(BinaryData::playline_svg, BinaryData::playline_svgSize, juce::Colours::white);
+
     // Configure buttons
     addAndMakeVisible(goToStartButton);
     addAndMakeVisible(playButton);
@@ -16,6 +49,13 @@ ToolbarComponent::ToolbarComponent()
 
     // Plugin mode buttons (hidden by default)
     addChildComponent(reanalyzeButton);
+    addChildComponent(araModeLabel);
+
+    // ARA mode label style (background drawn in paint() for rounded corners)
+    araModeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    araModeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    araModeLabel.setJustificationType(juce::Justification::centred);
+    araModeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
 
     goToStartButton.addListener(this);
     playButton.addListener(this);
@@ -26,38 +66,27 @@ ToolbarComponent::ToolbarComponent()
     followButton.addListener(this);
     reanalyzeButton.addListener(this);
 
-    // Set localized text
-    playButton.setButtonText(TR("toolbar.play"));
-    stopButton.setButtonText(TR("toolbar.stop"));
-    selectModeButton.setButtonText(TR("toolbar.select"));
-    drawModeButton.setButtonText(TR("toolbar.draw"));
-    followButton.setButtonText(TR("toolbar.follow"));
+    // Set localized text (tooltips for icon buttons)
+    selectModeButton.setTooltip(TR("toolbar.select"));
+    drawModeButton.setTooltip(TR("toolbar.draw"));
+    followButton.setTooltip(TR("toolbar.follow"));
     reanalyzeButton.setButtonText(TR("toolbar.reanalyze"));
     zoomLabel.setText(TR("toolbar.zoom"), juce::dontSendNotification);
 
-    // Style buttons
-    auto buttonColor = juce::Colour(0xFF3D3D47);
-    auto textColor = juce::Colours::white;
+    // Style reanalyze button
+    reanalyzeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF3D3D47));
+    reanalyzeButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
 
-    for (auto* btn : { &goToStartButton, &playButton, &stopButton, &goToEndButton, &selectModeButton, &drawModeButton, &reanalyzeButton })
-    {
-        btn->setColour(juce::TextButton::buttonColourId, buttonColor);
-        btn->setColour(juce::TextButton::textColourOffId, textColor);
-    }
+    // Set default active states
+    selectModeButton.setActive(true);
+    followButton.setActive(true);  // Follow is on by default
 
-    // Follow button style
-    followButton.setToggleState(true, juce::dontSendNotification);
-    followButton.setColour(juce::ToggleButton::textColourId, textColor);
-    followButton.setLookAndFeel(&DarkLookAndFeel::getInstance());
-
-    // Highlight select mode as default active
-    selectModeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(COLOR_PRIMARY));
-
-    // Time label
+    // Time label with monospace font for stable width
     addAndMakeVisible(timeLabel);
     timeLabel.setText("00:00.000 / 00:00.000", juce::dontSendNotification);
-    timeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    timeLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFCCCCCC));
     timeLabel.setJustificationType(juce::Justification::centred);
+    timeLabel.setFont(juce::FontOptions().withName("Menlo").withHeight(14.0f).withStyle("Bold"));
 
     // Zoom slider
     addAndMakeVisible(zoomLabel);
@@ -92,14 +121,32 @@ ToolbarComponent::ToolbarComponent()
     statusLabel.setFont(juce::Font(11.0f));
 }
 
-ToolbarComponent::~ToolbarComponent()
-{
-    followButton.setLookAndFeel(nullptr);
-}
+ToolbarComponent::~ToolbarComponent() = default;
 
 void ToolbarComponent::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xFF1A1A24));
+
+    // Draw rounded background for tool buttons container
+    if (!toolContainerBounds.isEmpty())
+    {
+        g.setColour(juce::Colour(0xFF2D2D37));
+        g.fillRoundedRectangle(toolContainerBounds.toFloat(), 6.0f);
+    }
+
+    // Draw rounded background for time label
+    if (timeLabel.isVisible())
+    {
+        g.setColour(juce::Colour(0xFF2D2D37));
+        g.fillRoundedRectangle(timeLabel.getBounds().toFloat(), 6.0f);
+    }
+
+    // Draw rounded background for ARA mode label
+    if (pluginMode && araModeLabel.isVisible())
+    {
+        g.setColour(juce::Colour(COLOR_PRIMARY));
+        g.fillRoundedRectangle(araModeLabel.getBounds().toFloat(), 8.0f);
+    }
 
     // Bottom border
     g.setColour(juce::Colour(0xFF3D3D47));
@@ -113,30 +160,40 @@ void ToolbarComponent::resized()
     // Playback controls (or plugin mode buttons)
     if (pluginMode)
     {
+        araModeLabel.setBounds(bounds.removeFromLeft(90));
+        bounds.removeFromLeft(8);
         reanalyzeButton.setBounds(bounds.removeFromLeft(100));
     }
     else
     {
-        goToStartButton.setBounds(bounds.removeFromLeft(32));
+        playButton.setBounds(bounds.removeFromLeft(28));
         bounds.removeFromLeft(4);
-        playButton.setBounds(bounds.removeFromLeft(70));
+        stopButton.setBounds(bounds.removeFromLeft(28));
+        bounds.removeFromLeft(8);
+        goToStartButton.setBounds(bounds.removeFromLeft(28));
         bounds.removeFromLeft(4);
-        stopButton.setBounds(bounds.removeFromLeft(70));
-        bounds.removeFromLeft(4);
-        goToEndButton.setBounds(bounds.removeFromLeft(32));
+        goToEndButton.setBounds(bounds.removeFromLeft(28));
     }
     bounds.removeFromLeft(20);
 
-    // Edit mode buttons
-    selectModeButton.setBounds(bounds.removeFromLeft(60));
-    bounds.removeFromLeft(4);
-    drawModeButton.setBounds(bounds.removeFromLeft(60));
-    bounds.removeFromLeft(10);
-    followButton.setBounds(bounds.removeFromLeft(70));
+    // Edit mode buttons in a container (3 buttons: select, draw, follow)
+    const int toolButtonSize = 32;
+    const int toolContainerPadding = 4;
+    const int numToolButtons = pluginMode ? 2 : 3;  // Hide follow in plugin mode
+    const int toolContainerWidth = toolButtonSize * numToolButtons + toolContainerPadding * 2;
+    toolContainerBounds = bounds.removeFromLeft(toolContainerWidth).reduced(0, 2);
+
+    auto toolArea = toolContainerBounds.reduced(toolContainerPadding, toolContainerPadding);
+    selectModeButton.setBounds(toolArea.removeFromLeft(toolButtonSize));
+    drawModeButton.setBounds(toolArea.removeFromLeft(toolButtonSize));
+    if (!pluginMode)
+        followButton.setBounds(toolArea.removeFromLeft(toolButtonSize));
+
     bounds.removeFromLeft(20);
 
-    // Time display
-    timeLabel.setBounds(bounds.removeFromLeft(180));
+    // Time display with padding for rounded background (same height as tool container)
+    auto timeBounds = bounds.removeFromLeft(160).reduced(0, 2);
+    timeLabel.setBounds(timeBounds);
     bounds.removeFromLeft(20);
 
     // Right side - zoom (slider on right, label before it)
@@ -200,7 +257,8 @@ void ToolbarComponent::buttonClicked(juce::Button* button)
     }
     else if (button == &followButton)
     {
-        followPlayback = followButton.getToggleState();
+        followPlayback = !followPlayback;
+        followButton.setActive(followPlayback);
     }
 }
 
@@ -213,7 +271,7 @@ void ToolbarComponent::sliderValueChanged(juce::Slider* slider)
 void ToolbarComponent::setPlaying(bool playing)
 {
     isPlaying = playing;
-    playButton.setButtonText(playing ? TR("toolbar.pause") : TR("toolbar.play"));
+    playButton.setImages(playing ? pauseDrawable.get() : playDrawable.get());
 }
 
 void ToolbarComponent::setCurrentTime(double time)
@@ -231,16 +289,8 @@ void ToolbarComponent::setTotalTime(double time)
 void ToolbarComponent::setEditMode(EditMode mode)
 {
     currentEditModeInt = (mode == EditMode::Draw) ? 1 : 0;
-
-    auto buttonColor = juce::Colour(0xFF3D3D47);
-    auto activeColor = juce::Colour(COLOR_PRIMARY);
-
-    selectModeButton.setColour(juce::TextButton::buttonColourId,
-        mode == EditMode::Select ? activeColor : buttonColor);
-    drawModeButton.setColour(juce::TextButton::buttonColourId,
-        mode == EditMode::Draw ? activeColor : buttonColor);
-
-    repaint();
+    selectModeButton.setActive(mode == EditMode::Select);
+    drawModeButton.setActive(mode == EditMode::Draw);
 }
 
 void ToolbarComponent::setZoom(float pixelsPerSecond)
@@ -343,9 +393,16 @@ void ToolbarComponent::setPluginMode(bool isPlugin)
     stopButton.setVisible(!isPlugin);
     goToEndButton.setVisible(!isPlugin);
     reanalyzeButton.setVisible(isPlugin);
+    araModeLabel.setVisible(isPlugin);
 
     // In plugin mode, hide follow button (host controls playback)
     followButton.setVisible(!isPlugin);
 
     resized();
+}
+
+void ToolbarComponent::setARAMode(bool isARA)
+{
+    araMode = isARA;
+    araModeLabel.setText(isARA ? "ARA Mode" : "Non-ARA", juce::dontSendNotification);
 }

@@ -66,6 +66,10 @@ void SettingsManager::loadConfig() {
                     windowWidth = static_cast<int>(configObj->getProperty("windowWidth"));
                 if (configObj->hasProperty("windowHeight"))
                     windowHeight = static_cast<int>(configObj->getProperty("windowHeight"));
+                if (configObj->hasProperty("showDeltaPitch"))
+                    showDeltaPitch = static_cast<bool>(configObj->getProperty("showDeltaPitch"));
+                if (configObj->hasProperty("showBasePitch"))
+                    showBasePitch = static_cast<bool>(configObj->getProperty("showBasePitch"));
             }
         }
     }
@@ -81,6 +85,8 @@ void SettingsManager::saveConfig() {
 
     config->setProperty("windowWidth", windowWidth);
     config->setProperty("windowHeight", windowHeight);
+    config->setProperty("showDeltaPitch", showDeltaPitch);
+    config->setProperty("showBasePitch", showBasePitch);
 
     juce::String jsonText = juce::JSON::toString(juce::var(config.get()));
     configFile.replaceWithText(jsonText);

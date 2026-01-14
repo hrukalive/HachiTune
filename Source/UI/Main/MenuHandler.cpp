@@ -4,8 +4,8 @@ MenuHandler::MenuHandler() = default;
 
 juce::StringArray MenuHandler::getMenuBarNames() {
     if (pluginMode)
-        return {TRANS("Edit"), TRANS("Settings")};
-    return {TRANS("File"), TRANS("Edit"), TRANS("Settings")};
+        return {TRANS("Edit"), TRANS("View"), TRANS("Settings")};
+    return {TRANS("File"), TRANS("Edit"), TRANS("View"), TRANS("Settings")};
 }
 
 juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& /*menuName*/) {
@@ -19,6 +19,10 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
             menu.addItem(MenuUndo, TRANS("Undo"), canUndo);
             menu.addItem(MenuRedo, TRANS("Redo"), canRedo);
         } else if (menuIndex == 1) {
+            // View menu
+            menu.addItem(MenuShowDeltaPitch, TRANS("Show Delta Pitch"), true, showDeltaPitch);
+            menu.addItem(MenuShowBasePitch, TRANS("Show Base Pitch"), true, showBasePitch);
+        } else if (menuIndex == 2) {
             // Settings menu
             menu.addItem(MenuSettings, TRANS("Settings..."));
         }
@@ -39,6 +43,10 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
             menu.addItem(MenuUndo, TRANS("Undo"), canUndo);
             menu.addItem(MenuRedo, TRANS("Redo"), canRedo);
         } else if (menuIndex == 2) {
+            // View menu
+            menu.addItem(MenuShowDeltaPitch, TRANS("Show Delta Pitch"), true, showDeltaPitch);
+            menu.addItem(MenuShowBasePitch, TRANS("Show Base Pitch"), true, showBasePitch);
+        } else if (menuIndex == 3) {
             // Settings menu
             menu.addItem(MenuSettings, TRANS("Settings..."));
         }
@@ -72,6 +80,16 @@ void MenuHandler::menuItemSelected(int menuItemID, int /*topLevelMenuIndex*/) {
             break;
         case MenuExportSOMEDebug:
             if (onExportSOMEDebug) onExportSOMEDebug();
+            break;
+        case MenuShowDeltaPitch:
+            showDeltaPitch = !showDeltaPitch;
+            if (onShowDeltaPitchChanged) onShowDeltaPitchChanged(showDeltaPitch);
+            menuItemsChanged();
+            break;
+        case MenuShowBasePitch:
+            showBasePitch = !showBasePitch;
+            if (onShowBasePitchChanged) onShowBasePitchChanged(showBasePitch);
+            menuItemsChanged();
             break;
         default:
             break;

@@ -30,6 +30,14 @@ public:
     std::function<void()> onShowSettings;
     std::function<void()> onQuit;
     std::function<void()> onExportSOMEDebug;
+    std::function<void(bool)> onShowDeltaPitchChanged;
+    std::function<void(bool)> onShowBasePitchChanged;
+
+    // View settings
+    void setShowDeltaPitch(bool show) { showDeltaPitch = show; }
+    void setShowBasePitch(bool show) { showBasePitch = show; }
+    bool getShowDeltaPitch() const { return showDeltaPitch; }
+    bool getShowBasePitch() const { return showBasePitch; }
 
 private:
     enum MenuIDs {
@@ -40,10 +48,14 @@ private:
         MenuUndo,
         MenuRedo,
         MenuSettings,
-        MenuExportSOMEDebug
+        MenuExportSOMEDebug,
+        MenuShowDeltaPitch,
+        MenuShowBasePitch
     };
 
     bool pluginMode = false;
+    bool showDeltaPitch = true;
+    bool showBasePitch = false;
     PitchUndoManager* undoManager = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MenuHandler)

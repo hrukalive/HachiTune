@@ -74,6 +74,12 @@ public:
     // Edit mode
     void setEditMode(EditMode mode);
     EditMode getEditMode() const { return editMode; }
+
+    // View settings
+    void setShowDeltaPitch(bool show) { showDeltaPitch = show; repaint(); }
+    void setShowBasePitch(bool show) { showBasePitch = show; repaint(); }
+    bool getShowDeltaPitch() const { return showDeltaPitch; }
+    bool getShowBasePitch() const { return showBasePitch; }
     
     // Callbacks
     std::function<void(Note*)> onNoteSelected;
@@ -133,6 +139,10 @@ private:
     
     // Edit mode
     EditMode editMode = EditMode::Select;
+
+    // View settings
+    bool showDeltaPitch = true;
+    bool showBasePitch = false;
     
     // Dragging state
     bool isDragging = false;

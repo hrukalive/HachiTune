@@ -33,6 +33,8 @@ PitchEditorAudioProcessorEditor::~PitchEditorAudioProcessorEditor() {
 
 void PitchEditorAudioProcessorEditor::setupARAMode() {
 #if JucePlugin_Enable_ARA
+    mainComponent.getToolbar().setARAMode(true);
+
     auto* editorView = getARAEditorView();
     if (!editorView) {
         setupNonARAMode();
@@ -78,37 +80,17 @@ void PitchEditorAudioProcessorEditor::setupARAMode() {
 
                 juce::AudioBuffer<float> buffer(numChannels, numSamples);
                 if (reader.read(&buffer, 0, numSamples, 0, true, true)) {
-                    mainComponent.getToolbar().setStatusMessage("ARA Mode - Analyzing...");
                     mainComponent.setHostAudio(buffer, sampleRate);
                     return;
                 }
             }
         }
-
-        // No audio yet
-        auto hostInfo = audioProcessor.getHostInfo();
-        juce::String status = hostInfo.name.isEmpty() ? "ARA Mode" : hostInfo.name + " - ARA Mode";
-        status += " - Waiting for audio...";
-        mainComponent.getToolbar().setStatusMessage(status);
     }
 #endif
 }
 
 void PitchEditorAudioProcessorEditor::setupNonARAMode() {
-    auto hostInfo = audioProcessor.getHostInfo();
-    juce::String status;
-
-    if (hostInfo.type != HostCompatibility::HostType::Unknown) {
-        status = hostInfo.name;
-        if (hostInfo.supportsARA)
-            status += " - Non-ARA (ARA Available)";
-        else
-            status += " - Non-ARA Mode";
-    } else {
-        status = "Non-ARA Mode - Auto-capture";
-    }
-
-    mainComponent.getToolbar().setStatusMessage(status);
+    mainComponent.getToolbar().setARAMode(false);
 }
 
 void PitchEditorAudioProcessorEditor::setupCallbacks() {
@@ -121,12 +103,6 @@ void PitchEditorAudioProcessorEditor::setupCallbacks() {
             audioProcessor.getRealtimeProcessor().setProject(mainComponent.getProject());
 
         audioProcessor.getRealtimeProcessor().invalidate();
-
-        // Update status
-        auto hostInfo = audioProcessor.getHostInfo();
-        juce::String status = hostInfo.name.isEmpty() ? "" : hostInfo.name + " - ";
-        status += audioProcessor.isARAModeActive() ? "ARA Mode - Ready" : "Ready";
-        mainComponent.getToolbar().setStatusMessage(status);
     };
 
     // onPitchEditFinished is handled by onProjectDataChanged (called after async synthesis completes)

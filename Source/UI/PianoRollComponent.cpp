@@ -597,57 +597,59 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
   // Get global pitch offset (applied to display only)
   float globalOffset = project->getGlobalPitchOffset();
 
-  // Draw pitch curves per note with their pitch offsets applied
-  g.setColour(juce::Colour(COLOR_PITCH_CURVE));
+  // Draw pitch curves per note with their pitch offsets applied (delta pitch)
+  if (showDeltaPitch) {
+    g.setColour(juce::Colour(COLOR_PITCH_CURVE));
 
-  for (const auto &note : project->getNotes()) {
-    if (note.isRest())
-      continue;
+    for (const auto &note : project->getNotes()) {
+      if (note.isRest())
+        continue;
 
-    juce::Path path;
-    bool pathStarted = false;
+      juce::Path path;
+      bool pathStarted = false;
 
-    int startFrame = note.getStartFrame();
-    int endFrame =
-        std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
+      int startFrame = note.getStartFrame();
+      int endFrame =
+          std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
 
-    for (int i = startFrame; i < endFrame; ++i) {
-      // Base pitch: during drag, add pitchOffset to simulate the new base pitch
-      // This gives real-time preview of how the curve will look after drag completes
-      float baseMidi =
-          (i < static_cast<int>(audioData.basePitch.size()))
-              ? audioData.basePitch[static_cast<size_t>(i)] + note.getPitchOffset()
-              : ((i < static_cast<int>(audioData.f0.size()) &&
-                  audioData.f0[static_cast<size_t>(i)] > 0.0f)
-                     ? freqToMidi(audioData.f0[static_cast<size_t>(i)]) + note.getPitchOffset()
-                     : 0.0f);
-      float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))
-                            ? audioData.deltaPitch[static_cast<size_t>(i)]
-                            : 0.0f;
-      // Final = base (with drag offset) + delta + global offset only
-      float finalMidi = baseMidi + deltaMidi + globalOffset;
+      for (int i = startFrame; i < endFrame; ++i) {
+        // Base pitch: during drag, add pitchOffset to simulate the new base pitch
+        // This gives real-time preview of how the curve will look after drag completes
+        float baseMidi =
+            (i < static_cast<int>(audioData.basePitch.size()))
+                ? audioData.basePitch[static_cast<size_t>(i)] + note.getPitchOffset()
+                : ((i < static_cast<int>(audioData.f0.size()) &&
+                    audioData.f0[static_cast<size_t>(i)] > 0.0f)
+                       ? freqToMidi(audioData.f0[static_cast<size_t>(i)]) + note.getPitchOffset()
+                       : 0.0f);
+        float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))
+                              ? audioData.deltaPitch[static_cast<size_t>(i)]
+                              : 0.0f;
+        // Final = base (with drag offset) + delta + global offset only
+        float finalMidi = baseMidi + deltaMidi + globalOffset;
 
-      if (finalMidi > 0.0f) {
-        float x = framesToSeconds(i) * pixelsPerSecond;
-        float y = midiToY(finalMidi) + pixelsPerSemitone * 0.5f;
+        if (finalMidi > 0.0f) {
+          float x = framesToSeconds(i) * pixelsPerSecond;
+          float y = midiToY(finalMidi) + pixelsPerSemitone * 0.5f;
 
-        if (!pathStarted) {
-          path.startNewSubPath(x, y);
-          pathStarted = true;
-        } else {
-          path.lineTo(x, y);
+          if (!pathStarted) {
+            path.startNewSubPath(x, y);
+            pathStarted = true;
+          } else {
+            path.lineTo(x, y);
+          }
         }
       }
-    }
 
-    if (pathStarted) {
-      g.strokePath(path, juce::PathStrokeType(2.0f));
+      if (pathStarted) {
+        g.strokePath(path, juce::PathStrokeType(2.0f));
+      }
     }
   }
 
-  // Draw base pitch curve as dashed line for development/debugging
+  // Draw base pitch curve as dashed line
   // Use cached base pitch to avoid expensive recalculation on every repaint
-  if constexpr (ENABLE_BASE_PITCH_DEBUG) {
+  if (showBasePitch) {
     updateBasePitchCacheIfNeeded();
 
     if (!cachedBasePitch.empty()) {

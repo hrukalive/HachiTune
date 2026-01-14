@@ -6,6 +6,32 @@
 // Forward declaration - EditMode is defined in PianoRollComponent.h
 enum class EditMode;
 
+// Tool button with hover and active states
+class ToolButton : public juce::DrawableButton
+{
+public:
+    ToolButton(const juce::String& name) : juce::DrawableButton(name, juce::DrawableButton::ImageFitted) {}
+
+    void setActive(bool active) { isActive = active; repaint(); }
+    bool getActive() const { return isActive; }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat().reduced(2);
+        if (isActive)
+            g.setColour(juce::Colour(COLOR_PRIMARY));
+        else if (isMouseOver())
+            g.setColour(juce::Colour(0xFF4D4D57));
+        else
+            g.setColour(juce::Colours::transparentBlack);
+        g.fillRoundedRectangle(bounds, 4.0f);
+        juce::DrawableButton::paint(g);
+    }
+
+private:
+    bool isActive = false;
+};
+
 class ToolbarComponent : public juce::Component,
                          public juce::Button::Listener,
                          public juce::Slider::Listener
@@ -32,6 +58,7 @@ public:
 
     // Plugin mode
     void setPluginMode(bool isPlugin);
+    void setARAMode(bool isARA);  // Set ARA mode indicator
 
     // Progress bar control
     void showProgress(const juce::String& message);
@@ -59,20 +86,25 @@ private:
     void updateTimeDisplay();
     juce::String formatTime(double seconds);
 
-    juce::TextButton playButton { "Play" };
-    juce::TextButton stopButton { "Stop" };
-    juce::TextButton goToStartButton { "|<" };
-    juce::TextButton goToEndButton { ">|" };
+    juce::DrawableButton playButton { "Play", juce::DrawableButton::ImageFitted };
+    juce::DrawableButton stopButton { "Stop", juce::DrawableButton::ImageFitted };
+    juce::DrawableButton goToStartButton { "Start", juce::DrawableButton::ImageFitted };
+    juce::DrawableButton goToEndButton { "End", juce::DrawableButton::ImageFitted };
+    std::unique_ptr<juce::Drawable> playDrawable;
+    std::unique_ptr<juce::Drawable> pauseDrawable;
 
     // Plugin mode buttons
     juce::TextButton reanalyzeButton { "Re-analyze" };
+    juce::Label araModeLabel;  // ARA mode indicator tag
     bool pluginMode = false;
+    bool araMode = false;
     // Note: Removed renderButton - Melodyne-style: automatic real-time processing
 
     // Edit mode buttons
-    juce::TextButton selectModeButton { "Select" };
-    juce::TextButton drawModeButton { "Draw" };
-    juce::ToggleButton followButton { "Follow" };
+    ToolButton selectModeButton { "Select" };
+    ToolButton drawModeButton { "Draw" };
+    ToolButton followButton { "Follow" };
+    juce::Rectangle<int> toolContainerBounds;  // For drawing container background
     
     juce::Label timeLabel;
     
