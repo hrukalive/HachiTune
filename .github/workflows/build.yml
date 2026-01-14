@@ -27,6 +27,13 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Download Models
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "Resources/models"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx" -OutFile "Resources/models/rmvpe.onnx"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx" -OutFile "Resources/models/some.onnx"
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
 
@@ -66,6 +73,13 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Download Models
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "Resources/models"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx" -OutFile "Resources/models/rmvpe.onnx"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx" -OutFile "Resources/models/some.onnx"
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_DIRECTML=ON
 
@@ -104,6 +118,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Download Models
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "Resources/models"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx" -OutFile "Resources/models/rmvpe.onnx"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx" -OutFile "Resources/models/some.onnx"
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_CUDA=ON
@@ -146,6 +167,12 @@ jobs:
 
       - name: Install Dependencies
         run: brew install ninja
+
+      - name: Download Models
+        run: |
+          mkdir -p Resources/models
+          curl -L -o Resources/models/rmvpe.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx"
+          curl -L -o Resources/models/some.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx"
 
       - name: Configure CMake
         run: |
@@ -237,6 +264,12 @@ jobs:
             libglu1-mesa-dev \
             mesa-common-dev
 
+      - name: Download Models
+        run: |
+          mkdir -p Resources/models
+          curl -L -o Resources/models/rmvpe.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx"
+          curl -L -o Resources/models/some.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx"
+
       - name: Configure CMake
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
 
@@ -310,6 +343,12 @@ jobs:
             libcurl4-openssl-dev \
             libglu1-mesa-dev \
             mesa-common-dev
+
+      - name: Download Models
+        run: |
+          mkdir -p Resources/models
+          curl -L -o Resources/models/rmvpe.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx"
+          curl -L -o Resources/models/some.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx"
 
       - name: Configure CMake
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_GPU=ON
