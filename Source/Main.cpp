@@ -3,6 +3,7 @@
 
 #include "JuceHeader.h"
 #include "UI/MainComponent.h"
+#include "Utils/AppLogger.h"
 #include "Utils/Constants.h"
 #include "Utils/Localization.h"
 #include "Utils/PlatformUtils.h"
@@ -24,8 +25,12 @@ public:
 
   void initialise(const juce::String &commandLine) override {
     juce::ignoreUnused(commandLine);
+    LOG("========== APP STARTING ==========");
+    LOG("Loading localization...");
     Localization::loadFromSettings();
+    LOG("Localization loaded, creating MainWindow...");
     mainWindow = std::make_unique<MainWindow>(getApplicationName());
+    LOG("MainWindow created and visible");
   }
 
   void shutdown() override { mainWindow = nullptr; }
@@ -43,12 +48,16 @@ public:
                          DocumentWindow::allButtons,
                          false) // Don't add to desktop yet
     {
+      LOG("MainWindow: constructor start");
+
       // Ensure window is opaque - this must be set before any
       // transparency-related operations
       setOpaque(true);
 
+      LOG("MainWindow: creating MainComponent...");
       // Set content first, ensuring it's also opaque
       auto *content = new MainComponent();
+      LOG("MainWindow: MainComponent created");
       content->setOpaque(true);
       setContentOwned(content, true);
 
@@ -61,11 +70,14 @@ public:
       // (some operations might affect opacity state)
       setOpaque(true);
 
+      LOG("MainWindow: adding to desktop...");
       // Now add to desktop after all properties are set
       addToDesktop();
 
+      LOG("MainWindow: centreWithSize " + juce::String(getWidth()) + "x" + juce::String(getHeight()));
       centreWithSize(getWidth(), getHeight());
       setVisible(true);
+      LOG("MainWindow: setVisible(true) done");
 
 #if JUCE_WINDOWS
       // Enable dark mode for title bar

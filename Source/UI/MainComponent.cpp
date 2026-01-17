@@ -12,9 +12,11 @@
 
 MainComponent::MainComponent(bool enableAudioDevice)
     : enableAudioDeviceFlag(enableAudioDevice) {
+  LOG("MainComponent: constructor start");
   setSize(1400, 900);
   setOpaque(true); // Required for native title bar
 
+  LOG("MainComponent: creating core components...");
   // Initialize components
   project = std::make_unique<Project>();
   if (enableAudioDeviceFlag)
@@ -33,6 +35,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   menuHandler = std::make_unique<MenuHandler>();
   settingsManager = std::make_unique<SettingsManager>();
 
+  LOG("MainComponent: loading ONNX models...");
   // Try to load FCPE model
   auto modelsDir = PlatformPaths::getModelsDirectory();
 
@@ -41,6 +44,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   auto centTablePath = modelsDir.getChildFile("cent_table.bin");
 
   if (fcpeModelPath.existsAsFile()) {
+    LOG("MainComponent: loading FCPE model...");
 #ifdef USE_DIRECTML
     if (fcpePitchDetector->loadModel(fcpeModelPath, melFilterbankPath,
                                      centTablePath, GPUProvider::DirectML))
@@ -66,6 +70,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   // Try to load RMVPE model
   auto rmvpeModelPath = modelsDir.getChildFile("rmvpe.onnx");
   if (rmvpeModelPath.existsAsFile()) {
+    LOG("MainComponent: loading RMVPE model...");
 #ifdef USE_DIRECTML
     if (rmvpePitchDetector->loadModel(rmvpeModelPath, GPUProvider::DirectML))
 #elif defined(USE_CUDA)
@@ -88,15 +93,17 @@ MainComponent::MainComponent(bool enableAudioDevice)
   someDetector = std::make_unique<SOMEDetector>();
   auto someModelPath = modelsDir.getChildFile("some.onnx");
   if (someModelPath.existsAsFile()) {
+    LOG("MainComponent: loading SOME model...");
     if (someDetector->loadModel(someModelPath)) {
-      DBG("SOME detector loaded successfully");
+      LOG("SOME detector loaded successfully");
     } else {
-      DBG("Failed to load SOME model");
+      LOG("Failed to load SOME model");
     }
   } else {
-    DBG("SOME model not found at: " + someModelPath.getFullPathName());
+    LOG("SOME model not found at: " + someModelPath.getFullPathName());
   }
 
+  LOG("MainComponent: wiring up components...");
   // Wire up modular components (after all detectors are initialized)
   audioAnalyzer->setFCPEDetector(fcpePitchDetector.get());
   audioAnalyzer->setRMVPEDetector(rmvpePitchDetector.get());
@@ -115,9 +122,13 @@ MainComponent::MainComponent(bool enableAudioDevice)
   // Load vocoder settings
   settingsManager->applySettings();
 
+  LOG("MainComponent: initializing audio device...");
   // Initialize audio (standalone app only)
   if (audioEngine)
     audioEngine->initializeAudio();
+  LOG("MainComponent: audio initialized");
+
+  LOG("MainComponent: setting up callbacks...");
 
   // Setup MenuHandler callbacks
   menuHandler->onOpenFile = [this]() { openFile(); };
@@ -295,8 +306,10 @@ MainComponent::MainComponent(bool enableAudioDevice)
   if (enableAudioDeviceFlag)
     settingsManager->loadConfig();
 
+  LOG("MainComponent: starting timer...");
   // Start timer for UI updates
   startTimerHz(30);
+  LOG("MainComponent: constructor complete");
 }
 
 MainComponent::~MainComponent() {
