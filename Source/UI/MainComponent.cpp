@@ -459,6 +459,10 @@ void MainComponent::saveProject() {
 
   auto target = project->getProjectFilePath();
   if (target == juce::File{}) {
+    // 防止在对话框打开期间重复触发
+    if (fileChooser != nullptr)
+      return;
+
     // Default next to audio if possible
     auto audio = project->getFilePath();
     if (audio.existsAsFile())
@@ -476,6 +480,8 @@ void MainComponent::saveProject() {
                         juce::FileBrowserComponent::warnAboutOverwriting;
 
     fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser &fc) {
+      fileChooser.reset();  // 允许下次打开对话框
+
       auto file = fc.getResult();
       if (file == juce::File{})
         return;
@@ -506,6 +512,10 @@ void MainComponent::saveProject() {
 }
 
 void MainComponent::openFile() {
+  // 防止在对话框打开期间重复触发
+  if (fileChooser != nullptr)
+    return;
+
   fileChooser = std::make_unique<juce::FileChooser>(
       TR("dialog.select_audio"), juce::File{}, "*.wav;*.mp3;*.flac;*.aiff");
 
@@ -513,6 +523,7 @@ void MainComponent::openFile() {
                       juce::FileBrowserComponent::canSelectFiles;
 
   fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser &fc) {
+    fileChooser.reset();  // 允许下次打开对话框
     auto file = fc.getResult();
     if (file.existsAsFile()) {
       loadAudioFile(file);
@@ -958,6 +969,10 @@ void MainComponent::exportFile() {
   if (!project)
     return;
 
+  // 防止在对话框打开期间重复触发
+  if (fileChooser != nullptr)
+    return;
+
   fileChooser = std::make_unique<juce::FileChooser>(TR("dialog.save_audio"),
                                                     juce::File{}, "*.wav");
 
@@ -966,6 +981,13 @@ void MainComponent::exportFile() {
                       juce::FileBrowserComponent::warnAboutOverwriting;
 
   fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser &fc) {
+    // 回调结束时清空 fileChooser，允许下次打开对话框
+    auto cleanup = [this]() { fileChooser.reset(); };
+    struct ScopeGuard {
+      std::function<void()> fn;
+      ~ScopeGuard() { fn(); }
+    } guard{cleanup};
+
     auto file = fc.getResult();
     if (file != juce::File{}) {
       auto &audioData = project->getAudioData();
@@ -1057,6 +1079,10 @@ void MainComponent::exportMidiFile() {
   if (!project)
     return;
 
+  // 防止在对话框打开期间重复触发
+  if (fileChooser != nullptr)
+    return;
+
   const auto& notes = project->getNotes();
   if (notes.empty()) {
     StyledMessageBox::show(this, TR("dialog.export_failed"),
@@ -1081,6 +1107,8 @@ void MainComponent::exportMidiFile() {
                       juce::FileBrowserComponent::warnAboutOverwriting;
 
   fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc) {
+    fileChooser.reset();  // 允许下次打开对话框
+
     auto file = fc.getResult();
     if (file == juce::File{})
       return;
