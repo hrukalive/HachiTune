@@ -191,40 +191,58 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
           return;
         }
 
-        auto &audioData = capturedProject->getAudioData();
-        int totalSamples = audioData.waveform.getNumSamples();
-        int numChannels = audioData.waveform.getNumChannels();
+        // Apply waveform replacement off the message thread to avoid UI stalls.
+        // We keep job ordering by checking jobId again before committing.
+        std::thread([this, capturedCancelFlag, capturedProject,
+                     capturedStartFrame, hopSize, currentJobId, onComplete,
+                     synthesizedAudio = std::move(synthesizedAudio)]() mutable {
+          // If superseded, abort silently
+          if (currentJobId != jobId.load())
+            return;
 
-        int startSample = capturedStartFrame * hopSize;
-        int samplesToReplace = static_cast<int>(synthesizedAudio.size());
-        samplesToReplace =
-            std::min(samplesToReplace, totalSamples - startSample);
+          if (capturedCancelFlag->load()) {
+            isBusy = false;
+            if (onComplete)
+              juce::MessageManager::callAsync(
+                  [onComplete]() { onComplete(false); });
+            return;
+          }
 
-        if (samplesToReplace <= 0) {
-          isBusy = false;
-          if (onComplete)
-            onComplete(false);
-          return;
-        }
+          auto &audioData = capturedProject->getAudioData();
+          int totalSamples = audioData.waveform.getNumSamples();
+          int numChannels = audioData.waveform.getNumChannels();
 
-        // Direct replacement - no crossfade
-        for (int i = 0; i < samplesToReplace; ++i) {
-          int dstIdx = startSample + i;
-          float srcVal = synthesizedAudio[i];
+          int startSample = capturedStartFrame * hopSize;
+          int samplesToReplace = static_cast<int>(synthesizedAudio.size());
+          samplesToReplace =
+              std::min(samplesToReplace, totalSamples - startSample);
+
+          if (samplesToReplace <= 0) {
+            isBusy = false;
+            if (onComplete)
+              juce::MessageManager::callAsync(
+                  [onComplete]() { onComplete(false); });
+            return;
+          }
+
+          // Direct replacement - no crossfade
           for (int ch = 0; ch < numChannels; ++ch) {
             float *dstCh = audioData.waveform.getWritePointer(ch);
-            dstCh[dstIdx] = srcVal;
+            for (int i = 0; i < samplesToReplace; ++i) {
+              dstCh[startSample + i] = synthesizedAudio[static_cast<size_t>(i)];
+            }
           }
-        }
 
-        DBG("synthesizeRegion: replaced " << samplesToReplace << " samples at "
-                                          << startSample);
+          DBG("synthesizeRegion: replaced " << samplesToReplace
+                                            << " samples at " << startSample);
 
-        // Clear dirty flags
-        capturedProject->clearAllDirty();
+          // Clear dirty flags
+          capturedProject->clearAllDirty();
 
-        isBusy = false;
-        if (onComplete)
-          onComplete(true);
+          isBusy = false;
+          if (onComplete)
+            juce::MessageManager::callAsync(
+                [onComplete]() { onComplete(true); });
+        }).detach();
       });
 }

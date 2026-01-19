@@ -64,6 +64,11 @@ public:
   float getVolumeDb() const;
 
 private:
+  struct PositionUpdateState {
+    std::atomic<double> latestSeconds{0.0};
+    std::atomic<bool> callbackPending{false};
+  };
+
   juce::AudioDeviceManager deviceManager;
   juce::AudioSourcePlayer audioSourcePlayer;
 
@@ -77,6 +82,9 @@ private:
 
   std::shared_ptr<PositionCallback> positionCallback;
   std::shared_ptr<FinishCallback> finishCallback;
+
+  std::shared_ptr<PositionUpdateState> positionUpdateState =
+      std::make_shared<PositionUpdateState>();
 
   double currentSampleRate = 44100.0;
 

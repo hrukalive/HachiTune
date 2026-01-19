@@ -119,9 +119,18 @@ void AudioEngine::getNextAudioBlock(
 
   // Update position callback
   if (auto cb = std::atomic_load(&positionCallback)) {
-    double posSeconds =
-        static_cast<double>(currentPosition.load()) / waveformSampleRate;
-    juce::MessageManager::callAsync([cb, posSeconds]() { (*cb)(posSeconds); });
+    auto state = positionUpdateState;
+    state->latestSeconds.store(static_cast<double>(currentPosition.load()) /
+                               waveformSampleRate);
+
+    // Schedule at most one pending callback to avoid flooding the message
+    // thread
+    if (!state->callbackPending.exchange(true)) {
+      juce::MessageManager::callAsync([cb, state]() {
+        state->callbackPending.store(false);
+        (*cb)(state->latestSeconds.load());
+      });
+    }
   }
 }
 
@@ -134,9 +143,6 @@ void AudioEngine::loadWaveform(const juce::AudioBuffer<float> &buffer,
 
   // Stop playback first to safely update waveform
   playing = false;
-
-  // Wait a bit for audio thread to notice
-  juce::Thread::sleep(10);
 
   {
     const juce::SpinLock::ScopedLockType lock(waveformLock);
