@@ -66,7 +66,7 @@ PianoRollComponent::PianoRollComponent() {
   verticalScrollBar.addListener(this);
 
   // Style scrollbars to match theme
-  auto thumbColor = juce::Colour(COLOR_PRIMARY).withAlpha(0.6f);
+  auto thumbColor = juce::Colour(APP_COLOR_PRIMARY).withAlpha(0.6f);
   auto trackColor = juce::Colour(0xFF252530);
 
   horizontalScrollBar.setColour(juce::ScrollBar::thumbColourId, thumbColor);
@@ -101,7 +101,7 @@ void PianoRollComponent::paint(juce::Graphics &g) {
   g.reduceClipRegion(clipPath);
 
   // Background
-  g.fillAll(juce::Colour(COLOR_BACKGROUND));
+  g.fillAll(juce::Colour(APP_COLOR_BACKGROUND));
 
   constexpr int scrollBarSize = 8;
 
@@ -256,7 +256,7 @@ void PianoRollComponent::drawBackgroundWaveform(
 
   waveformPath.closeSubPath();
 
-  cacheGraphics.setColour(juce::Colour(COLOR_WAVEFORM));
+  cacheGraphics.setColour(juce::Colour(APP_COLOR_WAVEFORM));
   cacheGraphics.fillPath(waveformPath);
 
   // Update cache metadata
@@ -289,7 +289,7 @@ void PianoRollComponent::drawGrid(juce::Graphics &g) {
   }
 
   // Horizontal lines (pitch)
-  g.setColour(juce::Colour(COLOR_GRID));
+  g.setColour(juce::Colour(APP_COLOR_GRID));
 
   for (int midi = MIN_MIDI_NOTE; midi <= MAX_MIDI_NOTE; ++midi) {
     float y = midiToY(static_cast<float>(midi));
@@ -297,9 +297,9 @@ void PianoRollComponent::drawGrid(juce::Graphics &g) {
 
     if (noteInOctave == 0) // C
     {
-      g.setColour(juce::Colour(COLOR_GRID_BAR));
+      g.setColour(juce::Colour(APP_COLOR_GRID_BAR));
       g.drawHorizontalLine(static_cast<int>(y), 0, width);
-      g.setColour(juce::Colour(COLOR_GRID));
+      g.setColour(juce::Colour(APP_COLOR_GRID));
     } else {
       g.drawHorizontalLine(static_cast<int>(y), 0, width);
     }
@@ -310,7 +310,7 @@ void PianoRollComponent::drawGrid(juce::Graphics &g) {
   float pixelsPerBeat = secondsPerBeat * pixelsPerSecond;
 
   for (float x = 0; x < width; x += pixelsPerBeat) {
-    g.setColour(juce::Colour(COLOR_GRID));
+    g.setColour(juce::Colour(APP_COLOR_GRID));
     g.drawVerticalLine(static_cast<int>(x), 0, height);
   }
 }
@@ -326,7 +326,7 @@ void PianoRollComponent::drawTimeline(juce::Graphics &g) {
   g.fillRect(timelineArea);
 
   // Bottom border
-  g.setColour(juce::Colour(COLOR_GRID_BAR));
+  g.setColour(juce::Colour(APP_COLOR_GRID_BAR));
   g.drawHorizontalLine(timelineHeight - 1, static_cast<float>(pianoKeysWidth),
                        static_cast<float>(getWidth() - scrollBarSize));
 
@@ -360,7 +360,7 @@ void PianoRollComponent::drawTimeline(juce::Graphics &g) {
     bool isMajor = std::fmod(time, secondsPerTick * 2.0f) < 0.001f;
     int tickHeight = isMajor ? 8 : 4;
 
-    g.setColour(juce::Colour(COLOR_GRID_BAR));
+    g.setColour(juce::Colour(APP_COLOR_GRID_BAR));
     g.drawVerticalLine(static_cast<int>(x),
                        static_cast<float>(timelineHeight - tickHeight),
                        static_cast<float>(timelineHeight - 1));
@@ -424,8 +424,8 @@ void PianoRollComponent::drawNotes(juce::Graphics &g) {
 
     // Note color based on pitch
     juce::Colour noteColor = note.isSelected()
-                                 ? juce::Colour(COLOR_NOTE_SELECTED)
-                                 : juce::Colour(COLOR_NOTE_NORMAL);
+                                 ? juce::Colour(APP_COLOR_NOTE_SELECTED)
+                                 : juce::Colour(APP_COLOR_NOTE_NORMAL);
 
     if (samples && totalSamples > 0 && w > 2.0f) {
       // Draw waveform slice inside note
@@ -674,7 +674,7 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
 
   // Draw pitch curves per note with their pitch offsets applied (delta pitch)
   if (showDeltaPitch) {
-    g.setColour(juce::Colour(COLOR_PITCH_CURVE));
+    g.setColour(juce::Colour(APP_COLOR_PITCH_CURVE));
 
     for (const auto &note : project->getNotes()) {
       if (note.isRest())

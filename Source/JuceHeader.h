@@ -4,6 +4,13 @@
 
 #pragma once
 
+// Prevent Windows min/max macros from conflicting with std::min/std::max
+#ifdef _WIN32
+  #ifndef NOMINMAX
+    #define NOMINMAX
+  #endif
+#endif
+
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_formats/juce_audio_formats.h>

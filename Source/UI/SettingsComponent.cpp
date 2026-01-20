@@ -148,7 +148,7 @@ SettingsComponent::SettingsComponent(
 SettingsComponent::~SettingsComponent() {}
 
 void SettingsComponent::paint(juce::Graphics &g) {
-  g.fillAll(juce::Colour(COLOR_BACKGROUND));
+  g.fillAll(juce::Colour(APP_COLOR_BACKGROUND));
 }
 
 void SettingsComponent::resized() {
@@ -762,7 +762,7 @@ void SettingsComponent::applyAudioSettings() {
 
 SettingsDialog::SettingsDialog(SettingsManager *settingsManager,
                                juce::AudioDeviceManager *audioDeviceManager)
-    : DialogWindow("Settings", juce::Colour(COLOR_BACKGROUND), true) {
+    : DialogWindow("Settings", juce::Colour(APP_COLOR_BACKGROUND), true) {
   // Set opaque before any other operations - this must be done first
   setOpaque(true);
 
@@ -792,5 +792,5 @@ SettingsDialog::SettingsDialog(SettingsManager *settingsManager,
 void SettingsDialog::closeButtonPressed() { setVisible(false); }
 
 void SettingsDialog::paint(juce::Graphics &g) {
-  g.fillAll(juce::Colour(COLOR_BACKGROUND));
+  g.fillAll(juce::Colour(APP_COLOR_BACKGROUND));
 }

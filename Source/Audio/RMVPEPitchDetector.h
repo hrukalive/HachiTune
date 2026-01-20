@@ -7,6 +7,9 @@
 
 #ifdef HAVE_ONNXRUNTIME
 #include <onnxruntime_cxx_api.h>
+#ifdef USE_DIRECTML
+#include <dml_provider_factory.h>
+#endif
 #endif
 
 /**
@@ -28,7 +31,7 @@ public:
     static constexpr int MEL_FMAX = SAMPLE_RATE / 2;  // 8000
     static constexpr int WINDOW_LENGTH = 1024;
     static constexpr int HOP_SIZE = 160;
-    static constexpr float CONST = 1997.3794084376191f;
+    static constexpr float RMVPE_CONST = 1997.3794084376191f;  // Renamed from CONST to avoid Windows macro conflict
     static constexpr float DEFAULT_THRESHOLD = 0.03f;
 
     RMVPEPitchDetector();

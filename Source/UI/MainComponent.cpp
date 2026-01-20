@@ -314,7 +314,7 @@ MainComponent::~MainComponent() {
 }
 
 void MainComponent::paint(juce::Graphics &g) {
-  g.fillAll(juce::Colour(COLOR_BACKGROUND));
+  g.fillAll(juce::Colour(APP_COLOR_BACKGROUND));
 }
 
 void MainComponent::resized() {

@@ -5,15 +5,15 @@ DarkLookAndFeel::DarkLookAndFeel()
     // PopupMenu
     setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xFF3D3D47));
     setColour(juce::PopupMenu::textColourId, juce::Colours::white);
-    setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(COLOR_PRIMARY));
+    setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(APP_COLOR_PRIMARY));
     setColour(juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
 
     // ComboBox
     setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF3D3D47));
     setColour(juce::ComboBox::textColourId, juce::Colours::white);
     setColour(juce::ComboBox::outlineColourId, juce::Colour(0xFF4A4A55));
-    setColour(juce::ComboBox::arrowColourId, juce::Colour(COLOR_PRIMARY));
-    setColour(juce::ComboBox::focusedOutlineColourId, juce::Colour(COLOR_PRIMARY));
+    setColour(juce::ComboBox::arrowColourId, juce::Colour(APP_COLOR_PRIMARY));
+    setColour(juce::ComboBox::focusedOutlineColourId, juce::Colour(APP_COLOR_PRIMARY));
 
     // Label
     setColour(juce::Label::textColourId, juce::Colours::white);
@@ -21,7 +21,7 @@ DarkLookAndFeel::DarkLookAndFeel()
 
     // TextButton
     setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF3D3D47));
-    setColour(juce::TextButton::buttonOnColourId, juce::Colour(COLOR_PRIMARY));
+    setColour(juce::TextButton::buttonOnColourId, juce::Colour(APP_COLOR_PRIMARY));
     setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     setColour(juce::TextButton::textColourOnId, juce::Colours::white);
 
@@ -38,11 +38,11 @@ DarkLookAndFeel::DarkLookAndFeel()
     setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xFF2D2D37));
     setColour(juce::TextEditor::textColourId, juce::Colours::white);
     setColour(juce::TextEditor::outlineColourId, juce::Colour(0xFF4A4A55));
-    setColour(juce::TextEditor::focusedOutlineColourId, juce::Colour(COLOR_PRIMARY));
-    setColour(juce::CaretComponent::caretColourId, juce::Colour(COLOR_PRIMARY));
+    setColour(juce::TextEditor::focusedOutlineColourId, juce::Colour(APP_COLOR_PRIMARY));
+    setColour(juce::CaretComponent::caretColourId, juce::Colour(APP_COLOR_PRIMARY));
 
     // AlertWindow / DialogWindow
-    setColour(juce::AlertWindow::backgroundColourId, juce::Colour(COLOR_BACKGROUND));
+    setColour(juce::AlertWindow::backgroundColourId, juce::Colour(APP_COLOR_BACKGROUND));
     setColour(juce::AlertWindow::textColourId, juce::Colours::white);
     setColour(juce::AlertWindow::outlineColourId, juce::Colour(0xFF4A4A55));
 }
@@ -74,7 +74,7 @@ void DarkLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle
 
     if (isHighlighted && isActive)
     {
-        g.setColour(juce::Colour(COLOR_PRIMARY));
+        g.setColour(juce::Colour(APP_COLOR_PRIMARY));
         g.fillRect(area);
         g.setColour(juce::Colours::white);
     }
@@ -109,7 +109,7 @@ void DarkLookAndFeel::drawTickBox(juce::Graphics& g, juce::Component& component,
 
     if (ticked)
     {
-        g.setColour(juce::Colour(COLOR_PRIMARY));
+        g.setColour(juce::Colour(APP_COLOR_PRIMARY));
         g.fillRoundedRectangle(boxBounds, cornerSize);
 
         g.setColour(juce::Colours::white);

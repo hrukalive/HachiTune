@@ -8,17 +8,17 @@ class CustomMenuBarLookAndFeel : public juce::LookAndFeel_V4
 public:
     CustomMenuBarLookAndFeel()
     {
-        setColour(juce::PopupMenu::backgroundColourId, juce::Colour(COLOR_BACKGROUND));
+        setColour(juce::PopupMenu::backgroundColourId, juce::Colour(APP_COLOR_BACKGROUND));
         setColour(juce::PopupMenu::textColourId, juce::Colours::white);
         setColour(juce::PopupMenu::headerTextColourId, juce::Colours::white);
-        setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(COLOR_PRIMARY));
+        setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(APP_COLOR_PRIMARY));
         setColour(juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
     }
 
     void drawPopupMenuBackground(juce::Graphics& g, int width, int height) override
     {
-        g.fillAll(juce::Colour(COLOR_BACKGROUND));
-        g.setColour(juce::Colour(COLOR_GRID_BAR));
+        g.fillAll(juce::Colour(APP_COLOR_BACKGROUND));
+        g.setColour(juce::Colour(APP_COLOR_GRID_BAR));
         g.drawRect(0, 0, width, height, 1);
     }
 
@@ -34,7 +34,7 @@ public:
         {
             auto r = area.reduced(5, 0);
             r.removeFromTop(r.getHeight() / 2 - 1);
-            g.setColour(juce::Colour(COLOR_GRID_BAR));
+            g.setColour(juce::Colour(APP_COLOR_GRID_BAR));
             g.fillRect(r.removeFromTop(1));
         }
         else
@@ -44,7 +44,7 @@ public:
 
             if (isHighlighted && isActive)
             {
-                g.setColour(juce::Colour(COLOR_PRIMARY));
+                g.setColour(juce::Colour(APP_COLOR_PRIMARY));
                 g.fillRect(area);
                 textColourToUse = juce::Colours::white;
             }
@@ -96,8 +96,8 @@ public:
     void drawMenuBarBackground(juce::Graphics& g, int width, int height,
                               bool, juce::MenuBarComponent&) override
     {
-        g.fillAll(juce::Colour(COLOR_BACKGROUND));
-        g.setColour(juce::Colour(COLOR_GRID_BAR));
+        g.fillAll(juce::Colour(APP_COLOR_BACKGROUND));
+        g.setColour(juce::Colour(APP_COLOR_GRID_BAR));
         g.drawLine(0, height - 1, width, height - 1);
     }
 
@@ -108,7 +108,7 @@ public:
     {
         if (isMenuOpen || isMouseOverItem)
         {
-            g.setColour(juce::Colour(COLOR_PRIMARY));
+            g.setColour(juce::Colour(APP_COLOR_PRIMARY));
             g.fillRect(0, 0, width, height);
         }
 

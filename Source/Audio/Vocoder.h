@@ -13,6 +13,9 @@
 
 #ifdef HAVE_ONNXRUNTIME
 #include <onnxruntime_cxx_api.h>
+#ifdef USE_DIRECTML
+#include <dml_provider_factory.h>
+#endif
 #endif
 
 /**

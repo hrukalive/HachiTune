@@ -199,8 +199,8 @@ public:
     void applyStyle()
     {
         setColour(juce::Slider::backgroundColourId, juce::Colour(0xFF2D2D37));
-        setColour(juce::Slider::trackColourId, juce::Colour(COLOR_PRIMARY).withAlpha(0.6f));
-        setColour(juce::Slider::thumbColourId, juce::Colour(COLOR_PRIMARY));
+        setColour(juce::Slider::trackColourId, juce::Colour(APP_COLOR_PRIMARY).withAlpha(0.6f));
+        setColour(juce::Slider::thumbColourId, juce::Colour(APP_COLOR_PRIMARY));
         setColour(juce::Slider::textBoxTextColourId, juce::Colours::white);
         setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xFF2D2D37));
         setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
@@ -223,7 +223,7 @@ public:
         setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF3D3D47));
         setColour(juce::ComboBox::textColourId, juce::Colours::white);
         setColour(juce::ComboBox::outlineColourId, juce::Colour(0xFF4A4A55));
-        setColour(juce::ComboBox::arrowColourId, juce::Colour(COLOR_PRIMARY));
+        setColour(juce::ComboBox::arrowColourId, juce::Colour(APP_COLOR_PRIMARY));
         setLookAndFeel(&DarkLookAndFeel::getInstance());
     }
 
@@ -278,7 +278,7 @@ public:
     SectionLabel(const juce::String& text = {})
     {
         setText(text, juce::dontSendNotification);
-        setColour(juce::Label::textColourId, juce::Colour(COLOR_PRIMARY));
+        setColour(juce::Label::textColourId, juce::Colour(APP_COLOR_PRIMARY));
         setFont(juce::Font(14.0f, juce::Font::bold));
     }
 };
@@ -339,7 +339,7 @@ public:
         pointer.startNewSubPath(0.0f, -pointerStartRadius);
         pointer.lineTo(0.0f, -pointerLength);
 
-        g.setColour(juce::Colour(COLOR_PRIMARY).withAlpha(alpha));
+        g.setColour(juce::Colour(APP_COLOR_PRIMARY).withAlpha(alpha));
         g.strokePath(pointer, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
                      juce::AffineTransform::rotation(angle).translated(centreX, centreY));
 
@@ -385,9 +385,9 @@ public:
         addAndMakeVisible(okButton.get());
         
         // Style the button
-        okButton->setColour(juce::TextButton::buttonColourId, juce::Colour(COLOR_PRIMARY));
+        okButton->setColour(juce::TextButton::buttonColourId, juce::Colour(APP_COLOR_PRIMARY));
         okButton->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-        okButton->setColour(juce::TextButton::buttonOnColourId, juce::Colour(COLOR_PRIMARY).brighter(0.2f));
+        okButton->setColour(juce::TextButton::buttonOnColourId, juce::Colour(APP_COLOR_PRIMARY).brighter(0.2f));
         
         setSize(400, 200);
     }
@@ -405,7 +405,7 @@ public:
     void paint(juce::Graphics& g) override
     {
         // Background
-        g.fillAll(juce::Colour(COLOR_BACKGROUND));
+        g.fillAll(juce::Colour(APP_COLOR_BACKGROUND));
 
         // Title
         g.setColour(juce::Colours::white);
@@ -421,7 +421,7 @@ public:
         {
             juce::Colour iconColour;
             if (iconType == InfoIcon)
-                iconColour = juce::Colour(COLOR_PRIMARY);
+                iconColour = juce::Colour(APP_COLOR_PRIMARY);
             else if (iconType == WarningIcon)
                 iconColour = juce::Colour(0xFFFFAA00);
             else if (iconType == ErrorIcon)
@@ -429,7 +429,7 @@ public:
 
             g.setColour(iconColour);
             g.fillEllipse(iconX, iconY, iconSize, iconSize);
-            g.setColour(juce::Colour(COLOR_BACKGROUND));
+            g.setColour(juce::Colour(APP_COLOR_BACKGROUND));
             g.setFont(juce::Font(iconSize * 0.6f, juce::Font::bold));
             
             juce::String iconChar;
@@ -466,7 +466,7 @@ private:
     {
     public:
         StyledMessageDialog(juce::Component* parent, const juce::String& title, const juce::String& message, StyledMessageBox::IconType iconType)
-            : juce::DialogWindow(title, juce::Colour(COLOR_BACKGROUND), true)
+            : juce::DialogWindow(title, juce::Colour(APP_COLOR_BACKGROUND), true)
         {
             setOpaque(true);
             setUsingNativeTitleBar(false);
@@ -497,7 +497,7 @@ private:
 
         void paint(juce::Graphics& g) override
         {
-            g.fillAll(juce::Colour(COLOR_BACKGROUND));
+            g.fillAll(juce::Colour(APP_COLOR_BACKGROUND));
         }
 
     private:

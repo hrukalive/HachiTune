@@ -4,7 +4,7 @@ ScrollZoomController::ScrollZoomController() {
     horizontalScrollBar.addListener(this);
     verticalScrollBar.addListener(this);
 
-    auto thumbColor = juce::Colour(COLOR_PRIMARY).withAlpha(0.6f);
+    auto thumbColor = juce::Colour(APP_COLOR_PRIMARY).withAlpha(0.6f);
     auto trackColor = juce::Colour(0xFF252530);
 
     horizontalScrollBar.setColour(juce::ScrollBar::thumbColourId, thumbColor);

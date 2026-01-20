@@ -108,8 +108,8 @@ ToolbarComponent::ToolbarComponent()
     zoomSlider.addListener(this);
 
     zoomSlider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xFF2D2D37));
-    zoomSlider.setColour(juce::Slider::trackColourId, juce::Colour(COLOR_PRIMARY).withAlpha(0.6f));
-    zoomSlider.setColour(juce::Slider::thumbColourId, juce::Colour(COLOR_PRIMARY));
+    zoomSlider.setColour(juce::Slider::trackColourId, juce::Colour(APP_COLOR_PRIMARY).withAlpha(0.6f));
+    zoomSlider.setColour(juce::Slider::thumbColourId, juce::Colour(APP_COLOR_PRIMARY));
 
     // Progress bar (hidden by default)
     addChildComponent(progressBar);
@@ -117,7 +117,7 @@ ToolbarComponent::ToolbarComponent()
 
     progressLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     progressLabel.setJustificationType(juce::Justification::centredLeft);
-    progressBar.setColour(juce::ProgressBar::foregroundColourId, juce::Colour(COLOR_PRIMARY));
+    progressBar.setColour(juce::ProgressBar::foregroundColourId, juce::Colour(APP_COLOR_PRIMARY));
     progressBar.setColour(juce::ProgressBar::backgroundColourId, juce::Colour(0xFF2D2D37));
     progressBar.setLookAndFeel(&DarkLookAndFeel::getInstance());
     
@@ -154,7 +154,7 @@ void ToolbarComponent::paint(juce::Graphics& g)
     // Draw rounded background for ARA mode label
     if (pluginMode && araModeLabel.isVisible())
     {
-        g.setColour(juce::Colour(COLOR_PRIMARY));
+        g.setColour(juce::Colour(APP_COLOR_PRIMARY));
         g.fillRoundedRectangle(araModeLabel.getBounds().toFloat(), 8.0f);
     }
 }

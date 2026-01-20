@@ -13,7 +13,7 @@ void SidebarButton::paint(juce::Graphics& g)
 
     // Background
     if (active)
-        g.setColour(juce::Colour(COLOR_PRIMARY).withAlpha(0.3f));
+        g.setColour(juce::Colour(APP_COLOR_PRIMARY).withAlpha(0.3f));
     else if (hovered)
         g.setColour(juce::Colour(0xFF4D4D57));
     else

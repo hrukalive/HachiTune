@@ -492,12 +492,15 @@ target_compile_features(HachiTunePlugin PRIVATE cxx_std_17)
 
 # Platform-specific settings
 if(WIN32)
+    # NOMINMAX prevents Windows.h from defining min/max macros that conflict with std::min/std::max
     target_compile_definitions(HachiTune PRIVATE
+        NOMINMAX
         JUCE_WASAPI=1
         JUCE_DIRECTSOUND=1
         JUCE_ASIO=0)
 
     target_compile_definitions(HachiTunePlugin PRIVATE
+        NOMINMAX
         JUCE_WASAPI=1
         JUCE_DIRECTSOUND=1
         JUCE_ASIO=0)

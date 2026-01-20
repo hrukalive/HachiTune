@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+
 // Audio constants
 constexpr int SAMPLE_RATE = 44100;
 constexpr int HOP_SIZE = 512;
@@ -24,25 +26,16 @@ constexpr float MIN_PIXELS_PER_SEMITONE = 8.0f;
 constexpr float MAX_PIXELS_PER_SEMITONE = 120.0f;
 
 // Colors (ARGB format) - Modern dark theme
-constexpr juce::uint32 COLOR_BACKGROUND = 0xFF2A2A35;  // Dark gray-blue
-constexpr juce::uint32 COLOR_GRID = 0xFF3A3A45;        // Subtle grid
-constexpr juce::uint32 COLOR_GRID_BAR = 0xFF4A4A55;    // Bar lines
-constexpr juce::uint32 COLOR_PITCH_CURVE = 0xFFFFFFFF; // White pitch curve
-constexpr juce::uint32 COLOR_NOTE_NORMAL =
-    0xFF6B5BFF; // Blue-purple (like reference)
-constexpr juce::uint32 COLOR_NOTE_SELECTED =
-    0xFF8B7BFF; // Lighter purple when selected
-constexpr juce::uint32 COLOR_NOTE_HOVER = 0xFF7B6BFF; // Hover state
-constexpr juce::uint32 COLOR_PRIMARY = 0xFF6B5BFF;    // Primary accent
-constexpr juce::uint32 COLOR_WAVEFORM =
-    0xFF353540; // Background waveform (very subtle)
-
-// Note names - use inline function to avoid global construction issues
-inline const juce::StringArray &getNoteNames() {
-  static const juce::StringArray names = {"C",  "C#", "D",  "D#", "E",  "F",
-                                          "F#", "G",  "G#", "A",  "A#", "B"};
-  return names;
-}
+// Using APP_ prefix to avoid Windows macro conflicts
+constexpr unsigned int APP_COLOR_BACKGROUND = 0xFF2A2A35u;  // Dark gray-blue
+constexpr unsigned int APP_COLOR_GRID = 0xFF3A3A45u;        // Subtle grid
+constexpr unsigned int APP_COLOR_GRID_BAR = 0xFF4A4A55u;    // Bar lines
+constexpr unsigned int APP_COLOR_PITCH_CURVE = 0xFFFFFFFFu; // White pitch curve
+constexpr unsigned int APP_COLOR_NOTE_NORMAL = 0xFF6B5BFFu; // Blue-purple (like reference)
+constexpr unsigned int APP_COLOR_NOTE_SELECTED = 0xFF8B7BFFu; // Lighter purple when selected
+constexpr unsigned int APP_COLOR_NOTE_HOVER = 0xFF7B6BFFu; // Hover state
+constexpr unsigned int APP_COLOR_PRIMARY = 0xFF6B5BFFu;    // Primary accent
+constexpr unsigned int APP_COLOR_WAVEFORM = 0xFF353540u; // Background waveform (very subtle)
 
 // Utility functions
 inline float midiToFreq(float midi) {

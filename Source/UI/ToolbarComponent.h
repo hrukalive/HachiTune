@@ -19,7 +19,7 @@ public:
     {
         auto bounds = getLocalBounds().toFloat().reduced(2);
         if (isActive)
-            g.setColour(juce::Colour(COLOR_PRIMARY));
+            g.setColour(juce::Colour(APP_COLOR_PRIMARY));
         else if (isMouseOver())
             g.setColour(juce::Colour(0xFF4D4D57));
         else

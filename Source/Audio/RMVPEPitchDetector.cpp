@@ -182,8 +182,8 @@ std::vector<float> RMVPEPitchDetector::decodeF0(const float *hidden,
     float weightSum = 0.0f;
 
     for (int i = start; i < end; ++i) {
-      // idx_cents = idx * 20 + CONST
-      float idxCents = i * 20.0f + CONST;
+      // idx_cents = idx * 20 + RMVPE_CONST
+      float idxCents = i * 20.0f + RMVPE_CONST;
       weightedSum += frame[i] * idxCents;
       weightSum += frame[i];
     }

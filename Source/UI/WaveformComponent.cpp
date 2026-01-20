@@ -57,7 +57,7 @@ void WaveformComponent::drawWaveform(juce::Graphics& g)
     // Samples per pixel
     juce::ignoreUnused(startSample, endSample);
     
-    g.setColour(juce::Colour(COLOR_WAVEFORM));
+    g.setColour(juce::Colour(APP_COLOR_WAVEFORM));
     
     for (int x = 0; x < bounds.getWidth(); ++x)
     {

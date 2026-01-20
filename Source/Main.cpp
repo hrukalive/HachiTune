@@ -51,7 +51,7 @@ public:
   class MainWindow : public juce::DocumentWindow {
   public:
     MainWindow(juce::String name)
-        : DocumentWindow(name, juce::Colour(COLOR_BACKGROUND),
+        : DocumentWindow(name, juce::Colour(APP_COLOR_BACKGROUND),
                          DocumentWindow::allButtons,
                          false) // Don't add to desktop yet
     {
