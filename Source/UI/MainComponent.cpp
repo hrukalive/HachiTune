@@ -765,10 +765,20 @@ void MainComponent::loadAudioFile(const juce::File &file) {
             DBG("MainComponent::loadAudioFile - vocoder model loaded "
                 "successfully");
           } else {
-            DBG("MainComponent::loadAudioFile - failed to load vocoder model");
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon, "Inference failed",
+                "Failed to load vocoder model at:\n" +
+                    modelPath.getFullPathName() +
+                    "\n\nPlease check your model installation and try again.");
+            return;
           }
         } else {
-          DBG("MainComponent::loadAudioFile - vocoder model not found");
+          juce::AlertWindow::showMessageBoxAsync(
+              juce::AlertWindow::WarningIcon, "Missing model file",
+              "pc_nsf_hifigan.onnx was not found at:\n" +
+                  modelPath.getFullPathName() +
+                  "\n\nPlease install the required model files and try again.");
+          return;
         }
       }
 
@@ -843,6 +853,16 @@ void MainComponent::analyzeAudio(
   if (audioData.waveform.getNumSamples() == 0)
     return;
 
+  auto showMissingModelAndAbort = [](const juce::String &modelName,
+                                     const juce::File &path) {
+    juce::MessageManager::callAsync([modelName, path]() {
+      juce::AlertWindow::showMessageBoxAsync(
+          juce::AlertWindow::WarningIcon, "Missing model file",
+          modelName + " was not found at:\n" + path.getFullPathName() +
+              "\n\nPlease install the required model files and try again.");
+    });
+  };
+
   // Extract F0
   const float *samples = audioData.waveform.getReadPointer(0);
   int numSamples = audioData.waveform.getNumSamples();
@@ -860,6 +880,36 @@ void MainComponent::analyzeAudio(
 
   // Get pitch detector type from settings
   PitchDetectorType detectorType = settingsManager->getPitchDetectorType();
+
+  if (detectorType == PitchDetectorType::RMVPE) {
+    const auto rmvpeModelPath =
+        PlatformPaths::getModelsDirectory().getChildFile("rmvpe.onnx");
+    if (!rmvpeModelPath.existsAsFile() || !rmvpePitchDetector ||
+        !rmvpePitchDetector->isLoaded()) {
+      showMissingModelAndAbort("rmvpe.onnx", rmvpeModelPath);
+      return;
+    }
+  } else if (detectorType == PitchDetectorType::FCPE) {
+    const auto modelsDir = PlatformPaths::getModelsDirectory();
+    const auto fcpeModelPath = modelsDir.getChildFile("fcpe.onnx");
+    const auto melFilterbankPath = modelsDir.getChildFile("mel_filterbank.bin");
+    const auto centTablePath = modelsDir.getChildFile("cent_table.bin");
+
+    if (!fcpeModelPath.existsAsFile() || !fcpePitchDetector ||
+        !fcpePitchDetector->isLoaded()) {
+      showMissingModelAndAbort("fcpe.onnx", fcpeModelPath);
+      return;
+    }
+    if (!melFilterbankPath.existsAsFile()) {
+      showMissingModelAndAbort("mel_filterbank.bin", melFilterbankPath);
+      return;
+    }
+    if (!centTablePath.existsAsFile()) {
+      showMissingModelAndAbort("cent_table.bin", centTablePath);
+      return;
+    }
+  }
+
   LOG("========== PITCH DETECTOR SELECTION ==========");
   LOG("Selected detector: " +
       juce::String(pitchDetectorTypeToString(detectorType)));
@@ -872,52 +922,25 @@ void MainComponent::analyzeAudio(
 
   // Extract F0 based on selected detector type
   std::vector<float> extractedF0;
-  bool useNeuralDetector = false;
-  bool isFallback = false;
-
-  // Try selected detector first
-  if (detectorType == PitchDetectorType::RMVPE && rmvpePitchDetector &&
-      rmvpePitchDetector->isLoaded()) {
-    LOG(">>> USING RMVPE (selected)");
+  if (detectorType == PitchDetectorType::RMVPE) {
     extractedF0 = rmvpePitchDetector->extractF0(samples, numSamples,
                                                 audioData.sampleRate);
-    useNeuralDetector = true;
-  } else if (detectorType == PitchDetectorType::FCPE && fcpePitchDetector &&
-             fcpePitchDetector->isLoaded()) {
-    LOG(">>> USING FCPE (selected)");
+  } else if (detectorType == PitchDetectorType::FCPE) {
     extractedF0 =
         fcpePitchDetector->extractF0(samples, numSamples, audioData.sampleRate);
-    useNeuralDetector = true;
-  } else {
-    LOG("WARNING: Selected detector not available!");
-    if (detectorType == PitchDetectorType::RMVPE)
-      LOG("  RMVPE was selected but not loaded");
-    else if (detectorType == PitchDetectorType::FCPE)
-      LOG("  FCPE was selected but not loaded");
   }
 
-  // Fallback chain if selected detector not available
-  if (!useNeuralDetector) {
-    isFallback = true;
-    if (rmvpePitchDetector && rmvpePitchDetector->isLoaded()) {
-      LOG(">>> FALLBACK: Using RMVPE");
-      extractedF0 = rmvpePitchDetector->extractF0(samples, numSamples,
-                                                  audioData.sampleRate);
-      useNeuralDetector = true;
-    } else if (fcpePitchDetector && fcpePitchDetector->isLoaded()) {
-      LOG(">>> FALLBACK: Using FCPE");
-      extractedF0 = fcpePitchDetector->extractF0(samples, numSamples,
-                                                 audioData.sampleRate);
-      useNeuralDetector = true;
-    }
+  if (extractedF0.empty() || targetFrames <= 0) {
+    juce::MessageManager::callAsync([]() {
+      juce::AlertWindow::showMessageBoxAsync(
+          juce::AlertWindow::WarningIcon, "Inference failed",
+          "Failed to extract pitch (F0). Please check your model installation "
+          "and settings.");
+    });
+    return;
   }
 
-  LOG("Final: useNeuralDetector=" +
-      juce::String(useNeuralDetector ? "YES" : "NO") +
-      ", isFallback=" + juce::String(isFallback ? "YES" : "NO"));
-  LOG("==============================================");
-
-  if (useNeuralDetector && !extractedF0.empty() && targetFrames > 0) {
+  {
     // Resample neural F0 (100 fps @ 16kHz) to vocoder frame rate (86.1 fps
     // @ 44.1kHz)
     audioData.f0.resize(targetFrames);
@@ -969,19 +992,6 @@ void MainComponent::analyzeAudio(
     audioData.f0 = F0Smoother::smoothF0(audioData.f0, audioData.voicedMask);
     audioData.f0 = PitchCurveProcessor::interpolateWithUvMask(
         audioData.f0, audioData.voicedMask);
-  } else {
-    // Fallback to YIN
-    DBG("Fallback: Using YIN pitch detector");
-    auto [f0Values, voicedValues] =
-        pitchDetector->extractF0(samples, numSamples);
-    audioData.f0 = std::move(f0Values);
-    audioData.voicedMask = std::move(voicedValues);
-
-    // Apply F0 smoothing
-    onProgress(0.65, "Smoothing pitch curve...");
-    audioData.f0 = F0Smoother::smoothF0(audioData.f0, audioData.voicedMask);
-    audioData.f0 = PitchCurveProcessor::interpolateWithUvMask(
-        audioData.f0, audioData.voicedMask);
   }
 
   onProgress(0.75, TR("progress.loading_vocoder"));
@@ -989,11 +999,22 @@ void MainComponent::analyzeAudio(
   auto modelPath =
       PlatformPaths::getModelsDirectory().getChildFile("pc_nsf_hifigan.onnx");
 
+  if (!modelPath.existsAsFile() && !vocoder->isLoaded()) {
+    showMissingModelAndAbort("pc_nsf_hifigan.onnx", modelPath);
+    return;
+  }
+
   if (modelPath.existsAsFile() && !vocoder->isLoaded()) {
     if (vocoder->loadModel(modelPath)) {
       DBG("Vocoder model loaded successfully: " + modelPath.getFullPathName());
     } else {
-      DBG("Failed to load vocoder model: " + modelPath.getFullPathName());
+      juce::MessageManager::callAsync([modelPath]() {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon, "Inference failed",
+            "Failed to load vocoder model at:\n" + modelPath.getFullPathName() +
+                "\n\nPlease check your model installation and try again.");
+      });
+      return;
     }
   }
 
@@ -1538,6 +1559,18 @@ void MainComponent::segmentIntoNotes(Project &targetProject) {
   if (audioData.f0.empty())
     return;
 
+  const auto someModelPath =
+      PlatformPaths::getModelsDirectory().getChildFile("some.onnx");
+  if (!someDetector || !someDetector->isLoaded()) {
+    juce::MessageManager::callAsync([someModelPath]() {
+      juce::AlertWindow::showMessageBoxAsync(
+          juce::AlertWindow::WarningIcon, "Missing model file",
+          "some.onnx was not found at:\n" + someModelPath.getFullPathName() +
+              "\n\nPlease install the required model files and try again.");
+    });
+    return;
+  }
+
   // Try to use SOME model for segmentation if available
   // SOME model inference runs in background thread
   if (someDetector && someDetector->isLoaded() &&
@@ -1714,7 +1747,8 @@ void MainComponent::showSettings() {
     if (!isPluginMode() && audioEngine)
       deviceMgr = &audioEngine->getDeviceManager();
 
-    settingsDialog = std::make_unique<SettingsDialog>(deviceMgr);
+    settingsDialog =
+        std::make_unique<SettingsDialog>(settingsManager.get(), deviceMgr);
     settingsDialog->getSettingsComponent()->onSettingsChanged = [this]() {
       settingsManager->applySettings();
     };
@@ -1926,12 +1960,22 @@ void MainComponent::setHostAudio(const juce::AudioBuffer<float> &buffer,
                 "successfully: "
                 << modelPath.getFullPathName());
           } else {
-            DBG("MainComponent::setHostAudio - failed to load vocoder model: "
-                << modelPath.getFullPathName());
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon, "Inference failed",
+                "Failed to load vocoder model at:\n" +
+                    modelPath.getFullPathName() +
+                    "\n\nPlease check your model installation and try again.");
+            safeThis->toolbar.hideProgress();
+            return;
           }
         } else {
-          DBG("MainComponent::setHostAudio - vocoder model not found at: "
-              << modelPath.getFullPathName());
+          juce::AlertWindow::showMessageBoxAsync(
+              juce::AlertWindow::WarningIcon, "Missing model file",
+              "pc_nsf_hifigan.onnx was not found at:\n" +
+                  modelPath.getFullPathName() +
+                  "\n\nPlease install the required model files and try again.");
+          safeThis->toolbar.hideProgress();
+          return;
         }
       } else {
         DBG("MainComponent::setHostAudio - vocoder already loaded");

@@ -1,35 +1,41 @@
 #pragma once
 
 #include "../JuceHeader.h"
+#include "PlatformPaths.h"
 
 /**
  * Simple file logger for debugging.
  * Logs to %APPDATA%/HachiTune/debug.log
  */
-class AppLogger
-{
+class AppLogger {
 public:
-    static void log(const juce::String& message)
-    {
-        auto logFile = getLogFile();
-        auto timestamp = juce::Time::getCurrentTime().toString(true, true, true, true);
-        logFile.appendText("[" + timestamp + "] " + message + "\n");
-        DBG(message);
-    }
+  static void init() {
+    (void)getSessionId();
+    (void)getLogFile();
+  }
 
-    static void clear()
-    {
-        auto logFile = getLogFile();
-        logFile.deleteFile();
-    }
+  static void log(const juce::String &message) {
+    auto logFile = getLogFile();
+    auto timestamp =
+        juce::Time::getCurrentTime().toString(true, true, true, true);
+    logFile.appendText("[" + timestamp + "] " + message + "\n");
+    DBG(message);
+  }
 
-    static juce::File getLogFile()
-    {
-        auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                       .getChildFile("HachiTune");
-        dir.createDirectory();
-        return dir.getChildFile("debug.log");
-    }
+  static void clear() {
+    auto logFile = getLogFile();
+    logFile.deleteFile();
+  }
+
+  static juce::File getLogFile() {
+    return PlatformPaths::getLogFile("debug_" + getSessionId() + ".log");
+  }
+
+  static juce::String getSessionId() {
+    static const juce::String sessionId =
+        juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
+    return sessionId;
+  }
 };
 
 #define LOG(msg) AppLogger::log(msg)

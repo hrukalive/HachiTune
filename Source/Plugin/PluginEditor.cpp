@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "../UI/StyledComponents.h"
+#include "../Utils/AppLogger.h"
 #include "HostCompatibility.h"
 
 #if JucePlugin_Enable_ARA
@@ -15,6 +16,7 @@ HachiTuneAudioProcessorEditor::HachiTuneAudioProcessorEditor(
 #endif
 {
   // Initialize app font
+  AppLogger::init();
   AppFont::initialize();
 
   addAndMakeVisible(mainComponent);

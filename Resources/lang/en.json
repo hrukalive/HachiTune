@@ -73,6 +73,7 @@
   "progress.resampling": "Resampling...",
   "progress.audio_loaded": "Audio loaded",
   "progress.analyzing": "Analyzing...",
+  "progress.recording": "Recording...",
   "progress.analyzing_audio": "Analyzing audio...",
   "progress.synthesizing": "Synthesizing...",
   "progress.rendering": "Rendering...",

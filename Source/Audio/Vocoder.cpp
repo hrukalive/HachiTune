@@ -1,4 +1,5 @@
 #include "Vocoder.h"
+#include "../Utils/AppLogger.h"
 #include "../Utils/Constants.h"
 #include "../Utils/PlatformPaths.h"
 #include <algorithm>
@@ -10,7 +11,8 @@
 
 Vocoder::Vocoder() {
   // Open log file in platform-appropriate logs directory
-  auto logPath = PlatformPaths::getLogFile("vocoder_log.txt");
+  auto logPath = PlatformPaths::getLogFile("vocoder_" +
+                                           AppLogger::getSessionId() + ".txt");
   logFile = std::make_unique<std::ofstream>(
       logPath.getFullPathName().toStdString(), std::ios::app);
 

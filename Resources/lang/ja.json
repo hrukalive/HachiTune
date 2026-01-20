@@ -12,7 +12,6 @@
   "menu.settings": "設定...",
   "menu.show_delta_pitch": "ピッチ偏差を表示",
   "menu.show_base_pitch": "基準ピッチを表示",
-
   "toolbar.play": "再生",
   "toolbar.pause": "一時停止",
   "toolbar.stop": "停止",
@@ -25,9 +24,7 @@
   "toolbar.render": "レンダリング",
   "toolbar.ara_mode": "ARA モード",
   "toolbar.non_ara": "非 ARA",
-
   "panel.parameters": "パラメーター",
-
   "param.note_info": "ノート情報",
   "param.no_selection": "ノート未選択",
   "param.pitch": "ピッチ",
@@ -38,7 +35,6 @@
   "param.formant_shift": "フォルマントシフト (st)",
   "param.global": "グローバル",
   "param.global_pitch": "グローバルピッチ (st)",
-
   "settings.title": "設定",
   "settings.language": "言語:",
   "settings.device": "デバイス:",
@@ -60,19 +56,18 @@
   "settings.cuda_desc": "CUDA: NVIDIA GPUで推論を実行します。\nNVIDIA GPUがある場合は最速です。",
   "settings.directml_desc": "DirectML: DirectX 12経由でGPUを使用します。\nWindowsのほとんどのGPUで動作します。",
   "settings.coreml_desc": "CoreML: Apple Neural EngineまたはGPUを使用します。\nmacOS/iOSデバイスに最適です。",
-
   "lang.auto": "自動",
   "lang.en": "English",
   "lang.zh": "简体中文",
   "lang.zh-TW": "繁體中文",
   "lang.ja": "日本語",
-
   "progress.loading": "読み込み中...",
   "progress.loading_audio": "オーディオを読み込み中...",
   "progress.reading_audio": "オーディオを読み取り中...",
   "progress.resampling": "リサンプリング中...",
   "progress.audio_loaded": "オーディオを読み込みました",
   "progress.analyzing": "解析中...",
+  "progress.recording": "録音中...",
   "progress.analyzing_audio": "オーディオを解析中...",
   "progress.synthesizing": "合成中...",
   "progress.rendering": "レンダリング中...",
@@ -84,7 +79,6 @@
   "progress.export_failed": "書き出し失敗",
   "progress.loading_vocoder": "ボコーダーを読み込み中...",
   "progress.ready": "準備完了",
-
   "dialog.select_audio": "オーディオファイルを選択...",
   "dialog.save_project": "プロジェクトを保存...",
   "dialog.save_audio": "オーディオファイルを保存...",
@@ -96,12 +90,10 @@
   "dialog.failed_open": "書き込み用にファイルを開けませんでした:",
   "dialog.failed_create_writer": "オーディオライターを作成できませんでした:",
   "dialog.failed_write": "オーディオデータを書き込めませんでした:",
-
   "dialog.export_midi": "MIDIを書き出し...",
   "dialog.midi_exported": "MIDIを書き出しました:",
   "dialog.failed_write_midi": "MIDIファイルを書き込めませんでした:",
   "dialog.no_notes_to_export": "書き出すノートがありません。オーディオファイルを読み込んで分析してください。",
-
   "error.some_error": "SOMEエラー",
   "error.inference_failed": "推論に失敗しました"
 }

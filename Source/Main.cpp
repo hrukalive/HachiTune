@@ -26,6 +26,7 @@ public:
 
   void initialise(const juce::String &commandLine) override {
     juce::ignoreUnused(commandLine);
+    AppLogger::init();
     LOG("========== APP STARTING ==========");
     LOG("Initializing fonts...");
     AppFont::initialize();
@@ -38,7 +39,7 @@ public:
 
   void shutdown() override {
     mainWindow = nullptr;
-    AppFont::shutdown();  // Release font resources before JUCE shuts down
+    AppFont::shutdown(); // Release font resources before JUCE shuts down
   }
 
   void systemRequestedQuit() override { quit(); }
@@ -80,7 +81,8 @@ public:
       // Now add to desktop after all properties are set
       addToDesktop();
 
-      LOG("MainWindow: centreWithSize " + juce::String(getWidth()) + "x" + juce::String(getHeight()));
+      LOG("MainWindow: centreWithSize " + juce::String(getWidth()) + "x" +
+          juce::String(getHeight()));
       centreWithSize(getWidth(), getHeight());
       setVisible(true);
       LOG("MainWindow: setVisible(true) done");
@@ -102,7 +104,7 @@ public:
       }
 #elif JUCE_MAC
       // Enable dark mode for macOS window
-      if (auto* peer = getPeer())
+      if (auto *peer = getPeer())
         PlatformUtils::setDarkAppearance(peer->getNativeHandle());
 #endif
     }

@@ -12,7 +12,6 @@
   "menu.settings": "设置...",
   "menu.show_delta_pitch": "显示音高偏移",
   "menu.show_base_pitch": "显示基准音高",
-
   "toolbar.play": "播放",
   "toolbar.pause": "暂停",
   "toolbar.stop": "停止",
@@ -25,9 +24,7 @@
   "toolbar.render": "渲染",
   "toolbar.ara_mode": "ARA 模式",
   "toolbar.non_ara": "非 ARA",
-
   "panel.parameters": "参数",
-
   "param.note_info": "音符信息",
   "param.no_selection": "未选择音符",
   "param.pitch": "音高",
@@ -38,7 +35,6 @@
   "param.formant_shift": "共振峰偏移 (半音)",
   "param.global": "全局",
   "param.global_pitch": "全局音高 (半音)",
-
   "settings.title": "设置",
   "settings.language": "语言:",
   "settings.device": "设备:",
@@ -60,19 +56,18 @@
   "settings.cuda_desc": "CUDA: 使用 NVIDIA GPU 进行推理。\n如果有 NVIDIA 显卡，速度最快。",
   "settings.directml_desc": "DirectML: 通过 DirectX 12 使用 GPU。\n在 Windows 上适用于大多数显卡。",
   "settings.coreml_desc": "CoreML: 使用 Apple 神经引擎或 GPU。\n在 macOS/iOS 设备上的最佳选择。",
-
   "lang.auto": "自动",
   "lang.en": "English",
   "lang.zh": "简体中文",
   "lang.zh-TW": "繁體中文",
   "lang.ja": "日本語",
-
   "progress.loading": "加载中...",
   "progress.loading_audio": "加载音频...",
   "progress.reading_audio": "读取音频...",
   "progress.resampling": "重采样中...",
   "progress.audio_loaded": "音频已加载",
   "progress.analyzing": "分析中...",
+  "progress.recording": "录制中...",
   "progress.analyzing_audio": "分析音频...",
   "progress.synthesizing": "合成中...",
   "progress.rendering": "渲染中...",
@@ -84,7 +79,6 @@
   "progress.export_failed": "导出失败",
   "progress.loading_vocoder": "加载声码器...",
   "progress.ready": "就绪",
-
   "dialog.select_audio": "选择音频文件...",
   "dialog.save_project": "保存项目...",
   "dialog.save_audio": "保存音频文件...",
@@ -96,12 +90,10 @@
   "dialog.failed_open": "无法打开文件以进行写入:",
   "dialog.failed_create_writer": "无法创建音频写入器:",
   "dialog.failed_write": "无法写入音频数据至:",
-
   "dialog.export_midi": "导出 MIDI...",
   "dialog.midi_exported": "MIDI 已成功导出至:",
   "dialog.failed_write_midi": "无法写入 MIDI 文件至:",
   "dialog.no_notes_to_export": "没有可导出的音符。请先加载音频文件并进行分析。",
-
   "error.some_error": "SOME 错误",
   "error.inference_failed": "推理失败"
 }
