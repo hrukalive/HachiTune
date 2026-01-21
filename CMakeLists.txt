@@ -176,6 +176,11 @@ file(GLOB_RECURSE PITCH_EDITOR_COMMON_SOURCES
     "Source/JuceHeader.h"
     "Source/Plugin/HostCompatibility.cpp" "Source/Plugin/HostCompatibility.h")
 
+# Ensure new preview utility is always built even if glob cache is stale.
+list(APPEND PITCH_EDITOR_COMMON_SOURCES
+    "Source/Utils/BasePitchPreview.cpp"
+    "Source/Utils/BasePitchPreview.h")
+
 file(GLOB PLUGIN_SOURCES
     "Source/Plugin/PluginProcessor.cpp" "Source/Plugin/PluginProcessor.h"
     "Source/Plugin/PluginEditor.cpp" "Source/Plugin/PluginEditor.h"

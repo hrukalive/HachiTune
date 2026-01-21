@@ -4,6 +4,7 @@
 #include "../../Models/Project.h"
 #include "../../Utils/UndoManager.h"
 #include "../../Utils/DrawCurve.h"
+#include "../../Utils/BasePitchPreview.h"
 #include "../../Utils/PitchCurveProcessor.h"
 #include "CoordinateMapper.h"
 #include <deque>
@@ -56,6 +57,9 @@ public:
 private:
     void applyPitchPoint(int frameIndex, int midiCents);
     void startNewPitchCurve(int frameIndex, int midiCents);
+    void prepareDragBasePreview();
+    void applyDragBasePreview(float pitchOffsetSemitones);
+    void restoreDragBasePreview();
 
     Project* project = nullptr;
     PitchUndoManager* undoManager = nullptr;
@@ -70,6 +74,12 @@ private:
     float boundaryF0Start = 0.0f;
     float boundaryF0End = 0.0f;
     std::vector<float> originalF0Values;
+    float lastDragPitchOffset = 0.0f;
+    int dragPreviewStartFrame = -1;
+    int dragPreviewEndFrame = -1;
+    std::vector<float> dragPreviewWeights;
+    std::vector<float> dragBasePitchSnapshot;
+    std::vector<float> dragF0Snapshot;
 
     // Multi-note drag state
     bool isMultiDragging = false;

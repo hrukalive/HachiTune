@@ -2,6 +2,7 @@
 #include "../Utils/BasePitchCurve.h"
 #include "../Utils/Constants.h"
 #include "../Utils/PitchCurveProcessor.h"
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -676,9 +677,20 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
   if (showDeltaPitch) {
     g.setColour(juce::Colour(APP_COLOR_PITCH_CURVE));
 
+    const bool useLiveBasePreview =
+        (isDragging || pitchEditor->isDraggingMultiNotes());
+    const auto &draggedNotes = pitchEditor->getDraggedNotes();
+
     for (const auto &note : project->getNotes()) {
       if (note.isRest())
         continue;
+
+      const bool isDraggedNote =
+          (isDragging && draggedNote == &note) ||
+          (pitchEditor->isDraggingMultiNotes() &&
+           std::find(draggedNotes.begin(), draggedNotes.end(), &note) !=
+               draggedNotes.end());
+      const bool applyNoteOffset = !(useLiveBasePreview && isDraggedNote);
 
       juce::Path path;
       bool pathStarted = false;
@@ -693,13 +705,13 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
         // drag completes
         float baseMidi =
             (i < static_cast<int>(audioData.basePitch.size()))
-                ? audioData.basePitch[static_cast<size_t>(i)] +
-                      note.getPitchOffset()
+                ? audioData.basePitch[static_cast<size_t>(i)]
                 : ((i < static_cast<int>(audioData.f0.size()) &&
                     audioData.f0[static_cast<size_t>(i)] > 0.0f)
-                       ? freqToMidi(audioData.f0[static_cast<size_t>(i)]) +
-                             note.getPitchOffset()
+                       ? freqToMidi(audioData.f0[static_cast<size_t>(i)])
                        : 0.0f);
+        if (applyNoteOffset)
+          baseMidi += note.getPitchOffset();
         float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))
                               ? audioData.deltaPitch[static_cast<size_t>(i)]
                               : 0.0f;
@@ -728,9 +740,15 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
   // Draw base pitch curve as dashed line
   // Use cached base pitch to avoid expensive recalculation on every repaint
   if (showBasePitch) {
-    updateBasePitchCacheIfNeeded();
+    const bool useLiveBasePreview =
+        (isDragging || pitchEditor->isDraggingMultiNotes());
+    if (!useLiveBasePreview) {
+      updateBasePitchCacheIfNeeded();
+    }
 
-    if (!cachedBasePitch.empty()) {
+    const auto &basePitchCurve =
+        useLiveBasePreview ? audioData.basePitch : cachedBasePitch;
+    if (!basePitchCurve.empty()) {
       // Calculate visible frame range
       double visibleStartTime = scrollX / pixelsPerSecond;
       double visibleEndTime = (scrollX + getWidth()) / pixelsPerSecond;
@@ -738,7 +756,7 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
           std::max(0, static_cast<int>(visibleStartTime * audioData.sampleRate /
                                        HOP_SIZE));
       int visEndFrame = std::min(
-          static_cast<int>(cachedBasePitch.size()),
+          static_cast<int>(basePitchCurve.size()),
           static_cast<int>(visibleEndTime * audioData.sampleRate / HOP_SIZE) +
               1);
 
@@ -749,8 +767,8 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
       bool basePathStarted = false;
 
       for (int i = visStartFrame; i < visEndFrame; ++i) {
-        if (i >= 0 && i < static_cast<int>(cachedBasePitch.size())) {
-          float baseMidi = cachedBasePitch[static_cast<size_t>(i)];
+        if (i >= 0 && i < static_cast<int>(basePitchCurve.size())) {
+          float baseMidi = basePitchCurve[static_cast<size_t>(i)];
           if (baseMidi > 0.0f) {
             float x = framesToSeconds(i) * pixelsPerSecond;
             float y = midiToY(baseMidi) +
@@ -970,6 +988,8 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e) {
       originalF0Values.clear();
       for (int i = startFrame; i < endFrame && i < f0Size; ++i)
         originalF0Values.push_back(audioData.f0[i]);
+
+      prepareDragBasePreview();
     }
 
     repaint();
@@ -1029,6 +1049,7 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
 
     draggedNote->setPitchOffset(deltaSemitones);
     draggedNote->markDirty();
+    applyDragBasePreview(deltaSemitones);
 
     if (shouldRepaint) {
       repaint();
@@ -1170,6 +1191,7 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
         onPitchEditFinished();
     } else {
       // No meaningful change: just reset pitchOffset and repaint
+      restoreDragBasePreview();
       draggedNote->setPitchOffset(0.0f);
       repaint();
     }
@@ -1177,6 +1199,11 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
 
   isDragging = false;
   draggedNote = nullptr;
+  dragPreviewStartFrame = -1;
+  dragPreviewEndFrame = -1;
+  dragPreviewWeights.clear();
+  dragBasePitchSnapshot.clear();
+  dragF0Snapshot.clear();
 }
 
 void PianoRollComponent::mouseMove(const juce::MouseEvent &e) {
@@ -1737,6 +1764,106 @@ void PianoRollComponent::updateBasePitchCacheIfNeeded() {
       cacheInvalidated = false; // Mark as processed (even if empty)
     }
   }
+}
+
+void PianoRollComponent::prepareDragBasePreview() {
+  if (!project || !draggedNote)
+    return;
+
+  auto &audioData = project->getAudioData();
+  if (audioData.basePitch.empty() || audioData.f0.empty())
+    return;
+
+  auto range = computeBasePitchPreviewRange(
+      project->getNotes(), static_cast<int>(audioData.basePitch.size()),
+      [this](const Note &note) { return &note == draggedNote; });
+
+  if (range.startFrame < 0 || range.endFrame <= range.startFrame ||
+      range.weights.empty()) {
+    return;
+  }
+
+  dragPreviewStartFrame = range.startFrame;
+  dragPreviewEndFrame = range.endFrame;
+  dragPreviewWeights = std::move(range.weights);
+
+  const int count = dragPreviewEndFrame - dragPreviewStartFrame;
+  dragBasePitchSnapshot.resize(static_cast<size_t>(count));
+  dragF0Snapshot.resize(static_cast<size_t>(count));
+
+  for (int i = 0; i < count; ++i) {
+    const int frame = dragPreviewStartFrame + i;
+    dragBasePitchSnapshot[static_cast<size_t>(i)] =
+        audioData.basePitch[static_cast<size_t>(frame)];
+    dragF0Snapshot[static_cast<size_t>(i)] =
+        audioData.f0[static_cast<size_t>(frame)];
+  }
+
+  lastDragPitchOffset = 0.0f;
+}
+
+void PianoRollComponent::applyDragBasePreview(float pitchOffsetSemitones) {
+  if (std::abs(pitchOffsetSemitones - lastDragPitchOffset) < 0.0001f)
+    return;
+
+  lastDragPitchOffset = pitchOffsetSemitones;
+  if (!project || dragPreviewStartFrame < 0 ||
+      dragPreviewEndFrame <= dragPreviewStartFrame ||
+      dragPreviewWeights.empty() || dragBasePitchSnapshot.empty())
+    return;
+
+  auto &audioData = project->getAudioData();
+  const int count = dragPreviewEndFrame - dragPreviewStartFrame;
+
+  if (audioData.basePitch.size() < static_cast<size_t>(dragPreviewEndFrame))
+    return;
+
+  if (audioData.baseF0.size() < audioData.basePitch.size())
+    audioData.baseF0.resize(audioData.basePitch.size(), 0.0f);
+
+  for (int i = 0; i < count; ++i) {
+    const int frame = dragPreviewStartFrame + i;
+    const float baseMidi =
+        dragBasePitchSnapshot[static_cast<size_t>(i)] +
+        pitchOffsetSemitones * dragPreviewWeights[static_cast<size_t>(i)];
+    audioData.basePitch[static_cast<size_t>(frame)] = baseMidi;
+    audioData.baseF0[static_cast<size_t>(frame)] = midiToFreq(baseMidi);
+
+    const float deltaMidi =
+        (frame < static_cast<int>(audioData.deltaPitch.size()))
+            ? audioData.deltaPitch[static_cast<size_t>(frame)]
+            : 0.0f;
+    if (frame < static_cast<int>(audioData.voicedMask.size()) &&
+        !audioData.voicedMask[static_cast<size_t>(frame)]) {
+      audioData.f0[static_cast<size_t>(frame)] = 0.0f;
+    } else {
+      audioData.f0[static_cast<size_t>(frame)] = midiToFreq(baseMidi + deltaMidi);
+    }
+  }
+}
+
+void PianoRollComponent::restoreDragBasePreview() {
+  if (!project || dragPreviewStartFrame < 0 ||
+      dragPreviewEndFrame <= dragPreviewStartFrame ||
+      dragBasePitchSnapshot.empty() || dragF0Snapshot.empty())
+    return;
+
+  auto &audioData = project->getAudioData();
+  const int count = dragPreviewEndFrame - dragPreviewStartFrame;
+  if (audioData.basePitch.size() < static_cast<size_t>(dragPreviewEndFrame))
+    return;
+
+  for (int i = 0; i < count; ++i) {
+    const int frame = dragPreviewStartFrame + i;
+    audioData.basePitch[static_cast<size_t>(frame)] =
+        dragBasePitchSnapshot[static_cast<size_t>(i)];
+    if (frame < static_cast<int>(audioData.baseF0.size()))
+      audioData.baseF0[static_cast<size_t>(frame)] =
+          midiToFreq(audioData.basePitch[static_cast<size_t>(frame)]);
+    audioData.f0[static_cast<size_t>(frame)] =
+        dragF0Snapshot[static_cast<size_t>(i)];
+  }
+  lastDragPitchOffset = 0.0f;
 }
 
 void PianoRollComponent::reapplyBasePitchForNote(Note *note) {

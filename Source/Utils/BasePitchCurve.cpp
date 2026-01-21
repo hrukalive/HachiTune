@@ -37,6 +37,11 @@ std::vector<double> BasePitchCurve::createCosineKernel() {
   return kernel;
 }
 
+const std::vector<double>& BasePitchCurve::getCosineKernel() {
+  static const std::vector<double> kernel = createCosineKernel();
+  return kernel;
+}
+
 std::vector<float> BasePitchCurve::generateForNote(int startFrame, int endFrame,
                                                    float midiNote,
                                                    int totalFrames) {

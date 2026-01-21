@@ -4,6 +4,7 @@
 #include "../Models/Project.h"
 #include "../Utils/Constants.h"
 #include "../Utils/DrawCurve.h"
+#include "../Utils/BasePitchPreview.h"
 #include "../Utils/UndoManager.h"
 #include "PianoRoll/BoxSelector.h"
 #include "PianoRoll/CoordinateMapper.h"
@@ -134,6 +135,9 @@ private:
   void updateBasePitchCacheIfNeeded();
   void reapplyBasePitchForNote(
       Note *note); // Recalculate F0 from base pitch + delta after undo/redo
+  void prepareDragBasePreview();
+  void applyDragBasePreview(float pitchOffsetSemitones);
+  void restoreDragBasePreview();
 
   // Pitch drawing helpers
   void applyPitchDrawing(float x, float y);
@@ -180,6 +184,12 @@ private:
       0.0f; // F0 value before note start (for smooth transition)
   float boundaryF0End = 0.0f; // F0 value after note end (for smooth transition)
   std::vector<float> originalF0Values; // F0 values before drag for undo
+  float lastDragPitchOffset = 0.0f;
+  int dragPreviewStartFrame = -1;
+  int dragPreviewEndFrame = -1;
+  std::vector<float> dragPreviewWeights;
+  std::vector<float> dragBasePitchSnapshot;
+  std::vector<float> dragF0Snapshot;
 
   // Pitch drawing state
   bool isDrawing = false;
