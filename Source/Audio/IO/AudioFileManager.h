@@ -80,4 +80,5 @@ private:
   std::shared_ptr<std::atomic<bool>> currentCancelFlag;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioFileManager)
+  JUCE_DECLARE_WEAK_REFERENCEABLE(AudioFileManager)
 };

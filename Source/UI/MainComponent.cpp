@@ -499,6 +499,15 @@ bool MainComponent::keyPressed(const juce::KeyPress &key,
 }
 
 void MainComponent::saveProject() {
+  if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) {
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis]() {
+      if (safeThis != nullptr)
+        safeThis->saveProject();
+    });
+    return;
+  }
+
   if (!project)
     return;
 
@@ -563,6 +572,15 @@ void MainComponent::saveProject() {
 }
 
 void MainComponent::openFile() {
+  if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) {
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis]() {
+      if (safeThis != nullptr)
+        safeThis->openFile();
+    });
+    return;
+  }
+
   // Prevent re-triggering while dialog is open
   if (fileChooser != nullptr)
     return;
@@ -1069,6 +1087,15 @@ void MainComponent::analyzeAudio(
 }
 
 void MainComponent::exportFile() {
+  if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) {
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis]() {
+      if (safeThis != nullptr)
+        safeThis->exportFile();
+    });
+    return;
+  }
+
   if (!project)
     return;
 
@@ -1181,6 +1208,15 @@ void MainComponent::exportFile() {
 }
 
 void MainComponent::exportMidiFile() {
+  if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) {
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis]() {
+      if (safeThis != nullptr)
+        safeThis->exportMidiFile();
+    });
+    return;
+  }
+
   if (!project)
     return;
 

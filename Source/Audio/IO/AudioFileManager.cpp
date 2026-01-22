@@ -128,23 +128,49 @@ void AudioFileManager::cancelLoading() {
 
 void AudioFileManager::showOpenDialog(
     std::function<void(const juce::File &)> onFileSelected) {
+  if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) {
+    auto weakThis = juce::WeakReference<AudioFileManager>(this);
+    juce::MessageManager::callAsync([weakThis, onFileSelected]() {
+      if (weakThis != nullptr)
+        weakThis->showOpenDialog(onFileSelected);
+    });
+    return;
+  }
+
+  if (fileChooser != nullptr)
+    return;
+
   fileChooser = std::make_unique<juce::FileChooser>(
       TR("dialog.select_audio"), juce::File{}, "*.wav;*.mp3;*.flac;*.aiff");
 
   auto chooserFlags = juce::FileBrowserComponent::openMode |
                       juce::FileBrowserComponent::canSelectFiles;
 
-  fileChooser->launchAsync(chooserFlags,
-                           [onFileSelected](const juce::FileChooser &fc) {
-                             auto file = fc.getResult();
-                             if (file.existsAsFile() && onFileSelected)
-                               onFileSelected(file);
-                           });
+  fileChooser->launchAsync(
+      chooserFlags, [this, onFileSelected](const juce::FileChooser &fc) {
+        auto file = fc.getResult();
+        fileChooser.reset();
+        if (file.existsAsFile() && onFileSelected)
+          onFileSelected(file);
+      });
 }
 
 void AudioFileManager::showSaveDialog(
     const juce::File &defaultPath,
     std::function<void(const juce::File &)> onFileSelected) {
+  if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) {
+    auto weakThis = juce::WeakReference<AudioFileManager>(this);
+    juce::MessageManager::callAsync([
+        weakThis, defaultPath, onFileSelected]() mutable {
+      if (weakThis != nullptr)
+        weakThis->showSaveDialog(defaultPath, onFileSelected);
+    });
+    return;
+  }
+
+  if (fileChooser != nullptr)
+    return;
+
   fileChooser = std::make_unique<juce::FileChooser>(TR("dialog.save_project"),
                                                     defaultPath, "*.htpx");
 
@@ -153,8 +179,9 @@ void AudioFileManager::showSaveDialog(
                       juce::FileBrowserComponent::warnAboutOverwriting;
 
   fileChooser->launchAsync(
-      chooserFlags, [onFileSelected](const juce::FileChooser &fc) {
+      chooserFlags, [this, onFileSelected](const juce::FileChooser &fc) {
         auto file = fc.getResult();
+        fileChooser.reset();
         if (file != juce::File{} && onFileSelected) {
           auto finalFile = file.getFileExtension().isEmpty()
                                ? file.withFileExtension("htpx")
@@ -167,6 +194,19 @@ void AudioFileManager::showSaveDialog(
 void AudioFileManager::showExportDialog(
     const juce::File &defaultPath,
     std::function<void(const juce::File &)> onFileSelected) {
+  if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) {
+    auto weakThis = juce::WeakReference<AudioFileManager>(this);
+    juce::MessageManager::callAsync([
+        weakThis, defaultPath, onFileSelected]() mutable {
+      if (weakThis != nullptr)
+        weakThis->showExportDialog(defaultPath, onFileSelected);
+    });
+    return;
+  }
+
+  if (fileChooser != nullptr)
+    return;
+
   fileChooser = std::make_unique<juce::FileChooser>(TR("dialog.export_audio"),
                                                     defaultPath, "*.wav");
 
@@ -175,8 +215,9 @@ void AudioFileManager::showExportDialog(
                       juce::FileBrowserComponent::warnAboutOverwriting;
 
   fileChooser->launchAsync(
-      chooserFlags, [onFileSelected](const juce::FileChooser &fc) {
+      chooserFlags, [this, onFileSelected](const juce::FileChooser &fc) {
         auto file = fc.getResult();
+        fileChooser.reset();
         if (file != juce::File{} && onFileSelected) {
           auto finalFile = file.getFileExtension().isEmpty()
                                ? file.withFileExtension("wav")
