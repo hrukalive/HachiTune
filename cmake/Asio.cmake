@@ -1,37 +1,35 @@
-function(hachitune_setup_asio out_include_dir)
-    if(NOT WIN32)
-        return()
+function(hachitune_setup_asio out_var)
+    set(ASIO_SDK_ROOT "" CACHE PATH "Path to ASIO SDK root (contains common/asio.h)")
+
+    set(asio_candidates "")
+    if(ASIO_SDK_ROOT)
+        list(APPEND asio_candidates "${ASIO_SDK_ROOT}")
     endif()
+    if(DEFINED ENV{ASIO_SDK_ROOT})
+        list(APPEND asio_candidates "$ENV{ASIO_SDK_ROOT}")
+    endif()
+    list(APPEND asio_candidates
+        "${CMAKE_SOURCE_DIR}/third_party/ASIO_SDK"
+        "${CMAKE_SOURCE_DIR}/third_party/JUCE/modules/juce_audio_devices/native/asio"
+    )
 
-    set(ASIO_SDK_URL "https://download.steinberg.net/sdk_downloads/ASIO-SDK_2.3.4_2025-10-15.zip")
-    set(ASIO_SDK_DIR "${CMAKE_CURRENT_LIST_DIR}/../third_party/ASIOSDK")
-    set(ASIO_SDK_ZIP "${CMAKE_BINARY_DIR}/_deps/asio_sdk.zip")
-
-    file(GLOB_RECURSE ASIO_IASIO_HEADERS "${ASIO_SDK_DIR}/*/iasiodrv.h")
-    if(NOT ASIO_IASIO_HEADERS)
-        if(NOT EXISTS "${ASIO_SDK_DIR}")
-            file(MAKE_DIRECTORY "${ASIO_SDK_DIR}")
+    set(asio_include_dir "")
+    foreach(candidate IN LISTS asio_candidates)
+        if(EXISTS "${candidate}/asio.h")
+            set(asio_include_dir "${candidate}")
+            break()
         endif()
-
-        message(STATUS "ASIO SDK not found. Downloading from ${ASIO_SDK_URL}")
-        file(DOWNLOAD "${ASIO_SDK_URL}" "${ASIO_SDK_ZIP}"
-            SHOW_PROGRESS
-            STATUS ASIO_DOWNLOAD_STATUS)
-        list(GET ASIO_DOWNLOAD_STATUS 0 ASIO_DOWNLOAD_RESULT)
-        if(NOT ASIO_DOWNLOAD_RESULT EQUAL 0)
-            message(FATAL_ERROR "Failed to download ASIO SDK: ${ASIO_DOWNLOAD_STATUS}")
+        if(EXISTS "${candidate}/common/asio.h")
+            set(asio_include_dir "${candidate}/common")
+            break()
         endif()
+    endforeach()
 
-        file(ARCHIVE_EXTRACT INPUT "${ASIO_SDK_ZIP}" DESTINATION "${ASIO_SDK_DIR}")
-        file(GLOB_RECURSE ASIO_IASIO_HEADERS "${ASIO_SDK_DIR}/*/iasiodrv.h")
+    if(NOT asio_include_dir)
+        message(FATAL_ERROR
+            "ASIO SDK not found. Set ASIO_SDK_ROOT to the SDK root or disable USE_ASIO. "
+            "Tried: ${asio_candidates}")
     endif()
 
-    list(LENGTH ASIO_IASIO_HEADERS ASIO_HEADER_COUNT)
-    if(ASIO_HEADER_COUNT LESS 1)
-        message(FATAL_ERROR "ASIO SDK is missing iasiodrv.h. Check ${ASIO_SDK_DIR}")
-    endif()
-
-    list(GET ASIO_IASIO_HEADERS 0 ASIO_IASIO_HEADER)
-    get_filename_component(ASIO_INCLUDE_DIR "${ASIO_IASIO_HEADER}" DIRECTORY)
-    set(${out_include_dir} "${ASIO_INCLUDE_DIR}" PARENT_SCOPE)
+    set(${out_var} "${asio_include_dir}" PARENT_SCOPE)
 endfunction()

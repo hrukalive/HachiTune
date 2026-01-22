@@ -34,7 +34,7 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx" -OutFile "Resources/models/some.onnx"
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_ASIO=ON
 
       - name: Build
         run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
@@ -122,7 +122,7 @@ jobs:
           Get-ChildItem "vendor/directml/bin/"
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_DIRECTML=ON -DUSE_BUNDLED_DIRECTML_RUNTIME=ON
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_DIRECTML=ON -DUSE_BUNDLED_DIRECTML_RUNTIME=ON -DUSE_ASIO=ON
 
       - name: Build
         run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
@@ -200,7 +200,7 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx" -OutFile "Resources/models/some.onnx"
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_CUDA=ON
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_CUDA=ON -DUSE_ASIO=ON
 
       - name: Build
         run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
