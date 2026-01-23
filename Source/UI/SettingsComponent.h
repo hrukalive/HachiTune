@@ -55,6 +55,8 @@ public:
   static juce::StringArray getAvailableDevices();
 
 private:
+  enum class SettingsTab { General, Audio };
+
   void updateDeviceList();
   void updateGPUDeviceList(const juce::String &deviceType);
   void updateAudioDeviceTypes();
@@ -62,12 +64,17 @@ private:
   void updateSampleRates();
   void updateBufferSizes();
   void applyAudioSettings();
+  void setActiveTab(SettingsTab tab);
+  void updateTabButtonStyles();
+  void updateTabVisibility();
+  bool shouldShowGpuDeviceList() const;
 
   bool pluginMode = false;
   juce::AudioDeviceManager *deviceManager = nullptr;
   SettingsManager *settingsManager = nullptr;
 
   juce::Label titleLabel;
+  juce::Label generalSectionLabel;
 
   juce::Label languageLabel;
   StyledComboBox languageComboBox;
@@ -103,8 +110,42 @@ private:
   juce::String currentDevice = "CPU";
   int gpuDeviceId = 0;
   PitchDetectorType pitchDetectorType = PitchDetectorType::RMVPE;
+  SettingsTab activeTab = SettingsTab::General;
+  juce::TextButton generalTabButton;
+  juce::TextButton audioTabButton;
+  juce::Rectangle<int> cardBounds;
+  juce::Rectangle<int> sidebarBounds;
+  juce::Array<int> separatorYs;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsComponent)
+};
+
+/**
+ * Settings overlay panel (in-window modal).
+ */
+class SettingsOverlay : public juce::Component {
+public:
+  SettingsOverlay(SettingsManager *settingsManager,
+                  juce::AudioDeviceManager *audioDeviceManager = nullptr);
+  ~SettingsOverlay() override;
+
+  void paint(juce::Graphics &g) override;
+  void resized() override;
+  void mouseDown(const juce::MouseEvent &e) override;
+  bool keyPressed(const juce::KeyPress &key) override;
+
+  SettingsComponent *getSettingsComponent() { return settingsComponent.get(); }
+
+  std::function<void()> onClose;
+
+private:
+  void closeIfPossible();
+
+  std::unique_ptr<SettingsComponent> settingsComponent;
+  juce::TextButton closeButton{"X"};
+  juce::Rectangle<int> contentBounds;
+
+  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsOverlay)
 };
 
 /**

@@ -21,15 +21,46 @@ SettingsComponent::SettingsComponent(
   // Set component to opaque (required for native title bar)
   setOpaque(true);
 
+  auto configureRowLabel = [](juce::Label &label) {
+    label.setColour(juce::Label::textColourId, juce::Colour(0xFFD6D6DE));
+    label.setFont(AppFont::getFont(13.0f));
+    label.setJustificationType(juce::Justification::centredLeft);
+  };
+
   // Title
   titleLabel.setText(TR("settings.title"), juce::dontSendNotification);
-  titleLabel.setFont(juce::Font(20.0f, juce::Font::bold));
-  titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+  titleLabel.setFont(AppFont::getBoldFont(18.0f));
+  titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFF0F0F4));
   addAndMakeVisible(titleLabel);
+
+  auto configureTabButton = [](juce::TextButton &button) {
+    button.setClickingTogglesState(false);
+    button.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    button.setLookAndFeel(&DarkLookAndFeel::getInstance());
+  };
+
+  // Tabs
+  generalTabButton.setButtonText(TR("settings.general"));
+  configureTabButton(generalTabButton);
+  generalTabButton.onClick = [this]() { setActiveTab(SettingsTab::General); };
+  addAndMakeVisible(generalTabButton);
+
+  audioTabButton.setButtonText(TR("settings.audio"));
+  configureTabButton(audioTabButton);
+  audioTabButton.onClick = [this]() { setActiveTab(SettingsTab::Audio); };
+  addAndMakeVisible(audioTabButton);
+
+  // General section label
+  generalSectionLabel.setText(TR("settings.general"),
+                              juce::dontSendNotification);
+  generalSectionLabel.setFont(AppFont::getBoldFont(13.0f));
+  generalSectionLabel.setColour(juce::Label::textColourId,
+                                juce::Colour(0xFFB8B8C2));
+  addAndMakeVisible(generalSectionLabel);
 
   // Language selection
   languageLabel.setText(TR("settings.language"), juce::dontSendNotification);
-  languageLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+  configureRowLabel(languageLabel);
   addAndMakeVisible(languageLabel);
 
   // Add "Auto" option first
@@ -43,7 +74,7 @@ SettingsComponent::SettingsComponent(
 
   // Device selection
   deviceLabel.setText(TR("settings.device"), juce::dontSendNotification);
-  deviceLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+  configureRowLabel(deviceLabel);
   addAndMakeVisible(deviceLabel);
 
   deviceComboBox.addListener(this);
@@ -52,7 +83,7 @@ SettingsComponent::SettingsComponent(
 
   // GPU device ID selection
   gpuDeviceLabel.setText(TR("settings.gpu_device"), juce::dontSendNotification);
-  gpuDeviceLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+  configureRowLabel(gpuDeviceLabel);
   addAndMakeVisible(gpuDeviceLabel);
 
   // GPU device list will be populated dynamically based on available devices
@@ -64,7 +95,7 @@ SettingsComponent::SettingsComponent(
   // Pitch detector selection
   pitchDetectorLabel.setText(TR("settings.pitch_detector"),
                              juce::dontSendNotification);
-  pitchDetectorLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+  configureRowLabel(pitchDetectorLabel);
   addAndMakeVisible(pitchDetectorLabel);
 
   pitchDetectorComboBox.addItem("RMVPE", 1);
@@ -75,8 +106,9 @@ SettingsComponent::SettingsComponent(
   addAndMakeVisible(pitchDetectorComboBox);
 
   // Info label
-  infoLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF888888));
-  infoLabel.setFont(juce::Font(12.0f));
+  infoLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF9A9AA6));
+  infoLabel.setFont(AppFont::getFont(12.0f));
+  infoLabel.setJustificationType(juce::Justification::topLeft);
   addAndMakeVisible(infoLabel);
 
   // Audio device settings (standalone mode only)
@@ -84,16 +116,15 @@ SettingsComponent::SettingsComponent(
     deviceManager->addChangeListener(this);
 
     audioSectionLabel.setText(TR("settings.audio"), juce::dontSendNotification);
-    audioSectionLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+    audioSectionLabel.setFont(AppFont::getBoldFont(13.0f));
     audioSectionLabel.setColour(juce::Label::textColourId,
-                                juce::Colours::white);
+                                juce::Colour(0xFFB8B8C2));
     addAndMakeVisible(audioSectionLabel);
 
     // Audio device type (driver)
     audioDeviceTypeLabel.setText(TR("settings.audio_driver"),
                                  juce::dontSendNotification);
-    audioDeviceTypeLabel.setColour(juce::Label::textColourId,
-                                   juce::Colours::white);
+    configureRowLabel(audioDeviceTypeLabel);
     addAndMakeVisible(audioDeviceTypeLabel);
     audioDeviceTypeComboBox.addListener(this);
     addAndMakeVisible(audioDeviceTypeComboBox);
@@ -101,7 +132,7 @@ SettingsComponent::SettingsComponent(
     // Output device
     audioOutputLabel.setText(TR("settings.audio_output"),
                              juce::dontSendNotification);
-    audioOutputLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    configureRowLabel(audioOutputLabel);
     addAndMakeVisible(audioOutputLabel);
     audioOutputComboBox.addListener(this);
     addAndMakeVisible(audioOutputComboBox);
@@ -109,7 +140,7 @@ SettingsComponent::SettingsComponent(
     // Sample rate
     sampleRateLabel.setText(TR("settings.sample_rate"),
                             juce::dontSendNotification);
-    sampleRateLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    configureRowLabel(sampleRateLabel);
     addAndMakeVisible(sampleRateLabel);
     sampleRateComboBox.addListener(this);
     addAndMakeVisible(sampleRateComboBox);
@@ -117,7 +148,7 @@ SettingsComponent::SettingsComponent(
     // Buffer size
     bufferSizeLabel.setText(TR("settings.buffer_size"),
                             juce::dontSendNotification);
-    bufferSizeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    configureRowLabel(bufferSizeLabel);
     addAndMakeVisible(bufferSizeLabel);
     bufferSizeComboBox.addListener(this);
     addAndMakeVisible(bufferSizeComboBox);
@@ -125,8 +156,7 @@ SettingsComponent::SettingsComponent(
     // Output channels
     outputChannelsLabel.setText(TR("settings.output_channels"),
                                 juce::dontSendNotification);
-    outputChannelsLabel.setColour(juce::Label::textColourId,
-                                  juce::Colours::white);
+    configureRowLabel(outputChannelsLabel);
     addAndMakeVisible(outputChannelsLabel);
     outputChannelsComboBox.addItem(TR("settings.mono"), 1);
     outputChannelsComboBox.addItem(TR("settings.stereo"), 2);
@@ -141,11 +171,14 @@ SettingsComponent::SettingsComponent(
   // Load saved settings
   loadSettings();
 
+  updateTabButtonStyles();
+  updateTabVisibility();
+
   // Set size based on mode
   if (pluginMode)
-    setSize(400, 260);
+    setSize(720, 420);
   else
-    setSize(400, 560);
+    setSize(820, 620);
 }
 
 SettingsComponent::~SettingsComponent() {
@@ -166,80 +199,98 @@ void SettingsComponent::timerCallback() {
 }
 
 void SettingsComponent::paint(juce::Graphics &g) {
-  g.fillAll(juce::Colour(APP_COLOR_BACKGROUND));
+  g.fillAll(juce::Colour(0xFF25252E));
+
+  if (!sidebarBounds.isEmpty()) {
+    g.setColour(juce::Colour(0xFF1F1F27));
+    g.fillRect(sidebarBounds);
+    g.setColour(juce::Colour(0xFF34343E));
+    g.drawLine((float)sidebarBounds.getRight(), (float)sidebarBounds.getY(),
+               (float)sidebarBounds.getRight(),
+               (float)sidebarBounds.getBottom(), 1.0f);
+  }
+
+  if (!cardBounds.isEmpty()) {
+    g.setColour(juce::Colour(0xFF31313B));
+    g.fillRoundedRectangle(cardBounds.toFloat(), 8.0f);
+
+    g.setColour(juce::Colour(0xFF40404A));
+    g.drawRoundedRectangle(cardBounds.toFloat().reduced(0.5f), 8.0f, 1.0f);
+
+    g.setColour(juce::Colour(0xFF3A3A45));
+    for (int i = 0; i < separatorYs.size(); ++i) {
+      int y = separatorYs[i];
+      g.drawLine((float)cardBounds.getX() + 14.0f, (float)y,
+                 (float)cardBounds.getRight() - 14.0f, (float)y, 1.0f);
+    }
+  }
 }
 
 void SettingsComponent::resized() {
-  auto bounds = getLocalBounds().reduced(20);
+  auto bounds = getLocalBounds().reduced(16);
+  separatorYs.clear();
 
-  titleLabel.setBounds(bounds.removeFromTop(30));
-  bounds.removeFromTop(15);
+  const int sidebarWidth = 140;
+  sidebarBounds = bounds.removeFromLeft(sidebarWidth);
 
-  // Language selection row
-  auto langRow = bounds.removeFromTop(30);
-  languageLabel.setBounds(langRow.removeFromLeft(120));
-  languageComboBox.setBounds(langRow.reduced(0, 2));
-  bounds.removeFromTop(10);
+  auto tabArea = sidebarBounds.reduced(10, 10);
+  const int tabHeight = 30;
+  generalTabButton.setBounds(tabArea.removeFromTop(tabHeight));
+  tabArea.removeFromTop(6);
+  audioTabButton.setBounds(tabArea.removeFromTop(tabHeight));
 
-  // Device selection row
-  auto deviceRow = bounds.removeFromTop(30);
-  deviceLabel.setBounds(deviceRow.removeFromLeft(120));
-  deviceComboBox.setBounds(deviceRow.reduced(0, 2));
-  bounds.removeFromTop(10);
+  bounds.removeFromLeft(10);
 
-  // GPU device ID row (only visible when GPU is selected)
-  if (gpuDeviceLabel.isVisible()) {
-    auto gpuRow = bounds.removeFromTop(30);
-    gpuDeviceLabel.setBounds(gpuRow.removeFromLeft(120));
-    gpuDeviceComboBox.setBounds(gpuRow.reduced(0, 2));
-    bounds.removeFromTop(10);
+  auto titleArea = bounds.removeFromTop(30);
+  titleLabel.setBounds(titleArea);
+  bounds.removeFromTop(6);
+
+  cardBounds = bounds;
+  auto content = cardBounds.reduced(16, 12);
+
+  const int rowHeight = 30;
+  const int rowGap = 8;
+  const int labelWidth = 150;
+  const int controlWidth = 190;
+
+  auto layoutRow = [&](juce::Label &label, juce::Component &control) {
+    auto row = content.removeFromTop(rowHeight);
+    auto labelArea = row.removeFromLeft(labelWidth);
+    auto controlArea = row.removeFromRight(controlWidth);
+    label.setBounds(labelArea);
+    control.setBounds(controlArea.reduced(0, 2));
+    content.removeFromTop(rowGap);
+  };
+
+  if (activeTab == SettingsTab::General) {
+    generalSectionLabel.setBounds(content.removeFromTop(20));
+    separatorYs.add(generalSectionLabel.getBottom() + 6);
+    content.removeFromTop(10);
+
+    layoutRow(languageLabel, languageComboBox);
+    layoutRow(deviceLabel, deviceComboBox);
+
+    if (gpuDeviceLabel.isVisible()) {
+      layoutRow(gpuDeviceLabel, gpuDeviceComboBox);
+    }
+
+    layoutRow(pitchDetectorLabel, pitchDetectorComboBox);
+
+    infoLabel.setBounds(content.removeFromTop(56));
+    content.removeFromTop(12);
   }
 
-  // Pitch detector row
-  auto pitchDetectorRow = bounds.removeFromTop(30);
-  pitchDetectorLabel.setBounds(pitchDetectorRow.removeFromLeft(120));
-  pitchDetectorComboBox.setBounds(pitchDetectorRow.reduced(0, 2));
-  bounds.removeFromTop(10);
+  if (!pluginMode && deviceManager != nullptr &&
+      activeTab == SettingsTab::Audio) {
+    audioSectionLabel.setBounds(content.removeFromTop(20));
+    separatorYs.add(audioSectionLabel.getBottom() + 6);
+    content.removeFromTop(10);
 
-  bounds.removeFromTop(5);
-
-  // Info label
-  infoLabel.setBounds(bounds.removeFromTop(60));
-
-  // Audio device settings (standalone mode only)
-  if (!pluginMode && deviceManager != nullptr) {
-    bounds.removeFromTop(10);
-    audioSectionLabel.setBounds(bounds.removeFromTop(25));
-    bounds.removeFromTop(10);
-
-    // Audio driver row
-    auto driverRow = bounds.removeFromTop(30);
-    audioDeviceTypeLabel.setBounds(driverRow.removeFromLeft(120));
-    audioDeviceTypeComboBox.setBounds(driverRow.reduced(0, 2));
-    bounds.removeFromTop(10);
-
-    // Output device row
-    auto outputRow = bounds.removeFromTop(30);
-    audioOutputLabel.setBounds(outputRow.removeFromLeft(120));
-    audioOutputComboBox.setBounds(outputRow.reduced(0, 2));
-    bounds.removeFromTop(10);
-
-    // Sample rate row
-    auto rateRow = bounds.removeFromTop(30);
-    sampleRateLabel.setBounds(rateRow.removeFromLeft(120));
-    sampleRateComboBox.setBounds(rateRow.reduced(0, 2));
-    bounds.removeFromTop(10);
-
-    // Buffer size row
-    auto bufferRow = bounds.removeFromTop(30);
-    bufferSizeLabel.setBounds(bufferRow.removeFromLeft(120));
-    bufferSizeComboBox.setBounds(bufferRow.reduced(0, 2));
-    bounds.removeFromTop(10);
-
-    // Output channels row
-    auto channelsRow = bounds.removeFromTop(30);
-    outputChannelsLabel.setBounds(channelsRow.removeFromLeft(120));
-    outputChannelsComboBox.setBounds(channelsRow.reduced(0, 2));
+    layoutRow(audioDeviceTypeLabel, audioDeviceTypeComboBox);
+    layoutRow(audioOutputLabel, audioOutputComboBox);
+    layoutRow(sampleRateLabel, sampleRateComboBox);
+    layoutRow(bufferSizeLabel, bufferSizeComboBox);
+    layoutRow(outputChannelsLabel, outputChannelsComboBox);
   }
 }
 
@@ -264,14 +315,12 @@ void SettingsComponent::comboBoxChanged(juce::ComboBox *comboBox) {
     currentDevice = deviceComboBox.getText();
 
     // Show/hide GPU device selector based on device type
-    bool showGpuDeviceList =
-        (currentDevice == "CUDA" || currentDevice == "DirectML");
+    bool showGpuDeviceList = shouldShowGpuDeviceList();
     if (showGpuDeviceList) {
       // Update GPU device list for the selected device type
       updateGPUDeviceList(currentDevice);
     }
-    gpuDeviceLabel.setVisible(showGpuDeviceList);
-    gpuDeviceComboBox.setVisible(showGpuDeviceList);
+    updateTabVisibility();
     resized();
 
     saveSettings();
@@ -322,6 +371,76 @@ void SettingsComponent::comboBoxChanged(juce::ComboBox *comboBox) {
              comboBox == &outputChannelsComboBox) {
     applyAudioSettings();
   }
+}
+
+bool SettingsComponent::shouldShowGpuDeviceList() const {
+  return currentDevice == "CUDA" || currentDevice == "DirectML";
+}
+
+void SettingsComponent::setActiveTab(SettingsTab tab) {
+  if (activeTab == tab)
+    return;
+
+  activeTab = tab;
+  updateTabButtonStyles();
+  updateTabVisibility();
+  resized();
+  repaint();
+}
+
+void SettingsComponent::updateTabButtonStyles() {
+  auto applyStyle = [&](juce::TextButton &button, bool isActive) {
+    if (isActive) {
+      button.setColour(juce::TextButton::buttonColourId,
+                       juce::Colour(APP_COLOR_PRIMARY));
+      button.setColour(juce::TextButton::textColourOffId,
+                       juce::Colours::white);
+    } else {
+      button.setColour(juce::TextButton::buttonColourId,
+                       juce::Colour(0xFF2B2B34));
+      button.setColour(juce::TextButton::textColourOffId,
+                       juce::Colour(0xFFC6C6D0));
+    }
+  };
+
+  applyStyle(generalTabButton, activeTab == SettingsTab::General);
+  applyStyle(audioTabButton, activeTab == SettingsTab::Audio);
+}
+
+void SettingsComponent::updateTabVisibility() {
+  const bool showGeneral = (activeTab == SettingsTab::General);
+  const bool showAudio =
+      (!pluginMode && deviceManager != nullptr &&
+       activeTab == SettingsTab::Audio);
+  const bool showGpuDeviceList = shouldShowGpuDeviceList();
+
+  generalSectionLabel.setVisible(showGeneral);
+  languageLabel.setVisible(showGeneral);
+  languageComboBox.setVisible(showGeneral);
+  deviceLabel.setVisible(showGeneral);
+  deviceComboBox.setVisible(showGeneral);
+  gpuDeviceLabel.setVisible(showGeneral && showGpuDeviceList);
+  gpuDeviceComboBox.setVisible(showGeneral && showGpuDeviceList);
+  pitchDetectorLabel.setVisible(showGeneral);
+  pitchDetectorComboBox.setVisible(showGeneral);
+  infoLabel.setVisible(showGeneral);
+
+  audioSectionLabel.setVisible(showAudio);
+  audioDeviceTypeLabel.setVisible(showAudio);
+  audioDeviceTypeComboBox.setVisible(showAudio);
+  audioOutputLabel.setVisible(showAudio);
+  audioOutputComboBox.setVisible(showAudio);
+  sampleRateLabel.setVisible(showAudio);
+  sampleRateComboBox.setVisible(showAudio);
+  bufferSizeLabel.setVisible(showAudio);
+  bufferSizeComboBox.setVisible(showAudio);
+  outputChannelsLabel.setVisible(showAudio);
+  outputChannelsComboBox.setVisible(showAudio);
+
+  audioTabButton.setVisible(!pluginMode && deviceManager != nullptr);
+
+  if (pluginMode || deviceManager == nullptr)
+    setActiveTab(SettingsTab::General);
 }
 
 void SettingsComponent::updateDeviceList() {
@@ -805,6 +924,82 @@ void SettingsComponent::applyAudioSettings() {
 }
 
 //==============================================================================
+// SettingsOverlay
+//==============================================================================
+
+SettingsOverlay::SettingsOverlay(SettingsManager *settingsManager,
+                                 juce::AudioDeviceManager *audioDeviceManager) {
+  setOpaque(false);
+  setInterceptsMouseClicks(true, true);
+  setWantsKeyboardFocus(true);
+
+  settingsComponent =
+      std::make_unique<SettingsComponent>(settingsManager, audioDeviceManager);
+  addAndMakeVisible(settingsComponent.get());
+
+  closeButton.setColour(juce::TextButton::buttonColourId,
+                        juce::Colour(0xFF3A3A45));
+  closeButton.setColour(juce::TextButton::textColourOffId,
+                        juce::Colour(0xFFD6D6DE));
+  closeButton.setColour(juce::TextButton::buttonOnColourId,
+                        juce::Colour(0xFF4A4A55));
+  closeButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+  closeButton.setLookAndFeel(&DarkLookAndFeel::getInstance());
+  closeButton.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+  closeButton.onClick = [this]() { closeIfPossible(); };
+  addAndMakeVisible(closeButton);
+}
+
+SettingsOverlay::~SettingsOverlay() { closeButton.setLookAndFeel(nullptr); }
+
+void SettingsOverlay::paint(juce::Graphics &g) {
+  g.fillAll(juce::Colour(0xB0000000));
+
+  if (!contentBounds.isEmpty()) {
+    juce::DropShadow shadow(juce::Colour(0x90000000), 18, {0, 10});
+    shadow.drawForRectangle(g, contentBounds);
+  }
+}
+
+void SettingsOverlay::resized() {
+  auto bounds = getLocalBounds();
+
+  if (settingsComponent != nullptr) {
+    const int preferredWidth = settingsComponent->getWidth();
+    const int preferredHeight = settingsComponent->getHeight();
+    const int maxWidth = juce::jmax(420, bounds.getWidth() - 80);
+    const int maxHeight = juce::jmax(320, bounds.getHeight() - 80);
+    const int contentWidth = juce::jmin(preferredWidth, maxWidth);
+    const int contentHeight = juce::jmin(preferredHeight, maxHeight);
+    contentBounds = juce::Rectangle<int>(0, 0, contentWidth, contentHeight)
+                        .withCentre(bounds.getCentre());
+    settingsComponent->setBounds(contentBounds);
+
+    const int buttonSize = 24;
+    closeButton.setBounds(contentBounds.getRight() - buttonSize - 10,
+                          contentBounds.getY() + 8, buttonSize, buttonSize);
+  }
+}
+
+void SettingsOverlay::mouseDown(const juce::MouseEvent &e) {
+  if (!contentBounds.contains(e.getPosition()))
+    closeIfPossible();
+}
+
+bool SettingsOverlay::keyPressed(const juce::KeyPress &key) {
+  if (key == juce::KeyPress::escapeKey) {
+    closeIfPossible();
+    return true;
+  }
+  return false;
+}
+
+void SettingsOverlay::closeIfPossible() {
+  if (onClose)
+    onClose();
+}
+
+//==============================================================================
 // SettingsDialog
 //==============================================================================
 
@@ -831,10 +1026,13 @@ SettingsDialog::SettingsDialog(SettingsManager *settingsManager,
   // Set window properties
   setResizable(false, false);
 
-  if (audioDeviceManager != nullptr)
-    centreWithSize(400, 560);
-  else
-    centreWithSize(400, 260);
+  int dialogWidth = 460;
+  int dialogHeight = audioDeviceManager != nullptr ? 600 : 320;
+  if (settingsComponent != nullptr) {
+    dialogWidth = settingsComponent->getWidth();
+    dialogHeight = settingsComponent->getHeight();
+  }
+  centreWithSize(dialogWidth, dialogHeight);
 }
 
 void SettingsDialog::closeButtonPressed() { setVisible(false); }

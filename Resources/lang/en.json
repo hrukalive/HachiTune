@@ -40,6 +40,7 @@
   "param.global_pitch": "Global Pitch (st)",
 
   "settings.title": "Settings",
+  "settings.general": "General",
   "settings.language": "Language:",
   "settings.device": "Device:",
   "settings.gpu_device": "GPU Device:",

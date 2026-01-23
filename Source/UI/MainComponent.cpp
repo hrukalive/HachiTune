@@ -339,6 +339,9 @@ void MainComponent::resized() {
   // Workspace takes remaining space (includes piano roll, panels, and sidebar)
   workspace.setBounds(bounds);
 
+  if (settingsOverlay)
+    settingsOverlay->setBounds(getLocalBounds());
+
   if (enableAudioDeviceFlag && settingsManager)
     settingsManager->setWindowSize(getWidth(), getHeight());
 }
@@ -1752,25 +1755,34 @@ void MainComponent::segmentIntoNotes(Project &targetProject) {
 }
 
 void MainComponent::showSettings() {
-  if (!settingsDialog) {
+  if (!settingsOverlay) {
     // Pass AudioDeviceManager only in standalone mode
     juce::AudioDeviceManager *deviceMgr = nullptr;
     if (!isPluginMode() && audioEngine)
       deviceMgr = &audioEngine->getDeviceManager();
 
-    settingsDialog =
-        std::make_unique<SettingsDialog>(settingsManager.get(), deviceMgr);
-    settingsDialog->getSettingsComponent()->onSettingsChanged = [this]() {
+    settingsOverlay =
+        std::make_unique<SettingsOverlay>(settingsManager.get(), deviceMgr);
+    addAndMakeVisible(settingsOverlay.get());
+    settingsOverlay->setVisible(false);
+    settingsOverlay->onClose = [this]() {
+      if (settingsOverlay)
+        settingsOverlay->setVisible(false);
+    };
+
+    settingsOverlay->getSettingsComponent()->onSettingsChanged = [this]() {
       settingsManager->applySettings();
     };
-    settingsDialog->getSettingsComponent()->onPitchDetectorChanged =
+    settingsOverlay->getSettingsComponent()->onPitchDetectorChanged =
         [this](PitchDetectorType type) {
           audioAnalyzer->setPitchDetectorType(type);
         };
   }
 
-  settingsDialog->setVisible(true);
-  settingsDialog->toFront(true);
+  settingsOverlay->setBounds(getLocalBounds());
+  settingsOverlay->setVisible(true);
+  settingsOverlay->toFront(true);
+  settingsOverlay->grabKeyboardFocus();
 }
 
 bool MainComponent::isInterestedInFileDrag(const juce::StringArray &files) {

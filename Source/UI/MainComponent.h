@@ -145,7 +145,7 @@ private:
   PianoRollComponent pianoRoll;
   ParameterPanel parameterPanel;
 
-  std::unique_ptr<SettingsDialog> settingsDialog;
+  std::unique_ptr<SettingsOverlay> settingsOverlay;
 
   std::unique_ptr<juce::FileChooser> fileChooser;
 

@@ -36,6 +36,7 @@
   "param.global": "全域",
   "param.global_pitch": "全域音高 (半音)",
   "settings.title": "設定",
+  "settings.general": "常規",
   "settings.language": "語言:",
   "settings.device": "裝置:",
   "settings.gpu_device": "GPU 裝置:",

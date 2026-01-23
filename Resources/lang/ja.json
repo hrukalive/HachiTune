@@ -36,6 +36,7 @@
   "param.global": "グローバル",
   "param.global_pitch": "グローバルピッチ (st)",
   "settings.title": "設定",
+  "settings.general": "一般",
   "settings.language": "言語:",
   "settings.device": "デバイス:",
   "settings.gpu_device": "GPUデバイス:",
