@@ -529,8 +529,31 @@ void MainComponent::saveProject() {
           juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
               .getChildFile("Untitled.htpx");
 
-    fileChooser = std::make_unique<juce::FileChooser>(TR("dialog.save_project"),
-                                                      target, "*.htpx");
+#if JUCE_WINDOWS
+    juce::FileChooser chooser(TR("dialog.save_project"), target, "*.htpx",
+                              true, false, this);
+    if (!chooser.browseForFileToSave(true))
+      return;
+
+    auto file = chooser.getResult();
+    if (file == juce::File{})
+      return;
+
+    if (file.getFileExtension().isEmpty())
+      file = file.withFileExtension("htpx");
+
+    toolbar.showProgress(TR("progress.saving"));
+    toolbar.setProgress(-1.0f);
+
+    const bool ok = ProjectSerializer::saveToFile(*project, file);
+    if (ok)
+      project->setProjectFilePath(file);
+
+    toolbar.hideProgress();
+    return;
+#else
+    fileChooser = std::make_unique<juce::FileChooser>(
+        TR("dialog.save_project"), target, "*.htpx");
 
     auto chooserFlags = juce::FileBrowserComponent::saveMode |
                         juce::FileBrowserComponent::canSelectFiles |
@@ -563,6 +586,7 @@ void MainComponent::saveProject() {
     });
 
     return;
+#endif
   }
 
   toolbar.showProgress(TR("progress.saving"));
@@ -1106,6 +1130,101 @@ void MainComponent::exportFile() {
   if (fileChooser != nullptr)
     return;
 
+#if JUCE_WINDOWS
+  juce::FileChooser chooser(TR("dialog.save_audio"), juce::File{}, "*.wav",
+                            true, false, this);
+  if (!chooser.browseForFileToSave(true))
+    return;
+
+  auto file = chooser.getResult();
+  if (file == juce::File{})
+    return;
+
+  if (file.getFileExtension().isEmpty())
+    file = file.withFileExtension("wav");
+
+  auto &audioData = project->getAudioData();
+
+  // Show progress
+  toolbar.showProgress(TR("progress.exporting_audio"));
+  toolbar.setProgress(0.0f);
+
+  // Delete existing file if it exists (to ensure clean replacement)
+  if (file.existsAsFile()) {
+    if (!file.deleteFile()) {
+      toolbar.hideProgress();
+      StyledMessageBox::show(
+          this, TR("dialog.export_failed"),
+          TR("dialog.failed_delete") + "\n" + file.getFullPathName(),
+          StyledMessageBox::WarningIcon);
+      return;
+    }
+  }
+
+  toolbar.setProgress(0.3f);
+
+  // Create output stream
+  std::unique_ptr<juce::FileOutputStream> outputStream =
+      std::make_unique<juce::FileOutputStream>(file);
+
+  if (!outputStream->openedOk()) {
+    toolbar.hideProgress();
+    StyledMessageBox::show(
+        this, TR("dialog.export_failed"),
+        TR("dialog.failed_open") + "\n" + file.getFullPathName(),
+        StyledMessageBox::WarningIcon);
+    return;
+  }
+
+  toolbar.setProgress(0.5f);
+
+  // Create writer
+  juce::WavAudioFormat wavFormat;
+  std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
+      outputStream.release(), // Writer takes ownership of stream
+      SAMPLE_RATE,
+      1,  // mono
+      16, // 16-bit
+      {}, 0));
+
+  if (writer == nullptr) {
+    toolbar.hideProgress();
+    StyledMessageBox::show(
+        this, TR("dialog.export_failed"),
+        TR("dialog.failed_create_writer") + "\n" + file.getFullPathName(),
+        StyledMessageBox::WarningIcon);
+    return;
+  }
+
+  toolbar.setProgress(0.7f);
+
+  // Write audio data
+  bool writeSuccess = writer->writeFromAudioSampleBuffer(
+      audioData.waveform, 0, audioData.waveform.getNumSamples());
+
+  toolbar.setProgress(0.9f);
+
+  // Explicitly flush and close writer (destructor will also do this, but
+  // explicit is better)
+  writer->flush();
+  writer.reset(); // Explicitly release writer and underlying stream
+
+  toolbar.setProgress(1.0f);
+
+  if (writeSuccess) {
+    toolbar.hideProgress();
+    StyledMessageBox::show(
+        this, TR("dialog.export_complete"),
+        TR("dialog.audio_exported") + "\n" + file.getFullPathName(),
+        StyledMessageBox::InfoIcon);
+  } else {
+    toolbar.hideProgress();
+    StyledMessageBox::show(
+        this, TR("dialog.export_failed"),
+        TR("dialog.failed_write") + "\n" + file.getFullPathName(),
+        StyledMessageBox::WarningIcon);
+  }
+#else
   fileChooser = std::make_unique<juce::FileChooser>(TR("dialog.save_audio"),
                                                     juce::File{}, "*.wav");
 
@@ -1125,6 +1244,9 @@ void MainComponent::exportFile() {
 
     if (file == juce::File{})
       return;
+
+    if (file.getFileExtension().isEmpty())
+      file = file.withFileExtension("wav");
 
     auto &audioData = safeThis->project->getAudioData();
 
@@ -1208,6 +1330,7 @@ void MainComponent::exportFile() {
           StyledMessageBox::WarningIcon);
     }
   });
+#endif
 }
 
 void MainComponent::exportMidiFile() {
@@ -1243,6 +1366,51 @@ void MainComponent::exportMidiFile() {
     defaultFile = project->getProjectFilePath().withFileExtension("mid");
   }
 
+#if JUCE_WINDOWS
+  juce::FileChooser chooser(TR("dialog.export_midi"), defaultFile,
+                            "*.mid;*.midi", true, false, this);
+  if (!chooser.browseForFileToSave(true))
+    return;
+
+  auto file = chooser.getResult();
+  if (file == juce::File{})
+    return;
+
+  // Ensure .mid extension
+  if (file.getFileExtension().isEmpty())
+    file = file.withFileExtension("mid");
+
+  // Show progress
+  toolbar.showProgress(TR("progress.exporting_midi"));
+  toolbar.setProgress(0.3f);
+
+  // Configure export options
+  MidiExporter::ExportOptions options;
+  options.tempo = 120.0f; // Default BPM
+  options.ticksPerQuarterNote = 480;
+  options.velocity = 100;
+  options.quantizePitch = true; // Round to nearest semitone
+
+  toolbar.setProgress(0.6f);
+
+  // Export using adjusted pitch data (includes user edits)
+  bool success = MidiExporter::exportToFile(project->getNotes(), file, options);
+
+  toolbar.setProgress(1.0f);
+  toolbar.hideProgress();
+
+  if (success) {
+    StyledMessageBox::show(
+        this, TR("dialog.export_complete"),
+        TR("dialog.midi_exported") + "\n" + file.getFullPathName(),
+        StyledMessageBox::InfoIcon);
+  } else {
+    StyledMessageBox::show(
+        this, TR("dialog.export_failed"),
+        TR("dialog.failed_write_midi") + "\n" + file.getFullPathName(),
+        StyledMessageBox::WarningIcon);
+  }
+#else
   fileChooser = std::make_unique<juce::FileChooser>(
       TR("dialog.export_midi"), defaultFile, "*.mid;*.midi");
 
@@ -1299,6 +1467,7 @@ void MainComponent::exportMidiFile() {
               StyledMessageBox::WarningIcon);
         }
       });
+#endif
 }
 
 void MainComponent::play() {
