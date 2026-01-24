@@ -2884,6 +2884,9 @@ void PianoRollComponent::applyPitchDrawing(float x, float y) {
   double time = xToTime(x);
   // Compensate for centering offset used in display
   float midi = yToMidi(y - pixelsPerSemitone * 0.5f);
+  // Remove global pitch offset so drawing maps to what is shown on screen
+  if (project)
+    midi -= project->getGlobalPitchOffset();
   int frameIndex = static_cast<int>(secondsToFrames(static_cast<float>(time)));
   int midiCents = static_cast<int>(std::round(midi * 100.0f));
   applyPitchPoint(frameIndex, midiCents);

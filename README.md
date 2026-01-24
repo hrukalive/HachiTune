@@ -7,6 +7,7 @@
 ## Overview
 
 HachiTune is a standalone app and audio plugin for editing vocal pitch in a piano roll. It analyzes audio with neural pitch detectors, segments notes, and resynthesizes edits with a neural vocoder. The plugin supports both ARA hosts and a non-ARA capture workflow.
+It can significantly improve the problem of distortion after adjustment
 
 ## Features
 
@@ -101,7 +102,7 @@ Notes:
 ## Project Structure
 
 ```
-pitch_editor_juce/
+HachiTune/
   Source/
     Audio/        # Audio engine, pitch detection, vocoder
     Models/       # Project and note data
