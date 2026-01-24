@@ -53,25 +53,25 @@ SettingsComponent::SettingsComponent(
     SettingsManager *settingsMgr, juce::AudioDeviceManager *audioDeviceManager)
     : deviceManager(audioDeviceManager),
       pluginMode(audioDeviceManager == nullptr), settingsManager(settingsMgr) {
-  // Set component to opaque (required for native title bar)
-  setOpaque(true);
+  // Allow transparent corners for rounded window styling
+  setOpaque(false);
 
   auto configureRowLabel = [](juce::Label &label) {
     label.setColour(juce::Label::textColourId, juce::Colour(0xFFD6D6DE));
-    label.setFont(AppFont::getFont(13.0f));
+    label.setFont(AppFont::getFont(15.0f));
     label.setJustificationType(juce::Justification::centredLeft);
   };
 
   // Title
   titleLabel.setText(TR("settings.title"), juce::dontSendNotification);
-  titleLabel.setFont(AppFont::getBoldFont(18.0f));
+  titleLabel.setFont(AppFont::getBoldFont(20.0f));
   titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFF0F0F4));
   addAndMakeVisible(titleLabel);
 
-  auto configureTabButton = [](juce::TextButton &button) {
+  auto configureTabButton = [this](juce::TextButton &button) {
     button.setClickingTogglesState(false);
     button.setMouseCursor(juce::MouseCursor::PointingHandCursor);
-    button.setLookAndFeel(&DarkLookAndFeel::getInstance());
+    button.setLookAndFeel(&settingsLookAndFeel);
   };
 
   // Tabs
@@ -88,7 +88,7 @@ SettingsComponent::SettingsComponent(
   // General section label
   generalSectionLabel.setText(TR("settings.general"),
                               juce::dontSendNotification);
-  generalSectionLabel.setFont(AppFont::getBoldFont(13.0f));
+  generalSectionLabel.setFont(AppFont::getBoldFont(15.0f));
   generalSectionLabel.setColour(juce::Label::textColourId,
                                 juce::Colour(0xFFB8B8C2));
   addAndMakeVisible(generalSectionLabel);
@@ -105,6 +105,7 @@ SettingsComponent::SettingsComponent(
   for (int i = 0; i < static_cast<int>(langs.size()); ++i)
     languageComboBox.addItem(langs[i].nativeName, i + 2); // IDs start at 2
   languageComboBox.addListener(this);
+  languageComboBox.setLookAndFeel(&settingsLookAndFeel);
   addAndMakeVisible(languageComboBox);
 
   // Device selection
@@ -113,6 +114,7 @@ SettingsComponent::SettingsComponent(
   addAndMakeVisible(deviceLabel);
 
   deviceComboBox.addListener(this);
+  deviceComboBox.setLookAndFeel(&settingsLookAndFeel);
   addAndMakeVisible(deviceComboBox);
 
   // GPU device ID selection
@@ -122,6 +124,7 @@ SettingsComponent::SettingsComponent(
 
   // GPU device list will be populated dynamically based on available devices
   gpuDeviceComboBox.addListener(this);
+  gpuDeviceComboBox.setLookAndFeel(&settingsLookAndFeel);
   addAndMakeVisible(gpuDeviceComboBox);
   gpuDeviceLabel.setVisible(false);
   gpuDeviceComboBox.setVisible(false);
@@ -137,11 +140,12 @@ SettingsComponent::SettingsComponent(
   pitchDetectorComboBox.setSelectedId(
       1, juce::dontSendNotification); // Default to RMVPE
   pitchDetectorComboBox.addListener(this);
+  pitchDetectorComboBox.setLookAndFeel(&settingsLookAndFeel);
   addAndMakeVisible(pitchDetectorComboBox);
 
   // Info label
   infoLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF9A9AA6));
-  infoLabel.setFont(AppFont::getFont(12.0f));
+  infoLabel.setFont(AppFont::getFont(13.0f));
   infoLabel.setJustificationType(juce::Justification::topLeft);
   addAndMakeVisible(infoLabel);
 
@@ -150,7 +154,7 @@ SettingsComponent::SettingsComponent(
     deviceManager->addChangeListener(this);
 
     audioSectionLabel.setText(TR("settings.audio"), juce::dontSendNotification);
-    audioSectionLabel.setFont(AppFont::getBoldFont(13.0f));
+    audioSectionLabel.setFont(AppFont::getBoldFont(15.0f));
     audioSectionLabel.setColour(juce::Label::textColourId,
                                 juce::Colour(0xFFB8B8C2));
     addAndMakeVisible(audioSectionLabel);
@@ -161,6 +165,7 @@ SettingsComponent::SettingsComponent(
     configureRowLabel(audioDeviceTypeLabel);
     addAndMakeVisible(audioDeviceTypeLabel);
     audioDeviceTypeComboBox.addListener(this);
+    audioDeviceTypeComboBox.setLookAndFeel(&settingsLookAndFeel);
     addAndMakeVisible(audioDeviceTypeComboBox);
 
     // Output device
@@ -169,6 +174,7 @@ SettingsComponent::SettingsComponent(
     configureRowLabel(audioOutputLabel);
     addAndMakeVisible(audioOutputLabel);
     audioOutputComboBox.addListener(this);
+    audioOutputComboBox.setLookAndFeel(&settingsLookAndFeel);
     addAndMakeVisible(audioOutputComboBox);
 
     // Sample rate
@@ -177,6 +183,7 @@ SettingsComponent::SettingsComponent(
     configureRowLabel(sampleRateLabel);
     addAndMakeVisible(sampleRateLabel);
     sampleRateComboBox.addListener(this);
+    sampleRateComboBox.setLookAndFeel(&settingsLookAndFeel);
     addAndMakeVisible(sampleRateComboBox);
 
     // Buffer size
@@ -185,6 +192,7 @@ SettingsComponent::SettingsComponent(
     configureRowLabel(bufferSizeLabel);
     addAndMakeVisible(bufferSizeLabel);
     bufferSizeComboBox.addListener(this);
+    bufferSizeComboBox.setLookAndFeel(&settingsLookAndFeel);
     addAndMakeVisible(bufferSizeComboBox);
 
     // Output channels
@@ -196,6 +204,7 @@ SettingsComponent::SettingsComponent(
     outputChannelsComboBox.addItem(TR("settings.stereo"), 2);
     outputChannelsComboBox.setSelectedId(2, juce::dontSendNotification);
     outputChannelsComboBox.addListener(this);
+    outputChannelsComboBox.setLookAndFeel(&settingsLookAndFeel);
     addAndMakeVisible(outputChannelsComboBox);
 
     updateAudioDeviceTypes();
@@ -220,6 +229,17 @@ SettingsComponent::~SettingsComponent() {
   stopTimer();
   if (!pluginMode && deviceManager != nullptr)
     deviceManager->removeChangeListener(this);
+  generalTabButton.setLookAndFeel(nullptr);
+  audioTabButton.setLookAndFeel(nullptr);
+  languageComboBox.setLookAndFeel(nullptr);
+  deviceComboBox.setLookAndFeel(nullptr);
+  gpuDeviceComboBox.setLookAndFeel(nullptr);
+  pitchDetectorComboBox.setLookAndFeel(nullptr);
+  audioDeviceTypeComboBox.setLookAndFeel(nullptr);
+  audioOutputComboBox.setLookAndFeel(nullptr);
+  sampleRateComboBox.setLookAndFeel(nullptr);
+  bufferSizeComboBox.setLookAndFeel(nullptr);
+  outputChannelsComboBox.setLookAndFeel(nullptr);
 }
 
 void SettingsComponent::changeListenerCallback(
@@ -234,7 +254,12 @@ void SettingsComponent::timerCallback() {
 }
 
 void SettingsComponent::paint(juce::Graphics &g) {
-  g.fillAll(juce::Colour(0xFF25252E));
+  juce::Path rounded;
+  rounded.addRoundedRectangle(getLocalBounds().toFloat(), cornerRadius);
+  g.reduceClipRegion(rounded);
+
+  g.setColour(juce::Colour(0xFF25252E));
+  g.fillRoundedRectangle(getLocalBounds().toFloat(), cornerRadius);
 
   if (!sidebarBounds.isEmpty()) {
     g.setColour(juce::Colour(0xFF1F1F27));
@@ -269,21 +294,21 @@ void SettingsComponent::resized() {
   sidebarBounds = bounds.removeFromLeft(sidebarWidth);
 
   auto tabArea = sidebarBounds.reduced(10, 10);
-  const int tabHeight = 30;
+  const int tabHeight = 32;
   generalTabButton.setBounds(tabArea.removeFromTop(tabHeight));
   tabArea.removeFromTop(6);
   audioTabButton.setBounds(tabArea.removeFromTop(tabHeight));
 
   bounds.removeFromLeft(10);
 
-  auto titleArea = bounds.removeFromTop(30);
+  auto titleArea = bounds.removeFromTop(34);
   titleLabel.setBounds(titleArea);
   bounds.removeFromTop(6);
 
   cardBounds = bounds;
   auto content = cardBounds.reduced(16, 12);
 
-  const int rowHeight = 30;
+  const int rowHeight = 32;
   const int rowGap = 8;
   const int labelWidth = 150;
   const int controlWidth = 190;

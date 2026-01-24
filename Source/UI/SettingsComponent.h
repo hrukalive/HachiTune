@@ -56,6 +56,23 @@ public:
   static juce::StringArray getAvailableDevices();
 
 private:
+  class SettingsLookAndFeel : public DarkLookAndFeel {
+  public:
+    juce::Font getTextButtonFont(juce::TextButton &, int) override {
+      return AppFont::getFont(15.0f);
+    }
+
+    juce::Font getLabelFont(juce::Label &) override {
+      return AppFont::getFont(15.0f);
+    }
+
+    juce::Font getComboBoxFont(juce::ComboBox &) override {
+      return AppFont::getFont(15.0f);
+    }
+
+    juce::Font getPopupMenuFont() override { return AppFont::getFont(15.0f); }
+  };
+
   enum class SettingsTab { General, Audio };
 
   void updateDeviceList();
@@ -73,6 +90,7 @@ private:
   bool pluginMode = false;
   juce::AudioDeviceManager *deviceManager = nullptr;
   SettingsManager *settingsManager = nullptr;
+  SettingsLookAndFeel settingsLookAndFeel;
 
   juce::Label titleLabel;
   juce::Label generalSectionLabel;
@@ -120,6 +138,7 @@ private:
   juce::Rectangle<int> cardBounds;
   juce::Rectangle<int> sidebarBounds;
   juce::Array<int> separatorYs;
+  float cornerRadius = 10.0f;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsComponent)
 };

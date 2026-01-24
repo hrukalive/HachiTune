@@ -1615,47 +1615,87 @@ void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent &e) {
   Note *note = findNoteAt(adjustedX, adjustedY);
 
   if (note) {
-    // Snap entire note pitch to nearest standard semitone
-    // Combine midiNote + pitchOffset and round to integer
+    auto rebuildAndNotify = [this]() {
+      PitchCurveProcessor::rebuildBaseFromNotes(*project);
+      PitchCurveProcessor::composeF0InPlace(*project, false);
+      if (onPitchEdited)
+        onPitchEdited();
+      if (onPitchEditFinished)
+        onPitchEditFinished();
+      repaint();
+    };
+
+    if (note->isSelected()) {
+      auto selectedNotes = project->getSelectedNotes();
+      if (selectedNotes.size() > 1) {
+        std::vector<Note *> notesToSnap;
+        std::vector<float> oldMidis;
+        std::vector<float> oldOffsets;
+        std::vector<float> newMidis;
+
+        notesToSnap.reserve(selectedNotes.size());
+        oldMidis.reserve(selectedNotes.size());
+        oldOffsets.reserve(selectedNotes.size());
+        newMidis.reserve(selectedNotes.size());
+
+        for (auto *selected : selectedNotes) {
+          if (!selected || selected->isRest())
+            continue;
+
+          float oldMidi = selected->getMidiNote();
+          float oldOffset = selected->getPitchOffset();
+          float adjustedMidi = oldMidi + oldOffset;
+          float snappedMidi = std::round(adjustedMidi);
+
+          if (std::abs(snappedMidi - adjustedMidi) <= 0.001f)
+            continue;
+
+          notesToSnap.push_back(selected);
+          oldMidis.push_back(oldMidi);
+          oldOffsets.push_back(oldOffset);
+          newMidis.push_back(snappedMidi);
+        }
+
+        if (!notesToSnap.empty()) {
+          if (undoManager) {
+            auto action = std::make_unique<MultiNoteSnapToSemitoneAction>(
+                notesToSnap, oldMidis, oldOffsets, newMidis,
+                [this, rebuildAndNotify](const std::vector<Note *> &) {
+                  rebuildAndNotify();
+                });
+            undoManager->addAction(std::move(action));
+          }
+
+          for (size_t i = 0; i < notesToSnap.size(); ++i) {
+            notesToSnap[i]->setMidiNote(newMidis[i]);
+            notesToSnap[i]->setPitchOffset(0.0f);
+            notesToSnap[i]->markDirty();
+          }
+
+          rebuildAndNotify();
+        }
+        return;
+      }
+    }
+
+    // Snap single note pitch to nearest standard semitone
     float oldMidi = note->getMidiNote();
     float oldOffset = note->getPitchOffset();
     float adjustedMidi = oldMidi + oldOffset;
     float snappedMidi = std::round(adjustedMidi);
 
-    // Only snap if there's a meaningful difference
     if (std::abs(snappedMidi - adjustedMidi) > 0.001f) {
-      // Create undo action with callback to rebuild pitch curves
       if (undoManager) {
         auto action = std::make_unique<NoteSnapToSemitoneAction>(
-            note, oldMidi, oldOffset, snappedMidi, [this](Note *n) {
-              // Rebuild pitch curves after undo/redo
-              PitchCurveProcessor::rebuildBaseFromNotes(*project);
-              PitchCurveProcessor::composeF0InPlace(*project, false);
-              if (onPitchEdited)
-                onPitchEdited();
-              if (onPitchEditFinished)
-                onPitchEditFinished();
-              repaint();
-            });
+            note, oldMidi, oldOffset, snappedMidi,
+            [this, rebuildAndNotify](Note *n) { rebuildAndNotify(); });
         undoManager->addAction(std::move(action));
       }
 
-      // Apply snap: set midiNote to rounded value, clear offset
       note->setMidiNote(snappedMidi);
       note->setPitchOffset(0.0f);
       note->markDirty();
-
-      // Rebuild pitch curves to reflect the change
-      PitchCurveProcessor::rebuildBaseFromNotes(*project);
-      PitchCurveProcessor::composeF0InPlace(*project, false);
-
-      if (onPitchEdited)
-        onPitchEdited();
-
-      if (onPitchEditFinished)
-        onPitchEditFinished();
-
-      repaint();
+      rebuildAndNotify();
     }
   }
 }

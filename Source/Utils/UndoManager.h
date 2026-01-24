@@ -282,6 +282,61 @@ private:
 };
 
 /**
+ * Action for snapping multiple notes to the nearest semitone.
+ */
+class MultiNoteSnapToSemitoneAction : public UndoableAction
+{
+public:
+    MultiNoteSnapToSemitoneAction(const std::vector<Note*>& notes,
+                                  std::vector<float> oldMidis,
+                                  std::vector<float> oldOffsets,
+                                  std::vector<float> newMidis,
+                                  std::function<void(const std::vector<Note*>&)> onNotesChanged = nullptr)
+        : notes(notes),
+          oldMidis(std::move(oldMidis)),
+          oldOffsets(std::move(oldOffsets)),
+          newMidis(std::move(newMidis)),
+          onNotesChanged(onNotesChanged) {}
+
+    void undo() override
+    {
+        for (size_t i = 0; i < notes.size(); ++i) {
+            auto* note = notes[i];
+            if (!note)
+                continue;
+            note->setMidiNote(oldMidis[i]);
+            note->setPitchOffset(oldOffsets[i]);
+            note->markDirty();
+        }
+        if (onNotesChanged)
+            onNotesChanged(notes);
+    }
+
+    void redo() override
+    {
+        for (size_t i = 0; i < notes.size(); ++i) {
+            auto* note = notes[i];
+            if (!note)
+                continue;
+            note->setMidiNote(newMidis[i]);
+            note->setPitchOffset(0.0f);
+            note->markDirty();
+        }
+        if (onNotesChanged)
+            onNotesChanged(notes);
+    }
+
+    juce::String getName() const override { return "Snap Notes to Semitone"; }
+
+private:
+    std::vector<Note*> notes;
+    std::vector<float> oldMidis;
+    std::vector<float> oldOffsets;
+    std::vector<float> newMidis;
+    std::function<void(const std::vector<Note*>&)> onNotesChanged;
+};
+
+/**
  * Action for splitting a note into two.
  */
 class NoteSplitAction : public UndoableAction
