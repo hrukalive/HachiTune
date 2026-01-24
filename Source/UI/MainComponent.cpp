@@ -512,6 +512,16 @@ bool MainComponent::keyPressed(const juce::KeyPress &key,
     return true;
   }
 
+  // Ctrl+A or Cmd+A: Select all notes
+  if (key == juce::KeyPress('a', juce::ModifierKeys::ctrlModifier, 0) ||
+      key == juce::KeyPress('a', juce::ModifierKeys::commandModifier, 0)) {
+    if (project) {
+      project->selectAllNotes();
+      pianoRoll.repaint();
+    }
+    return true;
+  }
+
   // Ctrl+Y or Ctrl+Shift+Z or Cmd+Shift+Z: Redo
   if (key == juce::KeyPress('y', juce::ModifierKeys::ctrlModifier, 0) ||
       key == juce::KeyPress('z',

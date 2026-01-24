@@ -64,6 +64,16 @@ void Project::deselectAllNotes()
         note.setSelected(false);
 }
 
+void Project::selectAllNotes(bool includeRests)
+{
+    for (auto& note : notes)
+    {
+        if (!includeRests && note.isRest())
+            continue;
+        note.setSelected(true);
+    }
+}
+
 std::vector<Note*> Project::getDirtyNotes()
 {
     std::vector<Note*> result;

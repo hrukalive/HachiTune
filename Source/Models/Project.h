@@ -77,6 +77,7 @@ public:
     std::vector<Note*> getSelectedNotes();
     bool removeNoteByStartFrame(int startFrame);
     std::vector<Note*> getDirtyNotes();
+    void selectAllNotes(bool includeRests = false);
     void deselectAllNotes();
     void clearAllDirty();
     
