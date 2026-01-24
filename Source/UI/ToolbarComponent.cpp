@@ -14,6 +14,7 @@ ToolbarComponent::ToolbarComponent()
     auto startIcon = SvgUtils::loadSvg(BinaryData::movestartline_svg, BinaryData::movestartline_svgSize, juce::Colours::white);
     auto endIcon = SvgUtils::loadSvg(BinaryData::moveendline_svg, BinaryData::moveendline_svgSize, juce::Colours::white);
     auto cursorIcon = SvgUtils::loadSvg(BinaryData::cursor_24_filled_svg, BinaryData::cursor_24_filled_svgSize, juce::Colours::white);
+    auto stretchIcon = SvgUtils::loadSvg(BinaryData::stretch_24_filled_svg, BinaryData::stretch_24_filled_svgSize, juce::Colours::white);
     auto pitchEditIcon = SvgUtils::loadSvg(BinaryData::pitch_edit_24_filled_svg, BinaryData::pitch_edit_24_filled_svgSize, juce::Colours::white);
     auto scissorsIcon = SvgUtils::loadSvg(BinaryData::scissors_24_filled_svg, BinaryData::scissors_24_filled_svgSize, juce::Colours::white);
     auto followIcon = SvgUtils::loadSvg(BinaryData::follow24filled_svg, BinaryData::follow24filled_svgSize, juce::Colours::white);
@@ -24,6 +25,7 @@ ToolbarComponent::ToolbarComponent()
     goToStartButton.setImages(startIcon.get());
     goToEndButton.setImages(endIcon.get());
     selectModeButton.setImages(cursorIcon.get());
+    stretchModeButton.setImages(stretchIcon.get());
     drawModeButton.setImages(pitchEditIcon.get());
     splitModeButton.setImages(scissorsIcon.get());
     followButton.setImages(followIcon.get());
@@ -35,6 +37,7 @@ ToolbarComponent::ToolbarComponent()
     stopButton.setEdgeIndent(6);
     goToEndButton.setEdgeIndent(4);
     selectModeButton.setEdgeIndent(6);
+    stretchModeButton.setEdgeIndent(6);
     drawModeButton.setEdgeIndent(6);
     splitModeButton.setEdgeIndent(6);
     followButton.setEdgeIndent(6);
@@ -50,6 +53,7 @@ ToolbarComponent::ToolbarComponent()
     addAndMakeVisible(stopButton);
     addAndMakeVisible(goToEndButton);
     addAndMakeVisible(selectModeButton);
+    addAndMakeVisible(stretchModeButton);
     addAndMakeVisible(drawModeButton);
     addAndMakeVisible(splitModeButton);
     addAndMakeVisible(followButton);
@@ -70,6 +74,7 @@ ToolbarComponent::ToolbarComponent()
     stopButton.addListener(this);
     goToEndButton.addListener(this);
     selectModeButton.addListener(this);
+    stretchModeButton.addListener(this);
     drawModeButton.addListener(this);
     splitModeButton.addListener(this);
     followButton.addListener(this);
@@ -78,6 +83,7 @@ ToolbarComponent::ToolbarComponent()
 
     // Set localized text (tooltips for icon buttons)
     selectModeButton.setTooltip(TR("toolbar.select"));
+    stretchModeButton.setTooltip(TR("toolbar.stretch"));
     drawModeButton.setTooltip(TR("toolbar.draw"));
     splitModeButton.setTooltip(TR("toolbar.split"));
     followButton.setTooltip(TR("toolbar.follow"));
@@ -173,7 +179,7 @@ void ToolbarComponent::resized()
     // Calculate center section width for centering
     const int toolButtonSize = 32;
     const int toolContainerPadding = 4;
-    const int numToolButtons = pluginMode ? 3 : 5;
+    const int numToolButtons = pluginMode ? 4 : 6;
     const int toolContainerWidth = toolButtonSize * numToolButtons + toolContainerPadding * 2;
     const int playbackWidth = pluginMode ? 200 : 120;
     const int timeWidth = 160;
@@ -229,6 +235,8 @@ void ToolbarComponent::resized()
     int toolX = toolArea.getX();
     selectModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
     toolX += toolButtonSize;
+    stretchModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+    toolX += toolButtonSize;
     drawModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
     toolX += toolButtonSize;
     splitModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
@@ -275,6 +283,12 @@ void ToolbarComponent::buttonClicked(juce::Button* button)
         setEditMode(EditMode::Select);
         if (onEditModeChanged)
             onEditModeChanged(EditMode::Select);
+    }
+    else if (button == &stretchModeButton)
+    {
+        setEditMode(EditMode::Stretch);
+        if (onEditModeChanged)
+            onEditModeChanged(EditMode::Stretch);
     }
     else if (button == &drawModeButton)
     {
@@ -330,6 +344,7 @@ void ToolbarComponent::setEditMode(EditMode mode)
 {
     currentEditModeInt = static_cast<int>(mode);
     selectModeButton.setActive(mode == EditMode::Select);
+    stretchModeButton.setActive(mode == EditMode::Stretch);
     drawModeButton.setActive(mode == EditMode::Draw);
     splitModeButton.setActive(mode == EditMode::Split);
 }

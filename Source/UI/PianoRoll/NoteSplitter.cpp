@@ -1,5 +1,6 @@
 #include "NoteSplitter.h"
 #include "../../Utils/Constants.h"
+#include <algorithm>
 
 Note* NoteSplitter::findNoteAt(float x, float y) {
     if (!project || !coordMapper)
@@ -39,6 +40,23 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     // Store original note data for undo
     Note originalNote = *note;
 
+    // Ensure clip waveform exists before splitting
+    if (!note->hasClipWaveform()) {
+        auto& audioData = project->getAudioData();
+        if (audioData.waveform.getNumSamples() > 0) {
+            int startSample = startFrame * HOP_SIZE;
+            int endSample = endFrame * HOP_SIZE;
+            startSample = std::max(0, std::min(startSample, audioData.waveform.getNumSamples()));
+            endSample = std::max(startSample, std::min(endSample, audioData.waveform.getNumSamples()));
+            std::vector<float> clip;
+            clip.reserve(static_cast<size_t>(endSample - startSample));
+            const float* src = audioData.waveform.getReadPointer(0);
+            for (int i = startSample; i < endSample; ++i)
+                clip.push_back(src[i]);
+            note->setClipWaveform(std::move(clip));
+        }
+    }
+
     // Create the second note (right part)
     Note secondNote;
     secondNote.setStartFrame(splitFrame);
@@ -46,6 +64,17 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     secondNote.setMidiNote(note->getMidiNote());
     secondNote.setLyric(note->getLyric());
     secondNote.setPitchOffset(0.0f);
+
+    // Split clip waveform if available
+    if (note->hasClipWaveform()) {
+        const auto& clip = note->getClipWaveform();
+        int splitOffset = (splitFrame - startFrame) * HOP_SIZE;
+        splitOffset = std::max(0, std::min(splitOffset, static_cast<int>(clip.size())));
+        std::vector<float> leftClip(clip.begin(), clip.begin() + splitOffset);
+        std::vector<float> rightClip(clip.begin() + splitOffset, clip.end());
+        note->setClipWaveform(std::move(leftClip));
+        secondNote.setClipWaveform(std::move(rightClip));
+    }
 
     // Modify the first note (left part)
     note->setEndFrame(splitFrame);

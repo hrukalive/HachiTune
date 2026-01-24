@@ -1,5 +1,6 @@
 #include "PianoRollComponent.h"
 #include "../Utils/BasePitchCurve.h"
+#include "../Utils/CurveResampler.h"
 #include "../Utils/Constants.h"
 #include "../Utils/PitchCurveProcessor.h"
 #include <algorithm>
@@ -130,6 +131,7 @@ void PianoRollComponent::paint(juce::Graphics &g) {
     drawGrid(g);
     drawLoopOverlay(g);
     drawNotes(g);
+    drawStretchGuides(g);
     drawPitchCurves(g);
     drawSelectionRect(g);
   }
@@ -511,10 +513,10 @@ void PianoRollComponent::drawNotes(juce::Graphics &g) {
     return;
 
   const auto &audioData = project->getAudioData();
-  const float *samples = audioData.waveform.getNumSamples() > 0
-                             ? audioData.waveform.getReadPointer(0)
-                             : nullptr;
-  int totalSamples = audioData.waveform.getNumSamples();
+  const float *globalSamples = audioData.waveform.getNumSamples() > 0
+                                   ? audioData.waveform.getReadPointer(0)
+                                   : nullptr;
+  int globalTotalSamples = audioData.waveform.getNumSamples();
 
   // Calculate visible time range for culling
   double visibleStartTime = scrollX / pixelsPerSecond;
@@ -547,15 +549,29 @@ void PianoRollComponent::drawNotes(juce::Graphics &g) {
                                  ? juce::Colour(APP_COLOR_NOTE_SELECTED)
                                  : juce::Colour(APP_COLOR_NOTE_NORMAL);
 
-    if (samples && totalSamples > 0 && w > 2.0f) {
-      // Draw waveform slice inside note
-      int startSample = static_cast<int>(framesToSeconds(note.getStartFrame()) *
-                                         audioData.sampleRate);
-      int endSample = static_cast<int>(framesToSeconds(note.getEndFrame()) *
-                                       audioData.sampleRate);
+    const float *samples = globalSamples;
+    int totalSamples = globalTotalSamples;
+    int startSample = 0;
+    int endSample = 0;
+    const auto &clipWaveform = note.getClipWaveform();
+    if (!clipWaveform.empty()) {
+      samples = clipWaveform.data();
+      totalSamples = static_cast<int>(clipWaveform.size());
+      startSample = 0;
+      endSample = totalSamples;
+    } else if (samples && totalSamples > 0) {
+      startSample = static_cast<int>(framesToSeconds(note.getStartFrame()) *
+                                     audioData.sampleRate);
+      endSample = static_cast<int>(framesToSeconds(note.getEndFrame()) *
+                                   audioData.sampleRate);
       startSample = std::max(0, std::min(startSample, totalSamples - 1));
-      endSample = std::max(startSample + 1, std::min(endSample, totalSamples));
+      endSample = std::max(startSample + 1,
+                           std::min(endSample, totalSamples));
+    }
 
+    if (samples && totalSamples > 0 && w > 2.0f &&
+        endSample > startSample) {
+      // Draw waveform slice inside note
       int numNoteSamples = endSample - startSample;
       int samplesPerPixel = std::max(1, static_cast<int>(numNoteSamples / w));
 
@@ -778,6 +794,36 @@ void PianoRollComponent::drawNotes(juce::Graphics &g) {
                    noteY + dy + segmentLength, 2.0f);
       }
     }
+  }
+}
+
+void PianoRollComponent::drawStretchGuides(juce::Graphics &g) {
+  if (!project || editMode != EditMode::Stretch)
+    return;
+
+  auto boundaries = collectStretchBoundaries();
+  if (boundaries.empty())
+    return;
+
+  const float height =
+      (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
+
+  for (size_t i = 0; i < boundaries.size(); ++i) {
+    int frame = boundaries[i].frame;
+    const bool isActive =
+        stretchDrag.active && boundaries[i].left == stretchDrag.boundary.left &&
+        boundaries[i].right == stretchDrag.boundary.right;
+    if (isActive)
+      frame = stretchDrag.currentBoundary;
+
+    float x = framesToSeconds(frame) * pixelsPerSecond;
+
+    const bool isHovered = static_cast<int>(i) == hoveredStretchBoundaryIndex;
+    float alpha = isHovered || isActive ? 0.8f : 0.35f;
+    float thickness = isHovered || isActive ? 2.0f : 1.0f;
+
+    g.setColour(juce::Colour(APP_COLOR_PRIMARY).withAlpha(alpha));
+    g.drawLine(x, 0.0f, x, height, thickness);
   }
 }
 
@@ -1072,6 +1118,36 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e) {
   if (e.y < headerHeight || e.x < pianoKeysWidth)
     return;
 
+  if (editMode == EditMode::Stretch) {
+    int boundaryIndex =
+        findStretchBoundaryIndex(adjustedX, stretchHandleHitPadding);
+    if (boundaryIndex >= 0) {
+      auto boundaries = collectStretchBoundaries();
+      if (boundaryIndex < static_cast<int>(boundaries.size())) {
+        startStretchDrag(boundaries[static_cast<size_t>(boundaryIndex)]);
+        repaint();
+        return;
+      }
+    }
+
+    // In stretch mode, allow selecting notes but disable pitch dragging.
+    Note *note = findNoteAt(adjustedX, adjustedY);
+    if (note) {
+      project->deselectAllNotes();
+      note->setSelected(true);
+      if (onNoteSelected)
+        onNoteSelected(note);
+      repaint();
+      return;
+    }
+
+    // Box selection fallback
+    project->deselectAllNotes();
+    boxSelector->startSelection(adjustedX, adjustedY);
+    repaint();
+    return;
+  }
+
   if (editMode == EditMode::Draw) {
     // Start drawing
     isDrawing = true;
@@ -1221,6 +1297,19 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
     return;
   }
 
+  if (editMode == EditMode::Stretch && stretchDrag.active) {
+    const double time = xToTime(adjustedX);
+    const int targetFrame =
+        static_cast<int>(secondsToFrames(static_cast<float>(time)));
+    updateStretchDrag(targetFrame);
+
+    if (shouldRepaint) {
+      repaint();
+      lastDragRepaintTime = now;
+    }
+    return;
+  }
+
   if (editMode == EditMode::Draw && isDrawing) {
     applyPitchDrawing(adjustedX, adjustedY);
 
@@ -1299,6 +1388,12 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
   if (editMode == EditMode::Draw && isDrawing) {
     isDrawing = false;
     commitPitchDrawing();
+    repaint();
+    return;
+  }
+
+  if (editMode == EditMode::Stretch && stretchDrag.active) {
+    finishStretchDrag();
     repaint();
     return;
   }
@@ -1464,6 +1559,23 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e) {
     }
   } else {
     setMouseCursor(juce::MouseCursor::NormalCursor);
+  }
+
+  if (editMode == EditMode::Stretch) {
+    if (e.y >= headerHeight && e.x >= pianoKeysWidth) {
+      float adjustedX = e.x - pianoKeysWidth + static_cast<float>(scrollX);
+      int boundaryIndex =
+          findStretchBoundaryIndex(adjustedX, stretchHandleHitPadding);
+      hoveredStretchBoundaryIndex = boundaryIndex;
+      if (boundaryIndex >= 0) {
+        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+      } else {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+      }
+    } else {
+      hoveredStretchBoundaryIndex = -1;
+    }
+    repaint();
   }
 
   // Split mode guide line
@@ -1893,6 +2005,11 @@ void PianoRollComponent::centerOnPitchRange(float minMidi, float maxMidi) {
 }
 
 void PianoRollComponent::setEditMode(EditMode mode) {
+  if (editMode == EditMode::Stretch && mode != EditMode::Stretch &&
+      stretchDrag.active) {
+    cancelStretchDrag();
+  }
+
   editMode = mode;
 
   // Clear split guide when leaving split mode
@@ -1923,7 +2040,647 @@ void PianoRollComponent::setEditMode(EditMode mode) {
     setMouseCursor(juce::MouseCursor::NormalCursor);
   }
 
+  if (mode != EditMode::Stretch) {
+    hoveredStretchBoundaryIndex = -1;
+  }
+
   repaint();
+}
+
+std::vector<PianoRollComponent::StretchBoundary>
+PianoRollComponent::collectStretchBoundaries() const {
+  std::vector<StretchBoundary> boundaries;
+  if (!project)
+    return boundaries;
+
+  std::vector<Note *> ordered;
+  ordered.reserve(project->getNotes().size());
+  for (auto &note : project->getNotes()) {
+    if (!note.isRest())
+      ordered.push_back(&note);
+  }
+
+  std::sort(ordered.begin(), ordered.end(),
+            [](const Note *a, const Note *b) {
+              return a->getStartFrame() < b->getStartFrame();
+            });
+
+  for (size_t i = 0; i + 1 < ordered.size(); ++i) {
+    Note *left = ordered[i];
+    Note *right = ordered[i + 1];
+    int frame = left->getEndFrame();
+    boundaries.push_back({left, right, frame});
+  }
+
+  return boundaries;
+}
+
+int PianoRollComponent::findStretchBoundaryIndex(float worldX,
+                                                  float tolerancePx) const {
+  auto boundaries = collectStretchBoundaries();
+  int bestIndex = -1;
+  float bestDist = tolerancePx;
+
+  for (size_t i = 0; i < boundaries.size(); ++i) {
+    float boundaryX = framesToSeconds(boundaries[i].frame) * pixelsPerSecond;
+    float dist = std::abs(worldX - boundaryX);
+    if (dist <= bestDist) {
+      bestIndex = static_cast<int>(i);
+      bestDist = dist;
+    }
+  }
+
+  return bestIndex;
+}
+
+void PianoRollComponent::startStretchDrag(const StretchBoundary &boundary) {
+  if (!project || !boundary.left || !boundary.right)
+    return;
+
+  stretchDrag = {};
+  stretchDrag.active = true;
+  stretchDrag.boundary = boundary;
+  stretchDrag.originalBoundary = boundary.left->getEndFrame();
+  stretchDrag.originalLeftStart = boundary.left->getStartFrame();
+  stretchDrag.originalLeftEnd = boundary.left->getEndFrame();
+  stretchDrag.originalRightStart = boundary.right->getStartFrame();
+  stretchDrag.originalRightEnd = boundary.right->getEndFrame();
+  stretchDrag.currentBoundary = stretchDrag.originalBoundary;
+  stretchDrag.minFrame =
+      stretchDrag.originalLeftStart + minStretchNoteFrames;
+
+  auto &audioData = project->getAudioData();
+  const int totalFrames = static_cast<int>(audioData.f0.size());
+  if (totalFrames <= 0) {
+    stretchDrag.active = false;
+    return;
+  }
+
+  // Ensure all notes have clip waveforms so dragging never falls back to
+  // global waveform slicing.
+  if (audioData.waveform.getNumSamples() > 0) {
+    const float *src = audioData.waveform.getReadPointer(0);
+    const int totalSamples = audioData.waveform.getNumSamples();
+    for (auto &note : project->getNotes()) {
+      if (note.hasClipWaveform())
+        continue;
+      int startSample = note.getStartFrame() * HOP_SIZE;
+      int endSample = note.getEndFrame() * HOP_SIZE;
+      startSample = std::max(0, std::min(startSample, totalSamples));
+      endSample = std::max(startSample, std::min(endSample, totalSamples));
+      std::vector<float> clip;
+      clip.reserve(static_cast<size_t>(endSample - startSample));
+      for (int i = startSample; i < endSample; ++i)
+        clip.push_back(src[i]);
+      note.setClipWaveform(std::move(clip));
+    }
+  }
+
+  if (audioData.deltaPitch.size() < static_cast<size_t>(totalFrames))
+    audioData.deltaPitch.resize(static_cast<size_t>(totalFrames), 0.0f);
+  if (audioData.voicedMask.size() < static_cast<size_t>(totalFrames))
+    audioData.voicedMask.resize(static_cast<size_t>(totalFrames), true);
+
+  stretchDrag.rippleNotes.clear();
+  stretchDrag.originalNoteStarts.clear();
+  stretchDrag.originalNoteEnds.clear();
+  stretchDrag.originalLastEnd = 0;
+  stretchDrag.rightNoteIndex = -1;
+
+  for (auto &note : project->getNotes()) {
+    if (note.getStartFrame() >= stretchDrag.originalBoundary) {
+      stretchDrag.rippleNotes.push_back(&note);
+      stretchDrag.originalNoteStarts.push_back(note.getStartFrame());
+      stretchDrag.originalNoteEnds.push_back(note.getEndFrame());
+      stretchDrag.originalLastEnd =
+          std::max(stretchDrag.originalLastEnd, note.getEndFrame());
+      if (&note == boundary.right) {
+        stretchDrag.rightNoteIndex =
+            static_cast<int>(stretchDrag.rippleNotes.size() - 1);
+      }
+    }
+  }
+
+  if (stretchDrag.originalLastEnd <= 0) {
+    stretchDrag.active = false;
+    return;
+  }
+
+  int maxDeltaAllowed = totalFrames - stretchDrag.originalLastEnd;
+  if (maxDeltaAllowed < 0)
+    maxDeltaAllowed = 0;
+
+  stretchDrag.maxFrame = stretchDrag.originalBoundary + maxDeltaAllowed;
+  if (stretchDrag.originalBoundary < stretchDrag.minFrame) {
+    stretchDrag.active = false;
+    return;
+  }
+
+  int leftStart = std::max(0, stretchDrag.originalLeftStart);
+  int leftEnd = std::min(stretchDrag.originalLeftEnd, totalFrames);
+  stretchDrag.rangeStartFull = leftStart;
+  stretchDrag.rangeEndFull = std::min(totalFrames,
+                                      stretchDrag.originalLastEnd +
+                                          maxDeltaAllowed);
+
+  if (leftEnd <= leftStart || stretchDrag.rightNoteIndex < 0 ||
+      stretchDrag.rangeEndFull <= stretchDrag.rangeStartFull) {
+    stretchDrag.active = false;
+    return;
+  }
+
+  stretchDrag.leftDelta.assign(
+      audioData.deltaPitch.begin() + leftStart,
+      audioData.deltaPitch.begin() + leftEnd);
+  stretchDrag.leftVoiced.assign(
+      audioData.voicedMask.begin() + leftStart,
+      audioData.voicedMask.begin() + leftEnd);
+  int rightStart = std::max(0, stretchDrag.originalRightStart);
+  int rightEnd = std::min(stretchDrag.originalRightEnd, totalFrames);
+  if (rightEnd <= rightStart) {
+    stretchDrag.active = false;
+    return;
+  }
+  stretchDrag.rightDelta.assign(
+      audioData.deltaPitch.begin() + rightStart,
+      audioData.deltaPitch.begin() + rightEnd);
+  stretchDrag.rightVoiced.assign(
+      audioData.voicedMask.begin() + rightStart,
+      audioData.voicedMask.begin() + rightEnd);
+
+  if (boundary.left->hasClipWaveform())
+    stretchDrag.originalLeftClip = boundary.left->getClipWaveform();
+  if (boundary.right->hasClipWaveform())
+    stretchDrag.originalRightClip = boundary.right->getClipWaveform();
+
+  stretchDrag.originalDeltaRangeFull.assign(
+      audioData.deltaPitch.begin() + stretchDrag.rangeStartFull,
+      audioData.deltaPitch.begin() + stretchDrag.rangeEndFull);
+  stretchDrag.originalVoicedRangeFull.assign(
+      audioData.voicedMask.begin() + stretchDrag.rangeStartFull,
+      audioData.voicedMask.begin() + stretchDrag.rangeEndFull);
+
+  if (!audioData.melSpectrogram.empty() &&
+      stretchDrag.rangeStartFull <
+          static_cast<int>(audioData.melSpectrogram.size())) {
+    int melEnd = std::min(stretchDrag.rangeEndFull,
+                          static_cast<int>(audioData.melSpectrogram.size()));
+    stretchDrag.originalMelRangeFull.assign(
+        audioData.melSpectrogram.begin() + stretchDrag.rangeStartFull,
+        audioData.melSpectrogram.begin() + melEnd);
+  }
+}
+
+void PianoRollComponent::updateStretchDrag(int targetFrame) {
+  if (!stretchDrag.active || !project || !stretchDrag.boundary.left ||
+      !stretchDrag.boundary.right)
+    return;
+
+  targetFrame =
+      juce::jlimit(stretchDrag.minFrame, stretchDrag.maxFrame, targetFrame);
+  if (targetFrame == stretchDrag.currentBoundary)
+    return;
+
+  const int leftStart = stretchDrag.originalLeftStart;
+  const int newLeftLength = targetFrame - leftStart;
+  if (newLeftLength < minStretchNoteFrames)
+    return;
+
+  stretchDrag.currentBoundary = targetFrame;
+  stretchDrag.changed = true;
+
+  auto &audioData = project->getAudioData();
+  const int totalFrames = static_cast<int>(audioData.deltaPitch.size());
+  if (audioData.deltaPitch.size() < static_cast<size_t>(totalFrames))
+    audioData.deltaPitch.resize(static_cast<size_t>(totalFrames), 0.0f);
+  if (audioData.voicedMask.size() < static_cast<size_t>(totalFrames))
+    audioData.voicedMask.resize(static_cast<size_t>(totalFrames), true);
+
+  // Restore original region to avoid cumulative errors during drag.
+  if (!stretchDrag.originalDeltaRangeFull.empty() &&
+      !stretchDrag.originalVoicedRangeFull.empty()) {
+    for (int i = stretchDrag.rangeStartFull;
+         i < stretchDrag.rangeEndFull; ++i) {
+      int idx = i - stretchDrag.rangeStartFull;
+      audioData.deltaPitch[static_cast<size_t>(i)] =
+          stretchDrag.originalDeltaRangeFull[static_cast<size_t>(idx)];
+      audioData.voicedMask[static_cast<size_t>(i)] =
+          stretchDrag.originalVoicedRangeFull[static_cast<size_t>(idx)];
+    }
+  }
+
+  auto newLeftDelta =
+      CurveResampler::resampleLinear(stretchDrag.leftDelta, newLeftLength);
+  auto newLeftVoiced =
+      CurveResampler::resampleNearest(stretchDrag.leftVoiced, newLeftLength);
+
+  for (int i = 0; i < newLeftLength; ++i) {
+    audioData.deltaPitch[static_cast<size_t>(leftStart + i)] =
+        newLeftDelta[static_cast<size_t>(i)];
+    audioData.voicedMask[static_cast<size_t>(leftStart + i)] =
+        newLeftVoiced[static_cast<size_t>(i)];
+  }
+
+  if (!stretchDrag.originalLeftClip.empty()) {
+    const int newLeftSamples =
+        std::max(0, newLeftLength * HOP_SIZE);
+    auto newLeftClip =
+        CurveResampler::resampleLinear(stretchDrag.originalLeftClip,
+                                       newLeftSamples);
+    stretchDrag.boundary.left->setClipWaveform(std::move(newLeftClip));
+  }
+
+  const int originalBoundary = stretchDrag.originalBoundary;
+  const int originalLeftEnd = stretchDrag.originalLeftEnd;
+
+  if (targetFrame < originalBoundary) {
+    // Shrink left, extend right (no ripple).
+    for (size_t i = 0; i < stretchDrag.rippleNotes.size(); ++i) {
+      stretchDrag.rippleNotes[i]->setStartFrame(
+          stretchDrag.originalNoteStarts[i]);
+      stretchDrag.rippleNotes[i]->setEndFrame(
+          stretchDrag.originalNoteEnds[i]);
+      stretchDrag.rippleNotes[i]->markDirty();
+    }
+
+    const int newRightLength = stretchDrag.originalRightEnd - targetFrame;
+    auto newRightDelta =
+        CurveResampler::resampleLinear(stretchDrag.rightDelta, newRightLength);
+    auto newRightVoiced =
+        CurveResampler::resampleNearest(stretchDrag.rightVoiced, newRightLength);
+
+    for (int i = 0; i < newRightLength; ++i) {
+      audioData.deltaPitch[static_cast<size_t>(targetFrame + i)] =
+          newRightDelta[static_cast<size_t>(i)];
+      audioData.voicedMask[static_cast<size_t>(targetFrame + i)] =
+          newRightVoiced[static_cast<size_t>(i)];
+    }
+
+    if (stretchDrag.rightNoteIndex >= 0) {
+      auto *rightNote =
+          stretchDrag
+              .rippleNotes[static_cast<size_t>(stretchDrag.rightNoteIndex)];
+      if (rightNote) {
+        rightNote->setStartFrame(targetFrame);
+        rightNote->setEndFrame(stretchDrag.originalRightEnd);
+        rightNote->markDirty();
+        if (!stretchDrag.originalRightClip.empty()) {
+          const int newRightSamples =
+              std::max(0, newRightLength * HOP_SIZE);
+          auto newRightClip =
+              CurveResampler::resampleLinear(stretchDrag.originalRightClip,
+                                             newRightSamples);
+          rightNote->setClipWaveform(std::move(newRightClip));
+        }
+      }
+    }
+  } else if (targetFrame == originalBoundary) {
+    // Restore positions to original.
+    for (size_t i = 0; i < stretchDrag.rippleNotes.size(); ++i) {
+      stretchDrag.rippleNotes[i]->setStartFrame(
+          stretchDrag.originalNoteStarts[i]);
+      stretchDrag.rippleNotes[i]->setEndFrame(
+          stretchDrag.originalNoteEnds[i]);
+      stretchDrag.rippleNotes[i]->markDirty();
+    }
+    if (!stretchDrag.originalLeftClip.empty())
+      stretchDrag.boundary.left->setClipWaveform(stretchDrag.originalLeftClip);
+    if (stretchDrag.rightNoteIndex >= 0 &&
+        !stretchDrag.originalRightClip.empty()) {
+      auto *rightNote =
+          stretchDrag
+              .rippleNotes[static_cast<size_t>(stretchDrag.rightNoteIndex)];
+      if (rightNote)
+        rightNote->setClipWaveform(stretchDrag.originalRightClip);
+    }
+  } else if (targetFrame > originalBoundary) {
+    // Extend left and ripple all notes to the right.
+    const int delta = targetFrame - originalBoundary;
+    for (size_t i = 0; i < stretchDrag.rippleNotes.size(); ++i) {
+      stretchDrag.rippleNotes[i]->setStartFrame(
+          stretchDrag.originalNoteStarts[i] + delta);
+      stretchDrag.rippleNotes[i]->setEndFrame(
+          stretchDrag.originalNoteEnds[i] + delta);
+      stretchDrag.rippleNotes[i]->markDirty();
+    }
+    if (stretchDrag.rightNoteIndex >= 0 &&
+        !stretchDrag.originalRightClip.empty()) {
+      auto *rightNote =
+          stretchDrag
+              .rippleNotes[static_cast<size_t>(stretchDrag.rightNoteIndex)];
+      if (rightNote)
+        rightNote->setClipWaveform(stretchDrag.originalRightClip);
+    }
+
+    const int blockStart = originalBoundary;
+    const int blockEnd = stretchDrag.originalLastEnd;
+    const int blockLen = blockEnd - blockStart;
+    if (blockLen > 0) {
+      int srcOffset = blockStart - stretchDrag.rangeStartFull;
+      for (int i = 0; i < blockLen; ++i) {
+        int dst = blockStart + delta + i;
+        if (dst >= 0 && dst < totalFrames) {
+          audioData.deltaPitch[static_cast<size_t>(dst)] =
+              stretchDrag.originalDeltaRangeFull[static_cast<size_t>(srcOffset + i)];
+          audioData.voicedMask[static_cast<size_t>(dst)] =
+              stretchDrag.originalVoicedRangeFull[static_cast<size_t>(srcOffset + i)];
+        }
+      }
+    }
+  }
+
+  stretchDrag.boundary.left->setEndFrame(targetFrame);
+  stretchDrag.boundary.left->markDirty();
+
+  PitchCurveProcessor::rebuildBaseFromNotes(*project);
+  PitchCurveProcessor::composeF0InPlace(*project, /*applyUvMask=*/false);
+  invalidateBasePitchCache();
+
+  if (onPitchEdited)
+    onPitchEdited();
+}
+
+void PianoRollComponent::finishStretchDrag() {
+  if (!stretchDrag.active || !project) {
+    stretchDrag = {};
+    return;
+  }
+
+  if (!stretchDrag.changed) {
+    cancelStretchDrag();
+    return;
+  }
+
+  auto &audioData = project->getAudioData();
+  const int totalFrames = static_cast<int>(audioData.deltaPitch.size());
+  const int currentBoundary = stretchDrag.currentBoundary;
+  const int originalBoundary = stretchDrag.originalBoundary;
+  const int delta = std::max(0, currentBoundary - originalBoundary);
+  int rangeStart = std::clamp(stretchDrag.rangeStartFull, 0, totalFrames);
+  int rangeEnd = rangeStart;
+  if (currentBoundary < originalBoundary) {
+    rangeEnd = std::clamp(stretchDrag.originalRightEnd, 0, totalFrames);
+  } else {
+    rangeEnd = std::clamp(stretchDrag.originalLastEnd + delta, 0, totalFrames);
+  }
+  if (rangeEnd <= rangeStart) {
+    cancelStretchDrag();
+    return;
+  }
+
+  std::vector<float> newDelta(
+      audioData.deltaPitch.begin() + rangeStart,
+      audioData.deltaPitch.begin() + rangeEnd);
+  std::vector<bool> newVoiced(
+      audioData.voicedMask.begin() + rangeStart,
+      audioData.voicedMask.begin() + rangeEnd);
+  std::vector<std::vector<float>> newMel;
+  if (!audioData.melSpectrogram.empty() &&
+      rangeEnd <= static_cast<int>(audioData.melSpectrogram.size())) {
+    if (currentBoundary < originalBoundary) {
+      const int leftLen = currentBoundary - stretchDrag.originalLeftStart;
+      const int rightLen = stretchDrag.originalRightEnd - currentBoundary;
+      const int leftOffset =
+          stretchDrag.originalLeftStart - stretchDrag.rangeStartFull;
+      const int rightOffset =
+          stretchDrag.originalRightStart - stretchDrag.rangeStartFull;
+      std::vector<std::vector<float>> leftMel;
+      std::vector<std::vector<float>> rightMel;
+      if (leftOffset >= 0 &&
+          leftOffset + (stretchDrag.originalLeftEnd - stretchDrag.originalLeftStart) <=
+              static_cast<int>(stretchDrag.originalMelRangeFull.size())) {
+        leftMel.assign(
+            stretchDrag.originalMelRangeFull.begin() + leftOffset,
+            stretchDrag.originalMelRangeFull.begin() + leftOffset +
+                (stretchDrag.originalLeftEnd - stretchDrag.originalLeftStart));
+      }
+      if (rightOffset >= 0 &&
+          rightOffset + (stretchDrag.originalRightEnd - stretchDrag.originalRightStart) <=
+              static_cast<int>(stretchDrag.originalMelRangeFull.size())) {
+        rightMel.assign(
+            stretchDrag.originalMelRangeFull.begin() + rightOffset,
+            stretchDrag.originalMelRangeFull.begin() + rightOffset +
+                (stretchDrag.originalRightEnd - stretchDrag.originalRightStart));
+      }
+      auto newLeftMel = CurveResampler::resampleLinear2D(leftMel, leftLen);
+      auto newRightMel = CurveResampler::resampleLinear2D(rightMel, rightLen);
+      newMel.reserve(static_cast<size_t>(leftLen + rightLen));
+      newMel.insert(newMel.end(), newLeftMel.begin(), newLeftMel.end());
+      newMel.insert(newMel.end(), newRightMel.begin(), newRightMel.end());
+    } else if (currentBoundary > originalBoundary) {
+      const int leftLen = currentBoundary - stretchDrag.originalLeftStart;
+      const int leftOffset =
+          stretchDrag.originalLeftStart - stretchDrag.rangeStartFull;
+      std::vector<std::vector<float>> leftMel;
+      if (leftOffset >= 0 &&
+          leftOffset + (stretchDrag.originalLeftEnd - stretchDrag.originalLeftStart) <=
+              static_cast<int>(stretchDrag.originalMelRangeFull.size())) {
+        leftMel.assign(
+            stretchDrag.originalMelRangeFull.begin() + leftOffset,
+            stretchDrag.originalMelRangeFull.begin() + leftOffset +
+                (stretchDrag.originalLeftEnd - stretchDrag.originalLeftStart));
+      }
+      auto newLeftMel = CurveResampler::resampleLinear2D(leftMel, leftLen);
+
+      const int blockStart = originalBoundary;
+      const int blockEnd = stretchDrag.originalLastEnd;
+      const int blockLen = blockEnd - blockStart;
+      const int melOffset = blockStart - stretchDrag.rangeStartFull;
+      std::vector<std::vector<float>> blockMel;
+      if (blockLen > 0 && melOffset >= 0 &&
+          melOffset + blockLen <= static_cast<int>(stretchDrag.originalMelRangeFull.size())) {
+        blockMel.assign(
+            stretchDrag.originalMelRangeFull.begin() + melOffset,
+            stretchDrag.originalMelRangeFull.begin() + melOffset + blockLen);
+      }
+
+      newMel.resize(static_cast<size_t>(rangeEnd - rangeStart));
+      // Fill left mel.
+      for (int i = 0; i < leftLen && i < static_cast<int>(newMel.size()); ++i)
+        newMel[static_cast<size_t>(i)] = newLeftMel[static_cast<size_t>(i)];
+
+      // Shift block mel to the right.
+      const int deltaFrames = currentBoundary - originalBoundary;
+      for (int i = 0; i < blockLen; ++i) {
+        int dst = (blockStart - rangeStart) + deltaFrames + i;
+        if (dst >= 0 && dst < static_cast<int>(newMel.size())) {
+          newMel[static_cast<size_t>(dst)] = blockMel[static_cast<size_t>(i)];
+        }
+      }
+    }
+
+    if (!newMel.empty() &&
+        static_cast<int>(newMel.size()) == (rangeEnd - rangeStart)) {
+      for (int i = rangeStart; i < rangeEnd; ++i)
+        audioData.melSpectrogram[static_cast<size_t>(i)] =
+            newMel[static_cast<size_t>(i - rangeStart)];
+    } else {
+      newMel.clear();
+    }
+  }
+
+  int newLeftStart = stretchDrag.boundary.left->getStartFrame();
+  int newLeftEnd = stretchDrag.boundary.left->getEndFrame();
+  std::vector<int> newStarts = stretchDrag.originalNoteStarts;
+  std::vector<int> newEnds = stretchDrag.originalNoteEnds;
+  std::vector<float> newLeftClip = stretchDrag.boundary.left->getClipWaveform();
+  std::vector<float> newRightClip;
+  if (stretchDrag.rightNoteIndex >= 0) {
+    auto *rightNote =
+        stretchDrag
+            .rippleNotes[static_cast<size_t>(stretchDrag.rightNoteIndex)];
+    if (rightNote)
+      newRightClip = rightNote->getClipWaveform();
+  }
+  if (currentBoundary > originalBoundary) {
+    for (size_t i = 0; i < newStarts.size(); ++i) {
+      newStarts[i] += delta;
+      newEnds[i] += delta;
+    }
+  } else if (currentBoundary < originalBoundary &&
+             stretchDrag.rightNoteIndex >= 0) {
+    newStarts[static_cast<size_t>(stretchDrag.rightNoteIndex)] = currentBoundary;
+    newEnds[static_cast<size_t>(stretchDrag.rightNoteIndex)] =
+        stretchDrag.originalRightEnd;
+  }
+
+  if (undoManager) {
+    int capturedRangeStart = rangeStart;
+    int capturedRangeEnd = rangeEnd;
+  std::vector<float> oldDelta;
+  std::vector<bool> oldVoiced;
+  std::vector<std::vector<float>> oldMel;
+  if (!stretchDrag.originalDeltaRangeFull.empty() &&
+      !stretchDrag.originalVoicedRangeFull.empty()) {
+    int offset = rangeStart - stretchDrag.rangeStartFull;
+    int count = rangeEnd - rangeStart;
+    if (offset >= 0 &&
+        offset + count <= static_cast<int>(stretchDrag.originalDeltaRangeFull.size())) {
+      oldDelta.assign(stretchDrag.originalDeltaRangeFull.begin() + offset,
+                      stretchDrag.originalDeltaRangeFull.begin() + offset + count);
+      oldVoiced.assign(stretchDrag.originalVoicedRangeFull.begin() + offset,
+                       stretchDrag.originalVoicedRangeFull.begin() + offset + count);
+    }
+  }
+  if (!stretchDrag.originalMelRangeFull.empty()) {
+    int offset = rangeStart - stretchDrag.rangeStartFull;
+    int count = rangeEnd - rangeStart;
+    if (offset >= 0 &&
+        offset + count <= static_cast<int>(stretchDrag.originalMelRangeFull.size())) {
+      oldMel.assign(stretchDrag.originalMelRangeFull.begin() + offset,
+                    stretchDrag.originalMelRangeFull.begin() + offset + count);
+    }
+  }
+
+    auto action = std::make_unique<NoteTimingRippleAction>(
+        stretchDrag.boundary.left,
+        (stretchDrag.rightNoteIndex >= 0
+             ? stretchDrag
+                   .rippleNotes[static_cast<size_t>(stretchDrag.rightNoteIndex)]
+             : nullptr),
+        stretchDrag.rippleNotes,
+        &audioData.deltaPitch, &audioData.voicedMask, &audioData.melSpectrogram,
+        capturedRangeStart, capturedRangeEnd, stretchDrag.originalLeftStart,
+        stretchDrag.originalLeftEnd, newLeftStart, newLeftEnd,
+        stretchDrag.originalNoteStarts, stretchDrag.originalNoteEnds,
+        newStarts, newEnds, stretchDrag.originalLeftClip, newLeftClip,
+        stretchDrag.originalRightClip, newRightClip,
+        std::move(oldDelta), std::move(newDelta),
+        std::move(oldVoiced), std::move(newVoiced),
+        std::move(oldMel), std::move(newMel),
+        [this](int startFrame, int endFrame) {
+          if (!project)
+            return;
+          PitchCurveProcessor::rebuildBaseFromNotes(*project);
+          PitchCurveProcessor::composeF0InPlace(*project,
+                                                /*applyUvMask=*/false);
+          invalidateBasePitchCache();
+          const int f0Size =
+              static_cast<int>(project->getAudioData().f0.size());
+          int smoothStart = std::max(0, startFrame - 60);
+          int smoothEnd = std::min(f0Size, endFrame + 60);
+          project->setF0DirtyRange(smoothStart, smoothEnd);
+        });
+    undoManager->addAction(std::move(action));
+  }
+
+  const int f0Size = static_cast<int>(audioData.f0.size());
+  int smoothStart = std::max(0, rangeStart - 60);
+  int smoothEnd = std::min(f0Size, rangeEnd + 60);
+  project->setF0DirtyRange(smoothStart, smoothEnd);
+
+  if (onPitchEditFinished)
+    onPitchEditFinished();
+
+  stretchDrag = {};
+}
+
+void PianoRollComponent::cancelStretchDrag() {
+  if (!stretchDrag.active || !project) {
+    stretchDrag = {};
+    return;
+  }
+
+  auto &audioData = project->getAudioData();
+  const int totalFrames = static_cast<int>(audioData.deltaPitch.size());
+  int rangeStart = std::clamp(stretchDrag.rangeStartFull, 0, totalFrames);
+  int rangeEnd = std::clamp(stretchDrag.rangeEndFull, 0, totalFrames);
+
+  if (rangeEnd > rangeStart &&
+      stretchDrag.originalDeltaRangeFull.size() ==
+          static_cast<size_t>(rangeEnd - rangeStart)) {
+    for (int i = rangeStart; i < rangeEnd; ++i)
+      audioData.deltaPitch[static_cast<size_t>(i)] =
+          stretchDrag
+              .originalDeltaRangeFull[static_cast<size_t>(i - rangeStart)];
+  }
+
+  if (rangeEnd > rangeStart &&
+      stretchDrag.originalVoicedRangeFull.size() ==
+          static_cast<size_t>(rangeEnd - rangeStart)) {
+    for (int i = rangeStart; i < rangeEnd; ++i)
+      audioData.voicedMask[static_cast<size_t>(i)] =
+          stretchDrag
+              .originalVoicedRangeFull[static_cast<size_t>(i - rangeStart)];
+  }
+
+  if (!stretchDrag.originalMelRangeFull.empty() &&
+      rangeStart < rangeEnd &&
+      audioData.melSpectrogram.size() >=
+          static_cast<size_t>(rangeStart + stretchDrag.originalMelRangeFull.size())) {
+    for (size_t i = 0; i < stretchDrag.originalMelRangeFull.size(); ++i)
+      audioData.melSpectrogram[static_cast<size_t>(rangeStart) + i] =
+          stretchDrag.originalMelRangeFull[i];
+  }
+
+  if (stretchDrag.boundary.left) {
+    stretchDrag.boundary.left->setStartFrame(stretchDrag.originalLeftStart);
+    stretchDrag.boundary.left->setEndFrame(stretchDrag.originalLeftEnd);
+    if (!stretchDrag.originalLeftClip.empty())
+      stretchDrag.boundary.left->setClipWaveform(stretchDrag.originalLeftClip);
+  }
+  for (size_t i = 0; i < stretchDrag.rippleNotes.size(); ++i) {
+    stretchDrag.rippleNotes[i]->setStartFrame(
+        stretchDrag.originalNoteStarts[i]);
+    stretchDrag.rippleNotes[i]->setEndFrame(stretchDrag.originalNoteEnds[i]);
+  }
+  if (stretchDrag.rightNoteIndex >= 0 &&
+      !stretchDrag.originalRightClip.empty()) {
+    auto *rightNote =
+        stretchDrag
+            .rippleNotes[static_cast<size_t>(stretchDrag.rightNoteIndex)];
+    if (rightNote)
+      rightNote->setClipWaveform(stretchDrag.originalRightClip);
+  }
+
+  PitchCurveProcessor::rebuildBaseFromNotes(*project);
+  PitchCurveProcessor::composeF0InPlace(*project, /*applyUvMask=*/false);
+  invalidateBasePitchCache();
+
+  if (onPitchEdited)
+    onPitchEdited();
+
+  stretchDrag = {};
 }
 
 Note *PianoRollComponent::findNoteAt(float x, float y) {

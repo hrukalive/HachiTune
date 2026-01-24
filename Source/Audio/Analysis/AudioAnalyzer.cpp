@@ -1,4 +1,5 @@
 #include "AudioAnalyzer.h"
+#include "../../Utils/Constants.h"
 #include "../../Utils/PlatformPaths.h"
 #include <climits>
 
@@ -343,6 +344,22 @@ void AudioAnalyzer::segmentWithSOME(Project &project) {
           std::vector<float> f0Values(audioData.f0.begin() + f0Start,
                                       audioData.f0.begin() + f0End);
           note.setF0Values(std::move(f0Values));
+          if (audioData.waveform.getNumSamples() > 0) {
+            int startSample = f0Start * HOP_SIZE;
+            int endSample = f0End * HOP_SIZE;
+            startSample =
+                std::max(0, std::min(startSample,
+                                     audioData.waveform.getNumSamples()));
+            endSample = std::max(startSample,
+                                 std::min(endSample,
+                                          audioData.waveform.getNumSamples()));
+            std::vector<float> clip;
+            clip.reserve(static_cast<size_t>(endSample - startSample));
+            const float *src = audioData.waveform.getReadPointer(0);
+            for (int i = startSample; i < endSample; ++i)
+              clip.push_back(src[i]);
+            note.setClipWaveform(std::move(clip));
+          }
           notes.push_back(note);
         }
       },
@@ -379,6 +396,21 @@ void AudioAnalyzer::segmentFallback(Project &project) {
     std::vector<float> f0Values(audioData.f0.begin() + start,
                                 audioData.f0.begin() + end);
     note.setF0Values(std::move(f0Values));
+    if (audioData.waveform.getNumSamples() > 0) {
+      int startSample = start * HOP_SIZE;
+      int endSample = end * HOP_SIZE;
+      startSample = std::max(0, std::min(startSample,
+                                         audioData.waveform.getNumSamples()));
+      endSample = std::max(startSample,
+                           std::min(endSample,
+                                    audioData.waveform.getNumSamples()));
+      std::vector<float> clip;
+      clip.reserve(static_cast<size_t>(endSample - startSample));
+      const float *src = audioData.waveform.getReadPointer(0);
+      for (int i = startSample; i < endSample; ++i)
+        clip.push_back(src[i]);
+      note.setClipWaveform(std::move(clip));
+    }
     notes.push_back(note);
   };
 

@@ -105,6 +105,7 @@ private:
 
     // Edit mode buttons
     ToolButton selectModeButton { "Select" };
+    ToolButton stretchModeButton { "Stretch" };
     ToolButton drawModeButton { "Draw" };
     ToolButton splitModeButton { "Split" };
     ToolButton followButton { "Follow" };
@@ -135,7 +136,7 @@ private:
     bool isPlaying = false;
     bool followPlayback = true;
     bool loopEnabled = false;
-    int currentEditModeInt = 0;  // 0 = Select, 1 = Draw, 2 = Split
+    int currentEditModeInt = 0;  // 0 = Select, 1 = Stretch, 2 = Draw, 3 = Split
 
 #if JUCE_MAC
     juce::ComponentDragger dragger;

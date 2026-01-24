@@ -24,6 +24,7 @@ class PitchUndoManager;
  */
 enum class EditMode {
   Select, // Normal selection and dragging
+  Stretch, // Stretch note timing
   Draw,   // Pitch drawing mode
   Split   // Note splitting mode
 };
@@ -127,6 +128,7 @@ private:
   void drawDrawingCursor(juce::Graphics &g); // Draw mode indicator
   void drawSelectionRect(juce::Graphics &g); // Box selection rectangle
   void drawLoopOverlay(juce::Graphics &g);
+  void drawStretchGuides(juce::Graphics &g);
 
   float midiToY(float midiNote) const;
   float yToMidi(float y) const;
@@ -141,6 +143,50 @@ private:
   void prepareDragBasePreview();
   void applyDragBasePreview(float pitchOffsetSemitones);
   void restoreDragBasePreview();
+  struct StretchBoundary {
+    Note *left = nullptr;
+    Note *right = nullptr;
+    int frame = 0;
+  };
+
+  struct StretchDragState {
+    bool active = false;
+    bool changed = false;
+    StretchBoundary boundary;
+    int originalBoundary = 0;
+    int originalLeftStart = 0;
+    int originalLeftEnd = 0;
+    int originalRightStart = 0;
+    int originalRightEnd = 0;
+    int rightNoteIndex = -1;
+    int originalLastEnd = 0;
+    int rangeStartFull = 0;
+    int rangeEndFull = 0;
+    int rangeStart = 0;
+    int rangeEnd = 0;
+    int minFrame = 0;
+    int maxFrame = 0;
+    int currentBoundary = 0;
+    std::vector<float> leftDelta;
+    std::vector<float> rightDelta;
+    std::vector<bool> leftVoiced;
+    std::vector<bool> rightVoiced;
+    std::vector<float> originalLeftClip;
+    std::vector<float> originalRightClip;
+    std::vector<std::vector<float>> originalMelRangeFull;
+    std::vector<Note *> rippleNotes;
+    std::vector<int> originalNoteStarts;
+    std::vector<int> originalNoteEnds;
+    std::vector<float> originalDeltaRangeFull;
+    std::vector<bool> originalVoicedRangeFull;
+  };
+
+  std::vector<StretchBoundary> collectStretchBoundaries() const;
+  int findStretchBoundaryIndex(float worldX, float tolerancePx) const;
+  void startStretchDrag(const StretchBoundary &boundary);
+  void updateStretchDrag(int targetFrame);
+  void finishStretchDrag();
+  void cancelStretchDrag();
 
   // Pitch drawing helpers
   void applyPitchDrawing(float x, float y);
@@ -209,6 +255,12 @@ private:
   float splitGuideX =
       -1.0f; // World X coordinate for split guide line (-1 = hidden)
   Note *splitGuideNote = nullptr; // Note being hovered for split
+
+  // Stretch mode state
+  StretchDragState stretchDrag;
+  int hoveredStretchBoundaryIndex = -1;
+  static constexpr float stretchHandleHitPadding = 6.0f;
+  static constexpr int minStretchNoteFrames = 3;
 
   // Loop range drag state
   enum class LoopDragMode {

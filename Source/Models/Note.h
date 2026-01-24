@@ -59,6 +59,11 @@ public:
     // Get F0 values based on current midiNote + deltaPitch
     std::vector<float> computeF0FromDelta() const;
 
+    // Waveform clip (original samples for this note)
+    const std::vector<float>& getClipWaveform() const { return clipWaveform; }
+    void setClipWaveform(std::vector<float> samples) { clipWaveform = std::move(samples); }
+    bool hasClipWaveform() const { return !clipWaveform.empty(); }
+
     // Selection
     bool isSelected() const { return selected; }
     void setSelected(bool sel) { selected = sel; }
@@ -100,6 +105,7 @@ private:
     float vibratoPhaseRadians = 0.0f;
 
     std::vector<float> f0Values;
+    std::vector<float> clipWaveform;
     bool selected = false;
     bool dirty = false;  // For incremental synthesis
     bool rest = false;   // Rest note (silence placeholder)
