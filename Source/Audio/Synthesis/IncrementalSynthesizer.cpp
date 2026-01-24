@@ -159,6 +159,7 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
   int hopSize = vocoder->getHopSize();
   int capturedStartFrame = startFrame;
+  int capturedEndFrame = endFrame;
 
   // Capture for lambda
   auto capturedCancelFlag = cancelFlag;
@@ -169,8 +170,9 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
   // Run vocoder inference asynchronously
   vocoder->inferAsync(
       melRange, adjustedF0Range,
-      [this, capturedCancelFlag, capturedProject, capturedStartFrame, hopSize,
-       currentJobId, onComplete](std::vector<float> synthesizedAudio) {
+      [this, capturedCancelFlag, capturedProject, capturedStartFrame,
+       capturedEndFrame, hopSize, currentJobId,
+       onComplete](std::vector<float> synthesizedAudio) {
         // If this callback is for an older job, ignore it completely.
         // (A newer job is running or has run, and must own completion.)
         if (currentJobId != jobId.load())
@@ -194,7 +196,8 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
         // Apply waveform replacement off the message thread to avoid UI stalls.
         // We keep job ordering by checking jobId again before committing.
         std::thread([this, capturedCancelFlag, capturedProject,
-                     capturedStartFrame, hopSize, currentJobId, onComplete,
+                     capturedStartFrame, capturedEndFrame, hopSize,
+                     currentJobId, onComplete,
                      synthesizedAudio = std::move(synthesizedAudio)]() mutable {
           // If superseded, abort silently
           if (currentJobId != jobId.load())
@@ -213,9 +216,38 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
           int numChannels = audioData.waveform.getNumChannels();
 
           int startSample = capturedStartFrame * hopSize;
-          int samplesToReplace = static_cast<int>(synthesizedAudio.size());
-          samplesToReplace =
-              std::min(samplesToReplace, totalSamples - startSample);
+          int expectedSamples =
+              std::max(0, (capturedEndFrame - capturedStartFrame) * hopSize);
+          if (expectedSamples <= 0) {
+            isBusy = false;
+            if (onComplete)
+              juce::MessageManager::callAsync(
+                  [onComplete]() { onComplete(false); });
+            return;
+          }
+
+          if (static_cast<int>(synthesizedAudio.size()) != expectedSamples) {
+            if (static_cast<int>(synthesizedAudio.size()) > expectedSamples) {
+              synthesizedAudio.resize(static_cast<size_t>(expectedSamples));
+            } else {
+              synthesizedAudio.resize(static_cast<size_t>(expectedSamples),
+                                      0.0f);
+            }
+          }
+
+          int samplesToReplace =
+              std::min(expectedSamples, totalSamples - startSample);
+          if (samplesToReplace <= 0) {
+            isBusy = false;
+            if (onComplete)
+              juce::MessageManager::callAsync(
+                  [onComplete]() { onComplete(false); });
+            return;
+          }
+
+          if (samplesToReplace < expectedSamples) {
+            synthesizedAudio.resize(static_cast<size_t>(samplesToReplace));
+          }
 
           if (samplesToReplace <= 0) {
             isBusy = false;

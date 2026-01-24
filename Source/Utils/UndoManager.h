@@ -403,15 +403,13 @@ private:
             left->setStartFrame(leftStart);
             left->setEndFrame(leftEnd);
             left->markDirty();
-            if (!leftClip.empty())
-                left->setClipWaveform(leftClip);
+            left->setClipWaveform(leftClip);
         }
         if (right) {
             right->setStartFrame(rightStart);
             right->setEndFrame(rightEnd);
             right->markDirty();
-            if (!rightClip.empty())
-                right->setClipWaveform(rightClip);
+            right->setClipWaveform(rightClip);
         }
 
         if (deltaPitchArray && rangeEnd > rangeStart &&
@@ -548,10 +546,9 @@ private:
             left->setStartFrame(leftStart);
             left->setEndFrame(leftEnd);
             left->markDirty();
-            if (!leftClip.empty())
-                left->setClipWaveform(leftClip);
+            left->setClipWaveform(leftClip);
         }
-        if (right && !rightClip.empty())
+        if (right)
             right->setClipWaveform(rightClip);
 
         for (size_t i = 0; i < rippleNotes.size() && i < noteStarts.size() && i < noteEnds.size(); ++i) {
