@@ -24,7 +24,6 @@ MainComponent::MainComponent(bool enableAudioDevice)
   project = std::make_unique<Project>();
   if (enableAudioDeviceFlag)
     audioEngine = std::make_unique<AudioEngine>();
-  pitchDetector = std::make_unique<PitchDetector>();
   fcpePitchDetector = std::make_unique<FCPEPitchDetector>();
   rmvpePitchDetector = std::make_unique<RMVPEPitchDetector>();
   vocoder = std::make_unique<Vocoder>();
@@ -110,7 +109,6 @@ MainComponent::MainComponent(bool enableAudioDevice)
   // Wire up modular components (after all detectors are initialized)
   audioAnalyzer->setFCPEDetector(fcpePitchDetector.get());
   audioAnalyzer->setRMVPEDetector(rmvpePitchDetector.get());
-  audioAnalyzer->setYINDetector(pitchDetector.get());
   audioAnalyzer->setSOMEDetector(someDetector.get());
 
   // Apply pitch detector type from settings
@@ -880,7 +878,7 @@ void MainComponent::analyzeAudio() {
     return;
 
   // Run analysis in background thread to avoid blocking UI
-  // All model inference (FCPE, YIN, SOME, vocoder) happens in background
+  // All model inference (FCPE, RMVPE, SOME, vocoder) happens in background
   juce::Component::SafePointer<MainComponent> safeThis(this);
 
   if (loaderThread.joinable())
@@ -929,7 +927,7 @@ void MainComponent::analyzeAudio(
     std::function<void()> onComplete) {
   // NOTE: This function performs all model inference operations.
   // It should ONLY be called from background threads to avoid blocking UI.
-  // All model inference (FCPE, YIN, SOME, vocoder, mel spectrogram) happens
+  // All model inference (FCPE, RMVPE, SOME, vocoder, mel spectrogram) happens
   // here.
 
   auto &audioData = targetProject.getAudioData();

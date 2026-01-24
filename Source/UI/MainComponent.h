@@ -5,7 +5,6 @@
 #include "../Audio/Engine/PlaybackController.h"
 #include "../Audio/FCPEPitchDetector.h"
 #include "../Audio/IO/AudioFileManager.h"
-#include "../Audio/PitchDetector.h"
 #include "../Audio/RMVPEPitchDetector.h"
 #include "../Audio/SOMEDetector.h"
 #include "../Audio/Synthesis/IncrementalSynthesizer.h"
@@ -118,7 +117,6 @@ private:
 
   std::unique_ptr<Project> project;
   std::unique_ptr<AudioEngine> audioEngine;
-  std::unique_ptr<PitchDetector> pitchDetector; // Fallback YIN detector
   std::unique_ptr<FCPEPitchDetector>
       fcpePitchDetector; // FCPE neural network detector (legacy)
   std::unique_ptr<RMVPEPitchDetector>

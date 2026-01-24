@@ -11,9 +11,6 @@ AudioAnalyzer::~AudioAnalyzer() {
 }
 
 void AudioAnalyzer::initialize() {
-  // Initialize pitch detectors
-  pitchDetector = std::make_unique<PitchDetector>(SAMPLE_RATE, HOP_SIZE);
-
   // Try to load RMVPE model (default)
   auto rmvpeModelPath =
       PlatformPaths::getModelsDirectory().getChildFile("rmvpe.onnx");
@@ -107,7 +104,7 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
     extracted = true;
   }
 
-  // Fallback chain: RMVPE -> FCPE -> YIN
+  // Fallback chain: RMVPE -> FCPE
   if (!extracted) {
     if (isRMVPEAvailable()) {
       DBG("Fallback: Using RMVPE pitch detector");
@@ -115,9 +112,6 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
     } else if (isFCPEAvailable()) {
       DBG("Fallback: Using FCPE pitch detector");
       extractF0WithFCPE(audioData, targetFrames);
-    } else {
-      DBG("Fallback: Using YIN pitch detector");
-      extractF0WithYIN(audioData);
     }
   }
 
@@ -284,16 +278,6 @@ void AudioAnalyzer::extractF0WithFCPE(AudioData &audioData, int targetFrames) {
   for (size_t i = 0; i < audioData.f0.size(); ++i) {
     audioData.voicedMask[i] = audioData.f0[i] > 0;
   }
-}
-
-void AudioAnalyzer::extractF0WithYIN(AudioData &audioData) {
-  const float *samples = audioData.waveform.getReadPointer(0);
-  int numSamples = audioData.waveform.getNumSamples();
-
-  auto *detector = pitchDetector ? pitchDetector.get() : externalPitchDetector;
-  auto [f0Values, voicedValues] = detector->extractF0(samples, numSamples);
-  audioData.f0 = std::move(f0Values);
-  audioData.voicedMask = std::move(voicedValues);
 }
 
 void AudioAnalyzer::segmentIntoNotes(Project &project) {

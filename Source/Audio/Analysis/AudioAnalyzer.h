@@ -7,7 +7,6 @@
 #include "../../Utils/MelSpectrogram.h"
 #include "../../Utils/PitchCurveProcessor.h"
 #include "../FCPEPitchDetector.h"
-#include "../PitchDetector.h"
 #include "../PitchDetectorType.h"
 #include "../RMVPEPitchDetector.h"
 #include "../SOMEDetector.h"
@@ -19,7 +18,7 @@
 /**
  * Coordinates audio analysis operations including:
  * - Mel spectrogram computation
- * - F0 (pitch) extraction using FCPE or YIN
+ * - F0 (pitch) extraction using RMVPE or FCPE
  * - F0 smoothing and interpolation
  * - Note segmentation using SOME model
  */
@@ -63,9 +62,6 @@ public:
   bool isAnalyzing() const { return isRunning.load(); }
 
   // Access to detectors for configuration
-  PitchDetector *getPitchDetector() {
-    return pitchDetector ? pitchDetector.get() : externalPitchDetector;
-  }
   FCPEPitchDetector *getFCPEDetector() {
     return fcpeDetector ? fcpeDetector.get() : externalFCPEDetector;
   }
@@ -83,9 +79,6 @@ public:
   void setRMVPEDetector(RMVPEPitchDetector *detector) {
     externalRMVPEDetector = detector;
   }
-  void setYINDetector(PitchDetector *detector) {
-    externalPitchDetector = detector;
-  }
   void setSOMEDetector(SOMEDetector *detector) {
     externalSOMEDetector = detector;
   }
@@ -97,22 +90,17 @@ private:
   // Extract F0 using FCPE
   void extractF0WithFCPE(AudioData &audioData, int targetFrames);
 
-  // Extract F0 using YIN
-  void extractF0WithYIN(AudioData &audioData);
-
   // Segment notes using SOME model
   void segmentWithSOME(Project &project);
 
   // Fallback segmentation based on F0 changes
   void segmentFallback(Project &project);
 
-  std::unique_ptr<PitchDetector> pitchDetector;
   std::unique_ptr<FCPEPitchDetector> fcpeDetector;
   std::unique_ptr<RMVPEPitchDetector> rmvpeDetector;
   std::unique_ptr<SOMEDetector> someDetector;
 
   // External detectors (optional, not owned)
-  PitchDetector *externalPitchDetector = nullptr;
   FCPEPitchDetector *externalFCPEDetector = nullptr;
   RMVPEPitchDetector *externalRMVPEDetector = nullptr;
   SOMEDetector *externalSOMEDetector = nullptr;

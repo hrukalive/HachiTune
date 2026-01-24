@@ -1,134 +1,123 @@
 <div align="center">
-  <h1> HachiTune </h1>
-
+  <h1>HachiTune</h1>
   <img src="logo.png" alt="Logo" width="300" />
-
-  <p>
-    A lightweight HachiTune built with JUCE framework, featuring FCPE pitch detection and neural vocoder synthesis.
-  </p>
-
-  <p>
-    <a href="#features">Features</a> •
-    <a href="#building">Building</a> •
-    <a href="#usage">Usage</a> •
-    <a href="#keyboard-shortcuts">Shortcuts</a>
-  </p>
+  <p>A lightweight pitch editor built with JUCE, featuring neural pitch detection and vocoder resynthesis for real-time preview.</p>
 </div>
+
+## Overview
+
+HachiTune is a standalone app and audio plugin for editing vocal pitch in a piano roll. It analyzes audio with neural pitch detectors, segments notes, and resynthesizes edits with a neural vocoder. The plugin supports both ARA hosts and a non-ARA capture workflow.
 
 ## Features
 
-- Piano roll interface for visualizing and editing pitch
-- FCPE (Fast Context-aware Pitch Estimation) neural pitch detection
-- ONNX Runtime vocoder integration with real-time preview
-- GPU acceleration support (CUDA, DirectML, CoreML)
-- VST3 and AU plugin formats with ARA support
-- Multi-language UI (English, 简体中文, 繁體中文, 日本語)
-- Undo/redo for pitch modifications
-- Real-time audio playback
-- Import WAV/MP3/FLAC, export WAV
+- Piano roll editing for pitch, timing, and note parameters
+- Neural pitch detection (RMVPE default, FCPE optional)
+- SOME-based note segmentation with F0 fallback
+- Real-time preview with neural vocoder resynthesis
+- Export audio and MIDI
+- Standalone app plus VST3/AU plugins (AAX optional)
+- GPU acceleration via CUDA or DirectML on Windows; CoreML path on macOS
+- Multi-language UI
 
-## Prerequisites
+## Requirements
 
 - CMake 3.22+
-- C++17 compatible compiler
+- C++17 compiler
 - Git (for submodules)
 
-### Platform-specific
+### Platform notes
 
 | Platform | Requirements |
-|----------|-------------|
-| Windows | Visual Studio 2019+, Windows SDK |
-| macOS | Xcode with command line tools |
-| Linux | GCC/Clang, ALSA dev libraries |
+| --- | --- |
+| Windows | Visual Studio 2019+ with C++ workload, Windows SDK |
+| macOS | Xcode + command line tools |
+| Linux | GCC/Clang, ALSA development libraries |
 
-## Building
+## Models and Assets
 
-### Quick Build
+The build expects required model files in `Resources/models` and will fail if any are missing:
+
+- `pc_nsf_hifigan.onnx` (vocoder)
+- `rmvpe.onnx`
+- `fcpe.onnx`
+- `some.onnx`
+- `cent_table.bin`
+- `mel_filterbank.bin`
+
+Other runtime assets live in `Resources/lang` and `Resources/fonts`.
+
+## Build
+
+### Submodules
 
 ```bash
-# Clone with submodules
-git clone --recursive https://github.com/KCKT0112/HachiTune.git
-cd HachiTune
-
-# Build
-./build.sh
+git submodule update --init --recursive
 ```
 
-### Manual Build
+### Configure
 
 ```bash
-# Initialize submodules
-git submodule update --init --recursive
-
-# Configure
 cmake -B build -DCMAKE_BUILD_TYPE=Release
+```
 
-# Build
+### Build
+
+```bash
 cmake --build build --config Release
 ```
 
-### Build Options
+### Optional flags
 
-| Option | Description |
-|--------|-------------|
-| `ARA_SDK_PATH` | Path to ARA SDK for ARA plugin support |
-| `ONNXRUNTIME_URL` | Custom ONNX Runtime download URL |
+- `-DUSE_CUDA=ON` Enable CUDA execution provider (Windows)
+- `-DUSE_DIRECTML=ON` Enable DirectML execution provider (Windows)
+- `-DUSE_ASIO=ON` Enable ASIO support (Windows)
+- `-DUSE_BUNDLED_CUDA_RUNTIME=ON` Bundle CUDA redistributables (Windows)
+- `-DUSE_BUNDLED_DIRECTML_RUNTIME=ON` Bundle DirectML runtime (Windows)
+- `-DONNXRUNTIME_VERSION=1.17.3` Override ONNX Runtime version
 
-### Output
+Notes:
+- CUDA and DirectML cannot be enabled at the same time.
+- ONNX Runtime is downloaded during CMake configure.
 
-Build artifacts are in `build/PitchEditorPlugin_artefacts/Release/`:
-- `HachiTune.app` - Standalone application (macOS)
-- `HachiTune.vst3` - VST3 plugin
-- `HachiTune.component` - AU plugin (macOS)
+## Plugin Formats
+
+- VST3 and AU are built by default.
+- AAX is built only when `AAX_SDK_PATH` is set and valid.
+- ARA is enabled when the `third_party/ARA_SDK` submodule is present.
 
 ## Usage
 
-1. **Open**: Load audio file (WAV/MP3/FLAC)
-2. **Analyze**: Audio is automatically analyzed for pitch
-3. **Edit**:
-   - Select mode: Click notes to select, drag to adjust pitch
-   - Draw mode: Draw directly on pitch curve
-4. **Preview**: Changes are synthesized in real-time
-5. **Export**: Save modified audio as WAV
+1. Open an audio file (WAV/MP3/FLAC/OGG).
+2. Analyze to extract pitch and notes.
+3. Edit notes and pitch curves in the piano roll.
+4. Preview changes in real time.
+5. Export audio or MIDI.
 
-## Keyboard Shortcuts
+### Plugin modes
 
-| Shortcut | Action |
-|----------|--------|
-| `Space` | Play/Pause |
-| `Escape` | Stop / Exit draw mode |
-| `D` | Toggle draw mode |
-| `Cmd/Ctrl+Z` | Undo |
-| `Cmd/Ctrl+Shift+Z` | Redo |
-| `Cmd/Ctrl+S` | Save project |
-| `Mouse wheel` | Scroll horizontally |
-| `Shift+wheel` | Scroll vertically |
-| `Cmd/Ctrl+wheel` | Zoom |
-
-## Settings
-
-Access via Edit > Settings:
-
-- **Language**: UI language selection
-- **Device**: Inference device (CPU/CUDA/DirectML/CoreML)
-- **GPU Device**: GPU selection for multi-GPU systems
-- **Threads**: CPU thread count (0 = auto)
-- **Audio**: Output device settings (standalone only)
+- **ARA mode**: Direct audio access in supported hosts (e.g., Studio One, Cubase, Logic).
+- **Non-ARA mode**: Auto-capture and process in hosts without ARA.
 
 ## Project Structure
 
 ```
 pitch_editor_juce/
-├── Source/
-│   ├── Audio/          # Audio engine, pitch detection, vocoder
-│   ├── Models/         # Note, Project data models
-│   ├── UI/             # UI components
-│   ├── Utils/          # Constants, localization, undo manager
-│   └── Plugin/         # VST3/AU plugin wrapper
-├── Resources/
-│   └── lang/           # Localization files
-├── third_party/
-│   ├── JUCE/           # JUCE framework (submodule)
-│   └── ARA_SDK/        # ARA SDK (submodule, optional)
-└── CMakeLists.txt
+  Source/
+    Audio/        # Audio engine, pitch detection, vocoder
+    Models/       # Project and note data
+    UI/           # UI components
+    Utils/        # Utilities, localization, undo
+    Plugin/       # VST3/AU/AAX/ARA integration
+  Resources/
+    models/       # Required ONNX + data files
+    lang/         # Localization JSON
+    fonts/        # UI fonts
+  third_party/
+    JUCE/         # JUCE submodule
+    ARA_SDK/      # ARA SDK submodule (optional)
+  CMakeLists.txt
 ```
+
+## License
+
+See `LICENSE`.
