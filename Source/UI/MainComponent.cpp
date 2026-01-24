@@ -529,7 +529,7 @@ void MainComponent::saveProject() {
           juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
               .getChildFile("Untitled.htpx");
 
-#if JUCE_WINDOWS
+#if JUCE_WINDOWS && JUCE_MODAL_LOOPS_PERMITTED
     juce::FileChooser chooser(TR("dialog.save_project"), target, "*.htpx",
                               true, false, this);
     if (!chooser.browseForFileToSave(true))
@@ -1130,7 +1130,7 @@ void MainComponent::exportFile() {
   if (fileChooser != nullptr)
     return;
 
-#if JUCE_WINDOWS
+#if JUCE_WINDOWS && JUCE_MODAL_LOOPS_PERMITTED
   juce::FileChooser chooser(TR("dialog.save_audio"), juce::File{}, "*.wav",
                             true, false, this);
   if (!chooser.browseForFileToSave(true))
@@ -1366,7 +1366,7 @@ void MainComponent::exportMidiFile() {
     defaultFile = project->getProjectFilePath().withFileExtension("mid");
   }
 
-#if JUCE_WINDOWS
+#if JUCE_WINDOWS && JUCE_MODAL_LOOPS_PERMITTED
   juce::FileChooser chooser(TR("dialog.export_midi"), defaultFile,
                             "*.mid;*.midi", true, false, this);
   if (!chooser.browseForFileToSave(true))
