@@ -78,6 +78,7 @@ public:
   // supports it)
   std::function<void(bool shouldPlay)> onRequestHostPlayState;
   std::function<void()> onRequestHostStop;
+  std::function<void(double timeInSeconds)> onRequestHostSeek;
 
   // Plugin mode - update playback position from host
   void updatePlaybackPosition(double timeSeconds);

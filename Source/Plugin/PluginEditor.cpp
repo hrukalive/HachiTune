@@ -20,6 +20,9 @@ HachiTuneAudioProcessorEditor::HachiTuneAudioProcessorEditor(
   AppLogger::init();
   AppFont::initialize();
 
+  // Enable keyboard focus for the editor
+  setWantsKeyboardFocus(true);
+
   addAndMakeVisible(mainComponent);
   audioProcessor.setMainComponent(&mainComponent);
 
@@ -42,6 +45,9 @@ HachiTuneAudioProcessorEditor::HachiTuneAudioProcessorEditor(
     setSize(WindowSizing::kDefaultWidth, WindowSizing::kDefaultHeight);
   }
   setResizable(true, true);
+
+  // Grab keyboard focus on mainComponent when editor is shown
+  mainComponent.grabKeyboardFocus();
 }
 
 HachiTuneAudioProcessorEditor::~HachiTuneAudioProcessorEditor() {
@@ -92,6 +98,10 @@ void HachiTuneAudioProcessorEditor::setupARAMode() {
     audioProcessor.requestHostStop();
   };
 
+  mainComponent.onRequestHostSeek = [this](double timeInSeconds) {
+    audioProcessor.requestHostSeek(timeInSeconds);
+  };
+
   // Check for existing audio sources
   auto *juceDocument = docController->getDocument();
   if (juceDocument) {
@@ -119,6 +129,19 @@ void HachiTuneAudioProcessorEditor::setupARAMode() {
 
 void HachiTuneAudioProcessorEditor::setupNonARAMode() {
   mainComponent.getToolbar().setARAMode(false);
+
+  // Setup host transport control callbacks for non-ARA mode
+  mainComponent.onRequestHostPlayState = [this](bool shouldPlay) {
+    audioProcessor.requestHostPlayState(shouldPlay);
+  };
+
+  mainComponent.onRequestHostStop = [this]() {
+    audioProcessor.requestHostStop();
+  };
+
+  mainComponent.onRequestHostSeek = [this](double timeInSeconds) {
+    audioProcessor.requestHostSeek(timeInSeconds);
+  };
 }
 
 void HachiTuneAudioProcessorEditor::setupCallbacks() {
@@ -148,4 +171,14 @@ void HachiTuneAudioProcessorEditor::paint(juce::Graphics &) {
 
 void HachiTuneAudioProcessorEditor::resized() {
   mainComponent.setBounds(getLocalBounds());
+}
+
+void HachiTuneAudioProcessorEditor::visibilityChanged() {
+  if (isVisible())
+    mainComponent.grabKeyboardFocus();
+}
+
+void HachiTuneAudioProcessorEditor::mouseDown(const juce::MouseEvent& e) {
+  juce::ignoreUnused(e);
+  mainComponent.grabKeyboardFocus();
 }

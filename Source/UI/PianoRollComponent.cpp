@@ -146,10 +146,10 @@ void PianoRollComponent::paint(juce::Graphics &g) {
               static_cast<float>(scrollX);
     float cursorTop = 0.0f;
     float cursorBottom =
-        static_cast<float>(getHeight() - 8); // Exclude scrollbar
+        static_cast<float>(getHeight() - scrollBarSize); // Exclude scrollbar
 
     // Only draw if cursor is in visible area
-    if (x >= pianoKeysWidth && x < getWidth() - 8) {
+    if (x >= pianoKeysWidth && x < getWidth() - scrollBarSize) {
       g.setColour(juce::Colours::white);
       g.fillRect(x - 0.5f, cursorTop, 1.0f, cursorBottom);
 
@@ -388,7 +388,7 @@ void PianoRollComponent::drawTimeline(juce::Graphics &g) {
   float duration = project ? project->getAudioData().getDuration() : 60.0f;
 
   // Draw ticks and labels
-  g.setFont(11.0f);
+  g.setFont(12.0f);
 
   for (float time = 0.0f; time <= duration + secondsPerTick;
        time += secondsPerTick) {
@@ -1022,7 +1022,7 @@ void PianoRollComponent::drawPianoKeys(juce::Graphics &g) {
 
     // Use dimmer color for black keys
     g.setColour(isBlack ? juce::Colour(0xFFAAAAAA) : juce::Colours::white);
-    g.setFont(12.0f);
+    g.setFont(13.0f);
     g.drawText(noteName, pianoKeysWidth - 36, static_cast<int>(y), 32,
                static_cast<int>(pixelsPerSemitone),
                juce::Justification::centred);
@@ -1939,6 +1939,17 @@ bool PianoRollComponent::keyPressed(const juce::KeyPress &key,
   }
 
   return false;
+}
+
+void PianoRollComponent::focusLost(FocusChangeType cause) {
+  juce::ignoreUnused(cause);
+  // Don't automatically re-grab focus - let the host manage focus normally
+  // Focus will be re-acquired when user clicks on the piano roll
+}
+
+void PianoRollComponent::focusGained(FocusChangeType cause) {
+  juce::ignoreUnused(cause);
+  // Focus gained - nothing special needed
 }
 
 void PianoRollComponent::setCursorTime(double time) {

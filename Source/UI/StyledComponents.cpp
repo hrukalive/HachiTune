@@ -83,7 +83,7 @@ void DarkLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle
         g.setColour(isActive ? juce::Colours::white : juce::Colours::grey);
     }
 
-    g.setFont(juce::Font(14.0f));
+    g.setFont(juce::Font(15.0f));
     g.drawFittedText(text, textArea, juce::Justification::centredLeft, 1);
 
     if (isTicked)

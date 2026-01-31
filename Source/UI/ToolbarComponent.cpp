@@ -147,7 +147,7 @@ ToolbarComponent::ToolbarComponent()
     addChildComponent(statusLabel);
     statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     statusLabel.setJustificationType(juce::Justification::centredLeft);
-    statusLabel.setFont(juce::Font(11.0f));
+    statusLabel.setFont(juce::Font(12.0f));
 }
 
 ToolbarComponent::~ToolbarComponent()

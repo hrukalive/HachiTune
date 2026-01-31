@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../Audio/Engine/PluginTransportController.h"
 #include "../Audio/RealtimePitchProcessor.h"
 #include "../JuceHeader.h"
 #include "HostCompatibility.h"
@@ -63,12 +64,50 @@ public:
   void setMainComponent(MainComponent *mc);
   MainComponent *getMainComponent() const { return mainComponent; }
 
-  // Host transport control (best-effort; host may ignore)
+  // ========== Host Transport Control ==========
+
+  /**
+   * Get the transport controller for host synchronization.
+   * Use this to control playback and receive transport state updates.
+   */
+  PluginTransportController& getTransportController() { return transportController; }
+
+  /**
+   * Request host to start/stop playback.
+   * @param shouldPlay true to start, false to pause
+   */
   void requestHostPlayState(bool shouldPlay) {
-    requestedPlayState.store(shouldPlay);
-    hasPendingPlayRequest.store(true);
+    transportController.requestPlay(shouldPlay);
   }
-  void requestHostStop() { stopRequested.store(true); }
+
+  /**
+   * Request host to stop and rewind to beginning.
+   */
+  void requestHostStop() {
+    transportController.requestStop();
+  }
+
+  /**
+   * Request host to seek to a specific position.
+   * @param timeInSeconds Target position in seconds
+   */
+  void requestHostSeek(double timeInSeconds) {
+    transportController.requestSeek(timeInSeconds);
+  }
+
+  /**
+   * Toggle play/pause state.
+   */
+  void toggleHostPlayPause() {
+    transportController.togglePlayPause();
+  }
+
+  /**
+   * Check if host supports transport control.
+   */
+  bool canControlHostTransport() const {
+    return transportController.canControlTransport();
+  }
 
   // Real-time processor access
   RealtimePitchProcessor &getRealtimeProcessor() { return realtimeProcessor; }
@@ -93,6 +132,7 @@ private:
                          const juce::AudioPlayHead::PositionInfo &posInfo,
                          bool isRealtime);
 
+  PluginTransportController transportController;
   RealtimePitchProcessor realtimeProcessor;
   MainComponent *mainComponent = nullptr;
   std::shared_ptr<HostUiSyncState> hostUiSyncState =
@@ -100,11 +140,6 @@ private:
   double hostSampleRate = 44100.0;
 
   juce::String pendingStateJson;
-
-  // Transport control requests from UI (executed on audio thread)
-  std::atomic<bool> requestedPlayState{false};
-  std::atomic<bool> hasPendingPlayRequest{false};
-  std::atomic<bool> stopRequested{false};
 
   // Non-ARA capture (Stage 2A): decoupled controller
   std::shared_ptr<NonAraCaptureController> captureController =

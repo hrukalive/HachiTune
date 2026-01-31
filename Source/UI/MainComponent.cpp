@@ -1621,13 +1621,14 @@ void MainComponent::stop() {
 }
 
 void MainComponent::seek(double time) {
-  // In plugin mode, seeking is controlled by the host
-  // We only update UI cursor position, but don't actually seek in audio
+  // In plugin mode, we can only update the UI cursor position
+  // The host controls the actual playback position (no seek API available)
   if (isPluginMode()) {
-    // In plugin mode, we can't seek directly
-    // The host controls playback position, we only update UI cursor
+    // Update UI cursor position only - don't try to control host
     pianoRoll.setCursorTime(time);
     toolbar.setCurrentTime(time);
+    // Note: We don't call onRequestHostSeek because hosts don't support seek
+    // The cursor position shown is for visual reference only
     return;
   }
 

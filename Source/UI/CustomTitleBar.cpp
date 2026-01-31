@@ -141,7 +141,7 @@ void CustomTitleBar::paint(juce::Graphics& g)
     g.fillAll(juce::Colour(TitleBarColors::background));
 
     g.setColour(juce::Colour(TitleBarColors::titleText));
-    g.setFont(13.0f);
+    g.setFont(14.0f);
 
 #if JUCE_MAC
     // Title after traffic lights area on macOS (traffic lights take ~70px)

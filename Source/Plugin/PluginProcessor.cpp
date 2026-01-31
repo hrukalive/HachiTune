@@ -115,19 +115,8 @@ void HachiTuneAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
   juce::ignoreUnused(midiMessages);
   juce::ScopedNoDenormals noDenormals;
 
-  // Best-effort host transport control (must be called from processBlock)
-  if (auto *playHead = getPlayHead()) {
-    if (playHead->canControlTransport()) {
-      if (stopRequested.exchange(false)) {
-        playHead->transportPlay(false);
-        playHead->transportRewind();
-      }
-
-      if (hasPendingPlayRequest.exchange(false)) {
-        playHead->transportPlay(requestedPlayState.load());
-      }
-    }
-  }
+  // Process transport control requests and update sync state
+  transportController.processBlock(getPlayHead(), hostSampleRate);
 
 #if JucePlugin_Enable_ARA
   // ARA mode: let ARA renderer handle audio

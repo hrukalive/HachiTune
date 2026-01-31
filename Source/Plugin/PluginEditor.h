@@ -16,6 +16,12 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    // Grab keyboard focus when editor becomes visible
+    void visibilityChanged() override;
+
+    // Handle mouse clicks to grab focus
+    void mouseDown(const juce::MouseEvent& e) override;
+
 private:
     void setupARAMode();
     void setupNonARAMode();

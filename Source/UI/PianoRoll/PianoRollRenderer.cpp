@@ -201,7 +201,7 @@ void PianoRollRenderer::drawTimeline(juce::Graphics &g, int width) {
   float duration = project ? project->getAudioData().getDuration() : 60.0f;
   double scrollX = coordMapper->getScrollX();
 
-  g.setFont(11.0f);
+  g.setFont(12.0f);
 
   for (float time = 0.0f; time <= duration + secondsPerTick;
        time += secondsPerTick) {
@@ -513,7 +513,7 @@ void PianoRollRenderer::drawPianoKeys(juce::Graphics &g, int height) {
         juce::String(noteNames[noteInOctave]) + juce::String(octave);
 
     g.setColour(isBlack ? juce::Colour(0xFFAAAAAA) : juce::Colours::white);
-    g.setFont(12.0f);
+    g.setFont(13.0f);
     g.drawText(noteName, CoordinateMapper::pianoKeysWidth - 36,
                static_cast<int>(y), 32, static_cast<int>(pixelsPerSemitone),
                juce::Justification::centred);

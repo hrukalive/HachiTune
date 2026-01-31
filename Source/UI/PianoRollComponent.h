@@ -31,6 +31,7 @@ enum class EditMode {
 
 /**
  * Piano roll component for displaying and editing notes.
+ * Supports DPI-aware scaling for multi-monitor setups.
  */
 class PianoRollComponent : public juce::Component,
                            public juce::ScrollBar::Listener,
@@ -49,6 +50,10 @@ public:
   void mouseWheelMove(const juce::MouseEvent &e,
                       const juce::MouseWheelDetails &wheel) override;
   void mouseMagnify(const juce::MouseEvent &e, float scaleFactor) override;
+
+  // Focus handling - re-grab focus when lost (important for plugin mode)
+  void focusLost(FocusChangeType cause) override;
+  void focusGained(FocusChangeType cause) override;
 
   // KeyListener
   bool keyPressed(const juce::KeyPress &key,
@@ -207,7 +212,7 @@ private:
   double scrollX = 0.0;
   double scrollY = 0.0;
 
-  // Piano keys area width
+  // Layout constants
   static constexpr int pianoKeysWidth = 60;
   static constexpr int timelineHeight = 24;
   static constexpr int loopTimelineHeight = 16;

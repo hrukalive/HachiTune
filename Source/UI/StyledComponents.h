@@ -2,12 +2,14 @@
 
 #include "../JuceHeader.h"
 #include "../Utils/Constants.h"
+#include "../Utils/DPIScaleManager.h"
 #include <cmath>
 
 /**
  * Global font manager - loads custom font from Resources/fonts/
  * Falls back to system font if not found.
  * Uses reference counting to support multiple plugin instances.
+ * Supports DPI-aware font scaling.
  */
 class AppFont
 {
@@ -80,6 +82,10 @@ public:
         }
     }
 
+    /**
+     * Get font with specified height (no DPI scaling applied).
+     * Use getScaledFont() for DPI-aware font sizing.
+     */
     static juce::Font getFont(float height = 14.0f)
     {
         auto& instance = getInstance();
@@ -96,6 +102,21 @@ public:
 #endif
     }
 
+    /**
+     * Get font with DPI-scaled height based on the component's display.
+     * @param baseHeight The logical font height (e.g., 14.0f)
+     * @param component The component to get DPI scale from (can be nullptr)
+     */
+    static juce::Font getScaledFont(float baseHeight, const juce::Component* component)
+    {
+        float scaledHeight = DPIScaleManager::scaleFont(baseHeight, component);
+        return getFont(scaledHeight);
+    }
+
+    /**
+     * Get bold font with specified height (no DPI scaling applied).
+     * Use getScaledBoldFont() for DPI-aware font sizing.
+     */
     static juce::Font getBoldFont(float height = 14.0f)
     {
         auto& instance = getInstance();
@@ -110,6 +131,17 @@ public:
 #else
         return juce::Font(height).boldened();
 #endif
+    }
+
+    /**
+     * Get bold font with DPI-scaled height based on the component's display.
+     * @param baseHeight The logical font height (e.g., 14.0f)
+     * @param component The component to get DPI scale from (can be nullptr)
+     */
+    static juce::Font getScaledBoldFont(float baseHeight, const juce::Component* component)
+    {
+        float scaledHeight = DPIScaleManager::scaleFont(baseHeight, component);
+        return getBoldFont(scaledHeight);
     }
 
     static bool isCustomFontLoaded()
@@ -142,22 +174,22 @@ public:
 
     juce::Font getTextButtonFont(juce::TextButton&, int) override
     {
-        return AppFont::getFont(14.0f);
+        return AppFont::getFont(15.0f);
     }
 
     juce::Font getLabelFont(juce::Label&) override
     {
-        return AppFont::getFont(14.0f);
+        return AppFont::getFont(15.0f);
     }
 
     juce::Font getComboBoxFont(juce::ComboBox&) override
     {
-        return AppFont::getFont(14.0f);
+        return AppFont::getFont(15.0f);
     }
 
     juce::Font getPopupMenuFont() override
     {
-        return AppFont::getFont(14.0f);
+        return AppFont::getFont(15.0f);
     }
 
     void drawPopupMenuBackground(juce::Graphics& g, int width, int height) override;
@@ -446,7 +478,7 @@ public:
 
         // Message text
         g.setColour(juce::Colours::lightgrey);
-        g.setFont(juce::Font(14.0f));
+        g.setFont(juce::Font(15.0f));
         g.drawMultiLineText(messageText, iconX, iconY + 5, getWidth() - iconX - 20, juce::Justification::topLeft);
     }
 
