@@ -28,6 +28,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   rmvpePitchDetector = std::make_unique<RMVPEPitchDetector>();
   vocoder = std::make_unique<Vocoder>();
   undoManager = std::make_unique<PitchUndoManager>(100);
+  commandManager = std::make_unique<juce::ApplicationCommandManager>();
 
   // Initialize new modular components
   fileManager = std::make_unique<AudioFileManager>();
@@ -242,6 +243,13 @@ MainComponent::MainComponent(bool enableAudioDevice)
   // Set initial project
   pianoRoll.setProject(project.get());
 
+  // Register commands with the command manager
+  commandManager->registerAllCommandsForTarget(this);
+
+  // Add command manager key mappings as a KeyListener
+  // This enables automatic keyboard shortcut dispatch
+  addKeyListener(commandManager->getKeyMappings());
+
   // Add keyboard listener
   addKeyListener(this);
   setWantsKeyboardFocus(true);
@@ -377,6 +385,7 @@ MainComponent::~MainComponent() {
   menuBar.setModel(nullptr);
   menuBar.setLookAndFeel(nullptr);
 #endif
+  removeKeyListener(commandManager->getKeyMappings());
   removeKeyListener(this);
   stopTimer();
 
@@ -2484,4 +2493,22 @@ void MainComponent::renderProcessedAudio() {
             });
         finishRendering();
       });
+}
+
+// ApplicationCommandTarget interface implementations
+juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget() {
+    return nullptr;
+}
+
+void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands) {
+    juce::ignoreUnused(commands);
+}
+
+void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result) {
+    juce::ignoreUnused(commandID, result);
+}
+
+bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo& info) {
+    juce::ignoreUnused(info);
+    return false;
 }
