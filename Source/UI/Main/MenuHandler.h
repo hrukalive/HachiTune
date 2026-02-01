@@ -23,14 +23,7 @@ public:
     juce::PopupMenu getMenuForIndex(int menuIndex, const juce::String& menuName) override;
     void menuItemSelected(int menuItemID, int topLevelMenuIndex) override;
 
-    // Callbacks
-    std::function<void()> onOpenFile;
-    std::function<void()> onSaveProject;
-    std::function<void()> onExportFile;
-    std::function<void()> onExportMidi;
-    std::function<void()> onUndo;
-    std::function<void()> onRedo;
-    std::function<void()> onShowSettings;
+    // Callbacks (non-command items only)
     std::function<void()> onQuit;
     std::function<void(bool)> onShowDeltaPitchChanged;
     std::function<void(bool)> onShowBasePitchChanged;

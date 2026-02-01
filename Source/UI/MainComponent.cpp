@@ -175,14 +175,6 @@ MainComponent::MainComponent(bool enableAudioDevice)
       onPitchEditFinished();
   };
   pianoRoll.onZoomChanged = [this](float pps) { onZoomChanged(pps); };
-  pianoRoll.onUndo = [this]() { undo(); };
-  pianoRoll.onRedo = [this]() { redo(); };
-  pianoRoll.onPlayPause = [this]() {
-    if (isPlaying)
-      pause();
-    else
-      play();
-  };
   pianoRoll.onLoopRangeChanged = [this](const LoopRange &range) {
     toolbar.setLoopEnabled(range.enabled);
     if (audioEngine) {
@@ -1748,6 +1740,10 @@ void MainComponent::undo() {
       // The undo action's callback will set the correct F0 dirty range.
       resynthesizeIncremental();
     }
+    
+    // Update command states (undo/redo availability changed)
+    if (commandManager)
+      commandManager->commandStatusChanged();
   }
 }
 
@@ -1763,12 +1759,20 @@ void MainComponent::redo() {
       // The redo action's callback will set the correct F0 dirty range.
       resynthesizeIncremental();
     }
+    
+    // Update command states (undo/redo availability changed)
+    if (commandManager)
+      commandManager->commandStatusChanged();
   }
 }
 
 void MainComponent::setEditMode(EditMode mode) {
   pianoRoll.setEditMode(mode);
   toolbar.setEditMode(mode);
+  
+  // Update command states (draw mode toggle state changed)
+  if (commandManager)
+    commandManager->commandStatusChanged();
 }
 
 void MainComponent::segmentIntoNotes() {
