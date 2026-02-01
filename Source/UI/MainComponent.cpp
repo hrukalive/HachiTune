@@ -240,6 +240,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
 
   // Register commands with the command manager
   commandManager->registerAllCommandsForTarget(this);
+  commandManager->registerAllCommandsForTarget(&pianoRoll);
 
   // Add command manager key mappings as a KeyListener
   // This enables automatic keyboard shortcut dispatch
