@@ -2501,14 +2501,208 @@ juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget() {
 }
 
 void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands) {
-    juce::ignoreUnused(commands);
+    // Register all application commands that MainComponent handles
+    const juce::CommandID commandArray[] = {
+        // File commands
+        CommandIDs::openFile,
+        CommandIDs::saveProject,
+        CommandIDs::exportAudio,
+        CommandIDs::exportMidi,
+        
+        // Edit commands
+        CommandIDs::undo,
+        CommandIDs::redo,
+        CommandIDs::selectAll,
+        
+        // View commands
+        CommandIDs::showSettings,
+        
+        // Transport commands
+        CommandIDs::playPause,
+        CommandIDs::stop,
+        CommandIDs::goToStart,
+        CommandIDs::goToEnd,
+        
+        // Edit mode commands
+        CommandIDs::toggleDrawMode,
+        CommandIDs::exitDrawMode
+    };
+    
+    commands.addArray(commandArray, sizeof(commandArray) / sizeof(commandArray[0]));
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result) {
-    juce::ignoreUnused(commandID, result);
+    switch (commandID) {
+        // File commands
+        case CommandIDs::openFile:
+            result.setInfo("Open File", "Open an audio file", "File", 0);
+            result.addDefaultKeypress('o', juce::ModifierKeys::ctrlModifier);
+            break;
+            
+        case CommandIDs::saveProject:
+            result.setInfo("Save Project", "Save the current project", "File", 0);
+            result.addDefaultKeypress('s', juce::ModifierKeys::ctrlModifier);
+            result.setActive(project != nullptr);
+            break;
+            
+        case CommandIDs::exportAudio:
+            result.setInfo("Export Audio", "Export processed audio", "File", 0);
+            result.addDefaultKeypress('e', juce::ModifierKeys::ctrlModifier);
+            result.setActive(project != nullptr);
+            break;
+            
+        case CommandIDs::exportMidi:
+            result.setInfo("Export MIDI", "Export as MIDI file", "File", 0);
+            result.setActive(project != nullptr);
+            break;
+            
+        // Edit commands
+        case CommandIDs::undo:
+            result.setInfo("Undo", "Undo last action", "Edit", 0);
+            result.addDefaultKeypress('z', juce::ModifierKeys::ctrlModifier);
+            result.setActive(undoManager != nullptr && undoManager->canUndo());
+            break;
+            
+        case CommandIDs::redo:
+            result.setInfo("Redo", "Redo last undone action", "Edit", 0);
+            result.addDefaultKeypress('y', juce::ModifierKeys::ctrlModifier);
+            result.addDefaultKeypress('z', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+            result.setActive(undoManager != nullptr && undoManager->canRedo());
+            break;
+            
+        case CommandIDs::selectAll:
+            result.setInfo("Select All", "Select all notes", "Edit", 0);
+            result.addDefaultKeypress('a', juce::ModifierKeys::ctrlModifier);
+            result.setActive(project != nullptr);
+            break;
+            
+        // View commands
+        case CommandIDs::showSettings:
+            result.setInfo("Settings", "Show settings dialog", "View", 0);
+            result.addDefaultKeypress(',', juce::ModifierKeys::ctrlModifier);
+            break;
+            
+        // Transport commands
+        case CommandIDs::playPause:
+            result.setInfo("Play/Pause", "Toggle playback", "Transport", 0);
+            result.addDefaultKeypress(juce::KeyPress::spaceKey, juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr);
+            break;
+            
+        case CommandIDs::stop:
+            result.setInfo("Stop", "Stop playback", "Transport", 0);
+            result.addDefaultKeypress(juce::KeyPress::escapeKey, juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr && isPlaying);
+            break;
+            
+        case CommandIDs::goToStart:
+            result.setInfo("Go to Start", "Move cursor to start", "Transport", 0);
+            result.addDefaultKeypress(juce::KeyPress::homeKey, juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr);
+            break;
+            
+        case CommandIDs::goToEnd:
+            result.setInfo("Go to End", "Move cursor to end", "Transport", 0);
+            result.addDefaultKeypress(juce::KeyPress::endKey, juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr);
+            break;
+            
+        // Edit mode commands
+        case CommandIDs::toggleDrawMode:
+            result.setInfo("Toggle Draw Mode", "Toggle pitch drawing mode", "Edit Mode", 0);
+            result.addDefaultKeypress('d', juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr);
+            result.setTicked(pianoRoll.getEditMode() == EditMode::Draw);
+            break;
+            
+        case CommandIDs::exitDrawMode:
+            result.setInfo("Exit Draw Mode", "Exit pitch drawing mode", "Edit Mode", 0);
+            result.addDefaultKeypress(juce::KeyPress::escapeKey, juce::ModifierKeys::noModifiers);
+            result.setActive(pianoRoll.getEditMode() == EditMode::Draw);
+            break;
+            
+        default:
+            break;
+    }
 }
 
 bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo& info) {
-    juce::ignoreUnused(info);
-    return false;
+    switch (info.commandID) {
+        // File commands
+        case CommandIDs::openFile:
+            this->openFile();
+            return true;
+            
+        case CommandIDs::saveProject:
+            this->saveProject();
+            return true;
+            
+        case CommandIDs::exportAudio:
+            exportFile();
+            return true;
+            
+        case CommandIDs::exportMidi:
+            exportMidiFile();
+            return true;
+            
+        // Edit commands
+        case CommandIDs::undo:
+            this->undo();
+            return true;
+            
+        case CommandIDs::redo:
+            this->redo();
+            return true;
+            
+        case CommandIDs::selectAll:
+            if (project) {
+                project->selectAllNotes();
+                pianoRoll.repaint();
+            }
+            return true;
+            
+        // View commands
+        case CommandIDs::showSettings:
+            showSettings();
+            return true;
+            
+        // Transport commands
+        case CommandIDs::playPause:
+            if (isPlaying)
+                pause();
+            else
+                play();
+            return true;
+            
+        case CommandIDs::stop:
+            this->stop();
+            return true;
+            
+        case CommandIDs::goToStart:
+            seek(0.0);
+            return true;
+            
+        case CommandIDs::goToEnd:
+            if (project) {
+                seek(project->getAudioData().getDuration());
+            }
+            return true;
+            
+        // Edit mode commands
+        case CommandIDs::toggleDrawMode:
+            if (pianoRoll.getEditMode() == EditMode::Draw)
+                setEditMode(EditMode::Select);
+            else
+                setEditMode(EditMode::Draw);
+            return true;
+            
+        case CommandIDs::exitDrawMode:
+            if (pianoRoll.getEditMode() == EditMode::Draw) {
+                setEditMode(EditMode::Select);
+            }
+            return true;
+            
+        default:
+            return false;
+    }
 }
