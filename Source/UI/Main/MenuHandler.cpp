@@ -22,8 +22,10 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
             }
         } else if (menuIndex == 1) {
             // View menu
-            menu.addItem(MenuShowDeltaPitch, TR("menu.show_delta_pitch"), true, showDeltaPitch);
-            menu.addItem(MenuShowBasePitch, TR("menu.show_base_pitch"), true, showBasePitch);
+            if (commandManager) {
+                menu.addCommandItem(commandManager, CommandIDs::showDeltaPitch);
+                menu.addCommandItem(commandManager, CommandIDs::showBasePitch);
+            }
         } else if (menuIndex == 2) {
             // Settings menu
             if (commandManager) {
@@ -40,8 +42,8 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
                 menu.addCommandItem(commandManager, CommandIDs::exportAudio);
                 menu.addCommandItem(commandManager, CommandIDs::exportMidi);
                 menu.addSeparator();
+                menu.addCommandItem(commandManager, CommandIDs::quit);
             }
-            menu.addItem(MenuQuit, TR("menu.quit"));
         } else if (menuIndex == 1) {
             // Edit menu
             if (commandManager) {
@@ -52,8 +54,10 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
             }
         } else if (menuIndex == 2) {
             // View menu
-            menu.addItem(MenuShowDeltaPitch, TR("menu.show_delta_pitch"), true, showDeltaPitch);
-            menu.addItem(MenuShowBasePitch, TR("menu.show_base_pitch"), true, showBasePitch);
+            if (commandManager) {
+                menu.addCommandItem(commandManager, CommandIDs::showDeltaPitch);
+                menu.addCommandItem(commandManager, CommandIDs::showBasePitch);
+            }
         } else if (menuIndex == 3) {
             // Settings menu
             if (commandManager) {
@@ -67,23 +71,6 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
 
 void MenuHandler::menuItemSelected(int menuItemID, int /*topLevelMenuIndex*/) {
     // Command items are handled automatically by ApplicationCommandManager
-    // We only need to handle custom menu items here
-    
-    switch (menuItemID) {
-        case MenuQuit:
-            if (onQuit) onQuit();
-            break;
-        case MenuShowDeltaPitch:
-            showDeltaPitch = !showDeltaPitch;
-            if (onShowDeltaPitchChanged) onShowDeltaPitchChanged(showDeltaPitch);
-            menuItemsChanged();
-            break;
-        case MenuShowBasePitch:
-            showBasePitch = !showBasePitch;
-            if (onShowBasePitchChanged) onShowBasePitchChanged(showBasePitch);
-            menuItemsChanged();
-            break;
-        default:
-            break;
-    }
+    // All menu items are now handled by commands - this method can be empty
+    (void)menuItemID;  // Unused parameter
 }

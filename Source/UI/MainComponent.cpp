@@ -79,28 +79,9 @@ MainComponent::MainComponent(bool enableAudioDevice)
 
   LOG("MainComponent: setting up callbacks...");
 
-  // Setup MenuHandler callbacks (only non-command items)
-  // Command items are handled automatically by ApplicationCommandManager
-  menuHandler->onQuit = [this]() {
-    juce::JUCEApplication::getInstance()->systemRequestedQuit();
-  };
-
-  // View menu callbacks
-  menuHandler->setShowDeltaPitch(settingsManager->getShowDeltaPitch());
-  menuHandler->setShowBasePitch(settingsManager->getShowBasePitch());
+  // Initialize view state from settings
   pianoRoll.setShowDeltaPitch(settingsManager->getShowDeltaPitch());
   pianoRoll.setShowBasePitch(settingsManager->getShowBasePitch());
-
-  menuHandler->onShowDeltaPitchChanged = [this](bool show) {
-    pianoRoll.setShowDeltaPitch(show);
-    settingsManager->setShowDeltaPitch(show);
-    settingsManager->saveConfig();
-  };
-  menuHandler->onShowBasePitchChanged = [this](bool show) {
-    pianoRoll.setShowBasePitch(show);
-    settingsManager->setShowBasePitch(show);
-    settingsManager->saveConfig();
-  };
 
   // Add child components - macOS uses native menu, others use in-app menu bar
 #if JUCE_MAC
@@ -2428,6 +2409,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands) {
         CommandIDs::saveProject,
         CommandIDs::exportAudio,
         CommandIDs::exportMidi,
+        CommandIDs::quit,
         
         // Edit commands
         CommandIDs::undo,
@@ -2436,6 +2418,8 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands) {
         
         // View commands
         CommandIDs::showSettings,
+        CommandIDs::showDeltaPitch,
+        CommandIDs::showBasePitch,
         
         // Transport commands
         CommandIDs::playPause,
@@ -2476,6 +2460,12 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
             result.setActive(project != nullptr);
             break;
             
+        case CommandIDs::quit:
+            result.setInfo(TR("command.quit"), TR("command.quit.desp"), "File", 0);
+            result.addDefaultKeypress('q', juce::ModifierKeys::ctrlModifier);
+            result.setActive(!isPluginMode());
+            break;
+            
         // Edit commands
         case CommandIDs::undo:
             result.setInfo(TR("command.undo"), TR("command.undo.desp"), "Edit", 0);
@@ -2500,6 +2490,18 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
         case CommandIDs::showSettings:
             result.setInfo(TR("command.settings"), TR("command.settings.desp"), "View", 0);
             result.addDefaultKeypress(',', juce::ModifierKeys::ctrlModifier);
+            break;
+            
+        case CommandIDs::showDeltaPitch:
+            result.setInfo(TR("command.show_delta_pitch"), TR("command.show_delta_pitch.desp"), "View", 0);
+            result.addDefaultKeypress('d', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+            result.setTicked(settingsManager->getShowDeltaPitch());
+            break;
+            
+        case CommandIDs::showBasePitch:
+            result.setInfo(TR("command.show_base_pitch"), TR("command.show_base_pitch.desp"), "View", 0);
+            result.addDefaultKeypress('b', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+            result.setTicked(settingsManager->getShowBasePitch());
             break;
             
         // Transport commands
@@ -2565,6 +2567,10 @@ bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo& info
             exportMidiFile();
             return true;
             
+        case CommandIDs::quit:
+            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+            return true;
+            
         // Edit commands
         case CommandIDs::undo:
             this->undo();
@@ -2586,6 +2592,26 @@ bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo& info
             showSettings();
             return true;
             
+        case CommandIDs::showDeltaPitch:
+        {
+            bool newState = !settingsManager->getShowDeltaPitch();
+            pianoRoll.setShowDeltaPitch(newState);
+            settingsManager->setShowDeltaPitch(newState);
+            settingsManager->saveConfig();
+            commandManager->commandStatusChanged();
+            return true;
+        }
+        
+        case CommandIDs::showBasePitch:
+        {
+            bool newState = !settingsManager->getShowBasePitch();
+            pianoRoll.setShowBasePitch(newState);
+            settingsManager->setShowBasePitch(newState);
+            settingsManager->saveConfig();
+            commandManager->commandStatusChanged();
+            return true;
+        }
+        
         // Transport commands
         case CommandIDs::playPause:
             if (isPlaying)

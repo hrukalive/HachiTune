@@ -23,34 +23,8 @@ public:
     juce::PopupMenu getMenuForIndex(int menuIndex, const juce::String& menuName) override;
     void menuItemSelected(int menuItemID, int topLevelMenuIndex) override;
 
-    // Callbacks (non-command items only)
-    std::function<void()> onQuit;
-    std::function<void(bool)> onShowDeltaPitchChanged;
-    std::function<void(bool)> onShowBasePitchChanged;
-
-    // View settings
-    void setShowDeltaPitch(bool show) { showDeltaPitch = show; }
-    void setShowBasePitch(bool show) { showBasePitch = show; }
-    bool getShowDeltaPitch() const { return showDeltaPitch; }
-    bool getShowBasePitch() const { return showBasePitch; }
-
 private:
-    enum MenuIDs {
-        MenuOpen = 1,
-        MenuSave,
-        MenuExport,
-        MenuExportMidi,
-        MenuQuit,
-        MenuUndo,
-        MenuRedo,
-        MenuSettings,
-        MenuShowDeltaPitch,
-        MenuShowBasePitch
-    };
-
     bool pluginMode = false;
-    bool showDeltaPitch = true;
-    bool showBasePitch = false;
     PitchUndoManager* undoManager = nullptr;
     juce::ApplicationCommandManager* commandManager = nullptr;
 
