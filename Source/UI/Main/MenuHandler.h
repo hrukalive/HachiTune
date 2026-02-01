@@ -3,6 +3,7 @@
 #include "../../JuceHeader.h"
 #include "../../Utils/UndoManager.h"
 #include "../../Utils/Localization.h"
+#include "../Commands.h"
 #include <functional>
 
 /**
@@ -15,6 +16,7 @@ public:
 
     void setPluginMode(bool isPlugin) { pluginMode = isPlugin; }
     void setUndoManager(PitchUndoManager* mgr) { undoManager = mgr; }
+    void setCommandManager(juce::ApplicationCommandManager* mgr) { commandManager = mgr; }
 
     // MenuBarModel interface
     juce::StringArray getMenuBarNames() override;
@@ -57,6 +59,7 @@ private:
     bool showDeltaPitch = true;
     bool showBasePitch = false;
     PitchUndoManager* undoManager = nullptr;
+    juce::ApplicationCommandManager* commandManager = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MenuHandler)
 };

@@ -64,6 +64,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   incrementalSynth->setVocoder(vocoder.get());
   playbackController->setAudioEngine(audioEngine.get());
   menuHandler->setUndoManager(undoManager.get());
+  menuHandler->setCommandManager(commandManager.get());
   menuHandler->setPluginMode(isPluginMode());
   settingsManager->setVocoder(vocoder.get());
 
@@ -78,14 +79,8 @@ MainComponent::MainComponent(bool enableAudioDevice)
 
   LOG("MainComponent: setting up callbacks...");
 
-  // Setup MenuHandler callbacks
-  menuHandler->onOpenFile = [this]() { openFile(); };
-  menuHandler->onSaveProject = [this]() { saveProject(); };
-  menuHandler->onExportFile = [this]() { exportFile(); };
-  menuHandler->onExportMidi = [this]() { exportMidiFile(); };
-  menuHandler->onUndo = [this]() { undo(); };
-  menuHandler->onRedo = [this]() { redo(); };
-  menuHandler->onShowSettings = [this]() { showSettings(); };
+  // Setup MenuHandler callbacks (only non-command items)
+  // Command items are handled automatically by ApplicationCommandManager
   menuHandler->onQuit = [this]() {
     juce::JUCEApplication::getInstance()->systemRequestedQuit();
   };
