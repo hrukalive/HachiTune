@@ -245,9 +245,6 @@ MainComponent::MainComponent(bool enableAudioDevice)
   // Add command manager key mappings as a KeyListener
   // This enables automatic keyboard shortcut dispatch
   addKeyListener(commandManager->getKeyMappings());
-
-  // Add keyboard listener
-  addKeyListener(this);
   setWantsKeyboardFocus(true);
 
   // Load config
@@ -382,7 +379,6 @@ MainComponent::~MainComponent() {
   menuBar.setLookAndFeel(nullptr);
 #endif
   removeKeyListener(commandManager->getKeyMappings());
-  removeKeyListener(this);
   stopTimer();
 
   if (modelReloadThread.joinable())
@@ -503,84 +499,9 @@ void MainComponent::timerCallback() {
 
 bool MainComponent::keyPressed(const juce::KeyPress &key,
                                juce::Component * /*originatingComponent*/) {
-  // Ctrl+S: Save project
-  if (key == juce::KeyPress('s', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('S', juce::ModifierKeys::ctrlModifier, 0)) {
-    saveProject();
-    return true;
-  }
-
-  // Ctrl+Z or Cmd+Z: Undo
-  if (key == juce::KeyPress('z', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('z', juce::ModifierKeys::commandModifier, 0)) {
-    undo();
-    return true;
-  }
-
-  // Ctrl+A or Cmd+A: Select all notes
-  if (key == juce::KeyPress('a', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('a', juce::ModifierKeys::commandModifier, 0)) {
-    if (project) {
-      project->selectAllNotes();
-      pianoRoll.repaint();
-    }
-    return true;
-  }
-
-  // Ctrl+Y or Ctrl+Shift+Z or Cmd+Shift+Z: Redo
-  if (key == juce::KeyPress('y', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('z',
-                            juce::ModifierKeys::ctrlModifier |
-                                juce::ModifierKeys::shiftModifier,
-                            0) ||
-      key == juce::KeyPress('z',
-                            juce::ModifierKeys::commandModifier |
-                                juce::ModifierKeys::shiftModifier,
-                            0)) {
-    redo();
-    return true;
-  }
-
-  // D: Toggle draw mode
-  if (key == juce::KeyPress('d') || key == juce::KeyPress('D')) {
-    if (pianoRoll.getEditMode() == EditMode::Draw)
-      setEditMode(EditMode::Select);
-    else
-      setEditMode(EditMode::Draw);
-    return true;
-  }
-
-  // Space bar: toggle play/pause
-  if (key == juce::KeyPress::spaceKey) {
-    if (isPlaying)
-      pause();
-    else
-      play();
-    return true;
-  }
-
-  // Escape: stop (or exit draw mode)
-  if (key == juce::KeyPress::escapeKey) {
-    if (pianoRoll.getEditMode() == EditMode::Draw) {
-      setEditMode(EditMode::Select);
-    } else {
-      stop();
-    }
-    return true;
-  }
-  // Home: go to start
-  if (key == juce::KeyPress::homeKey) {
-    seek(0.0);
-    return true;
-  }
-
-  if (key == juce::KeyPress::endKey) {
-    if (project) {
-      seek(project->getAudioData().getDuration());
-    }
-    return true;
-  }
-
+  // All keyboard shortcuts are now handled by ApplicationCommandManager
+  // This method is kept for potential future non-command keyboard handling
+  juce::ignoreUnused(key);
   return false;
 }
 
