@@ -214,6 +214,10 @@ MainComponent::MainComponent(bool enableAudioDevice)
   // Register commands with the command manager
   commandManager->registerAllCommandsForTarget(this);
 
+  // Connect MenuHandler to ApplicationCommandManager for automatic menu updates
+  // This is required for macOS native menu bar to reflect command states
+  menuHandler->setApplicationCommandManagerToWatch(commandManager.get());
+
   // Add command manager key mappings as a KeyListener
   // This enables automatic keyboard shortcut dispatch
   addKeyListener(commandManager->getKeyMappings());
