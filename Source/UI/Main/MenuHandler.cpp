@@ -14,41 +14,55 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
     if (pluginMode) {
         if (menuIndex == 0) {
             // Edit menu
-            bool canUndo = undoManager && undoManager->canUndo();
-            bool canRedo = undoManager && undoManager->canRedo();
-            menu.addItem(MenuUndo, TR("menu.undo"), canUndo);
-            menu.addItem(MenuRedo, TR("menu.redo"), canRedo);
+            if (commandManager) {
+                menu.addCommandItem(commandManager, CommandIDs::undo);
+                menu.addCommandItem(commandManager, CommandIDs::redo);
+                menu.addSeparator();
+                menu.addCommandItem(commandManager, CommandIDs::selectAll);
+            }
         } else if (menuIndex == 1) {
             // View menu
-            menu.addItem(MenuShowDeltaPitch, TR("menu.show_delta_pitch"), true, showDeltaPitch);
-            menu.addItem(MenuShowBasePitch, TR("menu.show_base_pitch"), true, showBasePitch);
+            if (commandManager) {
+                menu.addCommandItem(commandManager, CommandIDs::showDeltaPitch);
+                menu.addCommandItem(commandManager, CommandIDs::showBasePitch);
+            }
         } else if (menuIndex == 2) {
             // Settings menu
-            menu.addItem(MenuSettings, TR("menu.settings"));
+            if (commandManager) {
+                menu.addCommandItem(commandManager, CommandIDs::showSettings);
+            }
         }
     } else {
         if (menuIndex == 0) {
             // File menu
-            menu.addItem(MenuOpen, TR("menu.open"));
-            menu.addItem(MenuSave, TR("menu.save"));
-            menu.addSeparator();
-            menu.addItem(MenuExport, TR("menu.export"));
-            menu.addItem(MenuExportMidi, TR("menu.export_midi"));
-            menu.addSeparator();
-            menu.addItem(MenuQuit, TR("menu.quit"));
+            if (commandManager) {
+                menu.addCommandItem(commandManager, CommandIDs::openFile);
+                menu.addCommandItem(commandManager, CommandIDs::saveProject);
+                menu.addSeparator();
+                menu.addCommandItem(commandManager, CommandIDs::exportAudio);
+                menu.addCommandItem(commandManager, CommandIDs::exportMidi);
+                menu.addSeparator();
+                menu.addCommandItem(commandManager, CommandIDs::quit);
+            }
         } else if (menuIndex == 1) {
             // Edit menu
-            bool canUndo = undoManager && undoManager->canUndo();
-            bool canRedo = undoManager && undoManager->canRedo();
-            menu.addItem(MenuUndo, TR("menu.undo"), canUndo);
-            menu.addItem(MenuRedo, TR("menu.redo"), canRedo);
+            if (commandManager) {
+                menu.addCommandItem(commandManager, CommandIDs::undo);
+                menu.addCommandItem(commandManager, CommandIDs::redo);
+                menu.addSeparator();
+                menu.addCommandItem(commandManager, CommandIDs::selectAll);
+            }
         } else if (menuIndex == 2) {
             // View menu
-            menu.addItem(MenuShowDeltaPitch, TR("menu.show_delta_pitch"), true, showDeltaPitch);
-            menu.addItem(MenuShowBasePitch, TR("menu.show_base_pitch"), true, showBasePitch);
+            if (commandManager) {
+                menu.addCommandItem(commandManager, CommandIDs::showDeltaPitch);
+                menu.addCommandItem(commandManager, CommandIDs::showBasePitch);
+            }
         } else if (menuIndex == 3) {
             // Settings menu
-            menu.addItem(MenuSettings, TR("menu.settings"));
+            if (commandManager) {
+                menu.addCommandItem(commandManager, CommandIDs::showSettings);
+            }
         }
     }
 
@@ -56,42 +70,7 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
 }
 
 void MenuHandler::menuItemSelected(int menuItemID, int /*topLevelMenuIndex*/) {
-    switch (menuItemID) {
-        case MenuOpen:
-            if (onOpenFile) onOpenFile();
-            break;
-        case MenuSave:
-            if (onSaveProject) onSaveProject();
-            break;
-        case MenuExport:
-            if (onExportFile) onExportFile();
-            break;
-        case MenuExportMidi:
-            if (onExportMidi) onExportMidi();
-            break;
-        case MenuQuit:
-            if (onQuit) onQuit();
-            break;
-        case MenuUndo:
-            if (onUndo) onUndo();
-            break;
-        case MenuRedo:
-            if (onRedo) onRedo();
-            break;
-        case MenuSettings:
-            if (onShowSettings) onShowSettings();
-            break;
-        case MenuShowDeltaPitch:
-            showDeltaPitch = !showDeltaPitch;
-            if (onShowDeltaPitchChanged) onShowDeltaPitchChanged(showDeltaPitch);
-            menuItemsChanged();
-            break;
-        case MenuShowBasePitch:
-            showBasePitch = !showBasePitch;
-            if (onShowBasePitchChanged) onShowBasePitchChanged(showBasePitch);
-            menuItemsChanged();
-            break;
-        default:
-            break;
-    }
+    // Command items are handled automatically by ApplicationCommandManager
+    // All menu items are now handled by commands - this method can be empty
+    (void)menuItemID;  // Unused parameter
 }

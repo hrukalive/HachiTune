@@ -28,6 +28,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   rmvpePitchDetector = std::make_unique<RMVPEPitchDetector>();
   vocoder = std::make_unique<Vocoder>();
   undoManager = std::make_unique<PitchUndoManager>(100);
+  commandManager = std::make_unique<juce::ApplicationCommandManager>();
 
   // Initialize new modular components
   fileManager = std::make_unique<AudioFileManager>();
@@ -63,6 +64,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   incrementalSynth->setVocoder(vocoder.get());
   playbackController->setAudioEngine(audioEngine.get());
   menuHandler->setUndoManager(undoManager.get());
+  menuHandler->setCommandManager(commandManager.get());
   menuHandler->setPluginMode(isPluginMode());
   settingsManager->setVocoder(vocoder.get());
 
@@ -77,34 +79,9 @@ MainComponent::MainComponent(bool enableAudioDevice)
 
   LOG("MainComponent: setting up callbacks...");
 
-  // Setup MenuHandler callbacks
-  menuHandler->onOpenFile = [this]() { openFile(); };
-  menuHandler->onSaveProject = [this]() { saveProject(); };
-  menuHandler->onExportFile = [this]() { exportFile(); };
-  menuHandler->onExportMidi = [this]() { exportMidiFile(); };
-  menuHandler->onUndo = [this]() { undo(); };
-  menuHandler->onRedo = [this]() { redo(); };
-  menuHandler->onShowSettings = [this]() { showSettings(); };
-  menuHandler->onQuit = [this]() {
-    juce::JUCEApplication::getInstance()->systemRequestedQuit();
-  };
-
-  // View menu callbacks
-  menuHandler->setShowDeltaPitch(settingsManager->getShowDeltaPitch());
-  menuHandler->setShowBasePitch(settingsManager->getShowBasePitch());
+  // Initialize view state from settings
   pianoRoll.setShowDeltaPitch(settingsManager->getShowDeltaPitch());
   pianoRoll.setShowBasePitch(settingsManager->getShowBasePitch());
-
-  menuHandler->onShowDeltaPitchChanged = [this](bool show) {
-    pianoRoll.setShowDeltaPitch(show);
-    settingsManager->setShowDeltaPitch(show);
-    settingsManager->saveConfig();
-  };
-  menuHandler->onShowBasePitchChanged = [this](bool show) {
-    pianoRoll.setShowBasePitch(show);
-    settingsManager->setShowBasePitch(show);
-    settingsManager->saveConfig();
-  };
 
   // Add child components - macOS uses native menu, others use in-app menu bar
 #if JUCE_MAC
@@ -179,14 +156,6 @@ MainComponent::MainComponent(bool enableAudioDevice)
       onPitchEditFinished();
   };
   pianoRoll.onZoomChanged = [this](float pps) { onZoomChanged(pps); };
-  pianoRoll.onUndo = [this]() { undo(); };
-  pianoRoll.onRedo = [this]() { redo(); };
-  pianoRoll.onPlayPause = [this]() {
-    if (isPlaying)
-      pause();
-    else
-      play();
-  };
   pianoRoll.onLoopRangeChanged = [this](const LoopRange &range) {
     toolbar.setLoopEnabled(range.enabled);
     if (audioEngine) {
@@ -242,8 +211,12 @@ MainComponent::MainComponent(bool enableAudioDevice)
   // Set initial project
   pianoRoll.setProject(project.get());
 
-  // Add keyboard listener
-  addKeyListener(this);
+  // Register commands with the command manager
+  commandManager->registerAllCommandsForTarget(this);
+
+  // Add command manager key mappings as a KeyListener
+  // This enables automatic keyboard shortcut dispatch
+  addKeyListener(commandManager->getKeyMappings());
   setWantsKeyboardFocus(true);
 
   // Load config
@@ -377,7 +350,7 @@ MainComponent::~MainComponent() {
   menuBar.setModel(nullptr);
   menuBar.setLookAndFeel(nullptr);
 #endif
-  removeKeyListener(this);
+  removeKeyListener(commandManager->getKeyMappings());
   stopTimer();
 
   if (modelReloadThread.joinable())
@@ -498,84 +471,9 @@ void MainComponent::timerCallback() {
 
 bool MainComponent::keyPressed(const juce::KeyPress &key,
                                juce::Component * /*originatingComponent*/) {
-  // Ctrl+S: Save project
-  if (key == juce::KeyPress('s', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('S', juce::ModifierKeys::ctrlModifier, 0)) {
-    saveProject();
-    return true;
-  }
-
-  // Ctrl+Z or Cmd+Z: Undo
-  if (key == juce::KeyPress('z', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('z', juce::ModifierKeys::commandModifier, 0)) {
-    undo();
-    return true;
-  }
-
-  // Ctrl+A or Cmd+A: Select all notes
-  if (key == juce::KeyPress('a', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('a', juce::ModifierKeys::commandModifier, 0)) {
-    if (project) {
-      project->selectAllNotes();
-      pianoRoll.repaint();
-    }
-    return true;
-  }
-
-  // Ctrl+Y or Ctrl+Shift+Z or Cmd+Shift+Z: Redo
-  if (key == juce::KeyPress('y', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('z',
-                            juce::ModifierKeys::ctrlModifier |
-                                juce::ModifierKeys::shiftModifier,
-                            0) ||
-      key == juce::KeyPress('z',
-                            juce::ModifierKeys::commandModifier |
-                                juce::ModifierKeys::shiftModifier,
-                            0)) {
-    redo();
-    return true;
-  }
-
-  // D: Toggle draw mode
-  if (key == juce::KeyPress('d') || key == juce::KeyPress('D')) {
-    if (pianoRoll.getEditMode() == EditMode::Draw)
-      setEditMode(EditMode::Select);
-    else
-      setEditMode(EditMode::Draw);
-    return true;
-  }
-
-  // Space bar: toggle play/pause
-  if (key == juce::KeyPress::spaceKey) {
-    if (isPlaying)
-      pause();
-    else
-      play();
-    return true;
-  }
-
-  // Escape: stop (or exit draw mode)
-  if (key == juce::KeyPress::escapeKey) {
-    if (pianoRoll.getEditMode() == EditMode::Draw) {
-      setEditMode(EditMode::Select);
-    } else {
-      stop();
-    }
-    return true;
-  }
-  // Home: go to start
-  if (key == juce::KeyPress::homeKey) {
-    seek(0.0);
-    return true;
-  }
-
-  if (key == juce::KeyPress::endKey) {
-    if (project) {
-      seek(project->getAudioData().getDuration());
-    }
-    return true;
-  }
-
+  // All keyboard shortcuts are now handled by ApplicationCommandManager
+  // This method is kept for potential future non-command keyboard handling
+  juce::ignoreUnused(key);
   return false;
 }
 
@@ -1822,6 +1720,10 @@ void MainComponent::undo() {
       // The undo action's callback will set the correct F0 dirty range.
       resynthesizeIncremental();
     }
+    
+    // Update command states (undo/redo availability changed)
+    if (commandManager)
+      commandManager->commandStatusChanged();
   }
 }
 
@@ -1837,12 +1739,20 @@ void MainComponent::redo() {
       // The redo action's callback will set the correct F0 dirty range.
       resynthesizeIncremental();
     }
+    
+    // Update command states (undo/redo availability changed)
+    if (commandManager)
+      commandManager->commandStatusChanged();
   }
 }
 
 void MainComponent::setEditMode(EditMode mode) {
   pianoRoll.setEditMode(mode);
   toolbar.setEditMode(mode);
+  
+  // Update command states (draw mode toggle state changed)
+  if (commandManager)
+    commandManager->commandStatusChanged();
 }
 
 void MainComponent::segmentIntoNotes() {
@@ -2484,4 +2394,261 @@ void MainComponent::renderProcessedAudio() {
             });
         finishRendering();
       });
+}
+
+// ApplicationCommandTarget interface implementations
+juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget() {
+    return nullptr;
+}
+
+void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands) {
+    // Register all application commands that MainComponent handles
+    const juce::CommandID commandArray[] = {
+        // File commands
+        CommandIDs::openFile,
+        CommandIDs::saveProject,
+        CommandIDs::exportAudio,
+        CommandIDs::exportMidi,
+        CommandIDs::quit,
+        
+        // Edit commands
+        CommandIDs::undo,
+        CommandIDs::redo,
+        CommandIDs::selectAll,
+        
+        // View commands
+        CommandIDs::showSettings,
+        CommandIDs::showDeltaPitch,
+        CommandIDs::showBasePitch,
+        
+        // Transport commands
+        CommandIDs::playPause,
+        CommandIDs::stop,
+        CommandIDs::goToStart,
+        CommandIDs::goToEnd,
+        
+        // Edit mode commands
+        CommandIDs::toggleDrawMode,
+        CommandIDs::exitDrawMode
+    };
+    
+    commands.addArray(commandArray, sizeof(commandArray) / sizeof(commandArray[0]));
+}
+
+void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result) {
+    switch (commandID) {
+        // File commands
+        case CommandIDs::openFile:
+            result.setInfo(TR("command.open_audio"), TR("command.open_audio.desp"), "File", 0);
+            result.addDefaultKeypress('o', juce::ModifierKeys::ctrlModifier);
+            break;
+            
+        case CommandIDs::saveProject:
+            result.setInfo(TR("command.save_project"), TR("command.save_project.desp"), "File", 0);
+            result.addDefaultKeypress('s', juce::ModifierKeys::ctrlModifier);
+            result.setActive(project != nullptr);
+            break;
+            
+        case CommandIDs::exportAudio:
+            result.setInfo(TR("command.export_audio"), TR("command.export_audio.desp"), "File", 0);
+            result.addDefaultKeypress('e', juce::ModifierKeys::ctrlModifier);
+            result.setActive(project != nullptr);
+            break;
+            
+        case CommandIDs::exportMidi:
+            result.setInfo(TR("command.export_midi"), TR("command.export_midi.desp"), "File", 0);
+            result.setActive(project != nullptr);
+            break;
+            
+        case CommandIDs::quit:
+            result.setInfo(TR("command.quit"), TR("command.quit.desp"), "File", 0);
+            result.addDefaultKeypress('q', juce::ModifierKeys::ctrlModifier);
+            result.setActive(!isPluginMode());
+            break;
+            
+        // Edit commands
+        case CommandIDs::undo:
+            result.setInfo(TR("command.undo"), TR("command.undo.desp"), "Edit", 0);
+            result.addDefaultKeypress('z', juce::ModifierKeys::ctrlModifier);
+            result.setActive(undoManager != nullptr && undoManager->canUndo());
+            break;
+            
+        case CommandIDs::redo:
+            result.setInfo(TR("command.redo"), TR("command.redo.desp"), "Edit", 0);
+            result.addDefaultKeypress('y', juce::ModifierKeys::ctrlModifier);
+            result.addDefaultKeypress('z', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+            result.setActive(undoManager != nullptr && undoManager->canRedo());
+            break;
+            
+        case CommandIDs::selectAll:
+            result.setInfo(TR("command.select_all"), TR("command.select_all.desp"), "Edit", 0);
+            result.addDefaultKeypress('a', juce::ModifierKeys::ctrlModifier);
+            result.setActive(project != nullptr);
+            break;
+            
+        // View commands
+        case CommandIDs::showSettings:
+            result.setInfo(TR("command.settings"), TR("command.settings.desp"), "View", 0);
+            result.addDefaultKeypress(',', juce::ModifierKeys::ctrlModifier);
+            break;
+            
+        case CommandIDs::showDeltaPitch:
+            result.setInfo(TR("command.show_delta_pitch"), TR("command.show_delta_pitch.desp"), "View", 0);
+            result.addDefaultKeypress('d', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+            result.setTicked(settingsManager->getShowDeltaPitch());
+            break;
+            
+        case CommandIDs::showBasePitch:
+            result.setInfo(TR("command.show_base_pitch"), TR("command.show_base_pitch.desp"), "View", 0);
+            result.addDefaultKeypress('b', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+            result.setTicked(settingsManager->getShowBasePitch());
+            break;
+            
+        // Transport commands
+        case CommandIDs::playPause:
+            result.setInfo(TR("command.play_pause"), TR("command.play_pause.desp"), "Transport", 0);
+            result.addDefaultKeypress(juce::KeyPress::spaceKey, juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr);
+            break;
+            
+        case CommandIDs::stop:
+            result.setInfo(TR("command.stop"), TR("command.stop.desp"), "Transport", 0);
+            result.addDefaultKeypress(juce::KeyPress::escapeKey, juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr && isPlaying);
+            break;
+            
+        case CommandIDs::goToStart:
+            result.setInfo(TR("command.go_to_start"), TR("command.go_to_start.desp"), "Transport", 0);
+            result.addDefaultKeypress(juce::KeyPress::homeKey, juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr);
+            break;
+            
+        case CommandIDs::goToEnd:
+            result.setInfo(TR("command.go_to_end"), TR("command.go_to_end.desp"), "Transport", 0);
+            result.addDefaultKeypress(juce::KeyPress::endKey, juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr);
+            break;
+            
+        // Edit mode commands
+        case CommandIDs::toggleDrawMode:
+            result.setInfo(TR("command.toggle_draw"), TR("command.toggle_draw.desp"), "Edit Mode", 0);
+            result.addDefaultKeypress('d', juce::ModifierKeys::noModifiers);
+            result.setActive(project != nullptr);
+            result.setTicked(pianoRoll.getEditMode() == EditMode::Draw);
+            break;
+            
+        case CommandIDs::exitDrawMode:
+            result.setInfo(TR("command.exit_draw"), TR("command.exit_draw.desp"), "Edit Mode", 0);
+            result.addDefaultKeypress(juce::KeyPress::escapeKey, juce::ModifierKeys::noModifiers);
+            result.setActive(pianoRoll.getEditMode() == EditMode::Draw);
+            break;
+            
+        default:
+            break;
+    }
+}
+
+bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo& info) {
+    switch (info.commandID) {
+        // File commands
+        case CommandIDs::openFile:
+            this->openFile();
+            return true;
+            
+        case CommandIDs::saveProject:
+            this->saveProject();
+            return true;
+            
+        case CommandIDs::exportAudio:
+            exportFile();
+            return true;
+            
+        case CommandIDs::exportMidi:
+            exportMidiFile();
+            return true;
+            
+        case CommandIDs::quit:
+            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+            return true;
+            
+        // Edit commands
+        case CommandIDs::undo:
+            this->undo();
+            return true;
+            
+        case CommandIDs::redo:
+            this->redo();
+            return true;
+            
+        case CommandIDs::selectAll:
+            if (project) {
+                project->selectAllNotes();
+                pianoRoll.repaint();
+            }
+            return true;
+            
+        // View commands
+        case CommandIDs::showSettings:
+            showSettings();
+            return true;
+            
+        case CommandIDs::showDeltaPitch:
+        {
+            bool newState = !settingsManager->getShowDeltaPitch();
+            pianoRoll.setShowDeltaPitch(newState);
+            settingsManager->setShowDeltaPitch(newState);
+            settingsManager->saveConfig();
+            commandManager->commandStatusChanged();
+            return true;
+        }
+        
+        case CommandIDs::showBasePitch:
+        {
+            bool newState = !settingsManager->getShowBasePitch();
+            pianoRoll.setShowBasePitch(newState);
+            settingsManager->setShowBasePitch(newState);
+            settingsManager->saveConfig();
+            commandManager->commandStatusChanged();
+            return true;
+        }
+        
+        // Transport commands
+        case CommandIDs::playPause:
+            if (isPlaying)
+                pause();
+            else
+                play();
+            return true;
+            
+        case CommandIDs::stop:
+            this->stop();
+            return true;
+            
+        case CommandIDs::goToStart:
+            seek(0.0);
+            return true;
+            
+        case CommandIDs::goToEnd:
+            if (project) {
+                seek(project->getAudioData().getDuration());
+            }
+            return true;
+            
+        // Edit mode commands
+        case CommandIDs::toggleDrawMode:
+            if (pianoRoll.getEditMode() == EditMode::Draw)
+                setEditMode(EditMode::Select);
+            else
+                setEditMode(EditMode::Draw);
+            return true;
+            
+        case CommandIDs::exitDrawMode:
+            if (pianoRoll.getEditMode() == EditMode::Draw) {
+                setEditMode(EditMode::Select);
+            }
+            return true;
+            
+        default:
+            return false;
+    }
 }

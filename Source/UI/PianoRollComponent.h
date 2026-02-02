@@ -6,6 +6,7 @@
 #include "../Utils/DrawCurve.h"
 #include "../Utils/BasePitchPreview.h"
 #include "../Utils/UndoManager.h"
+#include "Commands.h"
 #include "../Utils/CenteredMelSpectrogram.h"
 #include "PianoRoll/BoxSelector.h"
 #include "PianoRoll/CoordinateMapper.h"
@@ -117,9 +118,6 @@ public:
   std::function<void(const LoopRange &)> onLoopRangeChanged;
   std::function<void(int, int)>
       onReinterpolateUV; // Called to re-infer UV regions (startFrame, endFrame)
-  std::function<void()> onUndo; // Called when Ctrl+Z is pressed
-  std::function<void()> onRedo; // Called when Ctrl+Y/Ctrl+Shift+Z is pressed
-  std::function<void()> onPlayPause; // Called when Space is pressed
 
 private:
   void drawBackgroundWaveform(juce::Graphics &g,

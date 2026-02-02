@@ -89,11 +89,9 @@ PianoRollComponent::PianoRollComponent() {
 
   // Enable keyboard focus for shortcuts
   setWantsKeyboardFocus(true);
-  addKeyListener(this);
 }
 
 PianoRollComponent::~PianoRollComponent() {
-  removeKeyListener(this);
   horizontalScrollBar.removeListener(this);
   verticalScrollBar.removeListener(this);
 }
@@ -1899,48 +1897,9 @@ void PianoRollComponent::setUndoManager(PitchUndoManager *manager) {
 
 bool PianoRollComponent::keyPressed(const juce::KeyPress &key,
                                     juce::Component *) {
-  // Ctrl+Z or Cmd+Z: Undo
-  if (key == juce::KeyPress('z', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('z', juce::ModifierKeys::commandModifier, 0)) {
-    if (onUndo) {
-      onUndo();
-      return true;
-    }
-  }
-
-  // Ctrl+Y or Ctrl+Shift+Z or Cmd+Shift+Z: Redo
-  if (key == juce::KeyPress('y', juce::ModifierKeys::ctrlModifier, 0) ||
-      key == juce::KeyPress('z',
-                            juce::ModifierKeys::ctrlModifier |
-                                juce::ModifierKeys::shiftModifier,
-                            0) ||
-      key == juce::KeyPress('z',
-                            juce::ModifierKeys::commandModifier |
-                                juce::ModifierKeys::shiftModifier,
-                            0)) {
-    if (onRedo) {
-      onRedo();
-      return true;
-    }
-  }
-
-  // Space: Play/Pause
-  if (key == juce::KeyPress::spaceKey) {
-    if (onPlayPause) {
-      onPlayPause();
-      return true;
-    }
-  }
-
-  // D: Toggle draw mode
-  if (key == juce::KeyPress('d') || key == juce::KeyPress('D')) {
-    if (editMode == EditMode::Draw)
-      setEditMode(EditMode::Select);
-    else
-      setEditMode(EditMode::Draw);
-    return true;
-  }
-
+  // All keyboard shortcuts are now handled by ApplicationCommandManager
+  // This method is kept for potential future non-command keyboard handling
+  juce::ignoreUnused(key);
   return false;
 }
 

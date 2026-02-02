@@ -14,6 +14,7 @@
 #include "../Utils/UndoManager.h"
 #include "CustomMenuBarLookAndFeel.h"
 #include "CustomTitleBar.h"
+#include "Commands.h"
 #include "Main/MenuHandler.h"
 #include "Main/SettingsManager.h"
 #include "ParameterPanel.h"
@@ -29,7 +30,8 @@
 class MainComponent : public juce::Component,
                       public juce::Timer,
                       public juce::KeyListener,
-                      public juce::FileDragAndDropTarget {
+                      public juce::FileDragAndDropTarget,
+                      public juce::ApplicationCommandTarget {
 public:
   explicit MainComponent(bool enableAudioDevice = true);
   ~MainComponent() override;
@@ -42,6 +44,12 @@ public:
   // KeyListener
   bool keyPressed(const juce::KeyPress &key,
                   juce::Component *originatingComponent) override;
+
+  // ApplicationCommandTarget interface
+  juce::ApplicationCommandTarget* getNextCommandTarget() override;
+  void getAllCommands(juce::Array<juce::CommandID>& commands) override;
+  void getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result) override;
+  bool perform(const ApplicationCommandTarget::InvocationInfo& info) override;
 
   // Mouse handling for window dragging on macOS
   void mouseDown(const juce::MouseEvent &e) override;
@@ -130,6 +138,7 @@ private:
       someDetector; // SOME note segmentation detector (legacy)
   std::unique_ptr<Vocoder> vocoder;
   std::unique_ptr<PitchUndoManager> undoManager;
+  std::unique_ptr<juce::ApplicationCommandManager> commandManager;
 
   // New modular components
   std::unique_ptr<AudioFileManager> fileManager;
