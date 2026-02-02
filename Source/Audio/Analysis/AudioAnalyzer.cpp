@@ -308,6 +308,7 @@ void AudioAnalyzer::segmentWithSOME(Project &project) {
   const float *samples = audioData.waveform.getReadPointer(0);
   int numSamples = audioData.waveform.getNumSamples();
   const int f0Size = static_cast<int>(audioData.f0.size());
+  const int melSize = static_cast<int>(audioData.melSpectrogram.size());
 
   auto *detector = someDetector ? someDetector.get() : externalSOMEDetector;
   detector->detectNotesStreaming(
@@ -344,6 +345,8 @@ void AudioAnalyzer::segmentWithSOME(Project &project) {
           std::vector<float> f0Values(audioData.f0.begin() + f0Start,
                                       audioData.f0.begin() + f0End);
           note.setF0Values(std::move(f0Values));
+
+          // Extract waveform clip for this note
           if (audioData.waveform.getNumSamples() > 0) {
             int startSample = f0Start * HOP_SIZE;
             int endSample = f0End * HOP_SIZE;
@@ -360,6 +363,19 @@ void AudioAnalyzer::segmentWithSOME(Project &project) {
               clip.push_back(src[i]);
             note.setClipWaveform(std::move(clip));
           }
+
+          // Extract mel spectrogram clip for this note
+          if (!audioData.melSpectrogram.empty() && f0Start < melSize) {
+            int melStart = std::max(0, f0Start);
+            int melEnd = std::min(f0End, melSize);
+            if (melEnd > melStart) {
+              std::vector<std::vector<float>> melClip(
+                  audioData.melSpectrogram.begin() + melStart,
+                  audioData.melSpectrogram.begin() + melEnd);
+              note.setClipMel(std::move(melClip));
+            }
+          }
+
           notes.push_back(note);
         }
       },
@@ -374,6 +390,7 @@ void AudioAnalyzer::segmentWithSOME(Project &project) {
 void AudioAnalyzer::segmentFallback(Project &project) {
   auto &audioData = project.getAudioData();
   auto &notes = project.getNotes();
+  const int melSize = static_cast<int>(audioData.melSpectrogram.size());
 
   auto finalizeNote = [&](int start, int end) {
     if (end - start < 5)
@@ -396,6 +413,8 @@ void AudioAnalyzer::segmentFallback(Project &project) {
     std::vector<float> f0Values(audioData.f0.begin() + start,
                                 audioData.f0.begin() + end);
     note.setF0Values(std::move(f0Values));
+
+    // Extract waveform clip
     if (audioData.waveform.getNumSamples() > 0) {
       int startSample = start * HOP_SIZE;
       int endSample = end * HOP_SIZE;
@@ -411,6 +430,19 @@ void AudioAnalyzer::segmentFallback(Project &project) {
         clip.push_back(src[i]);
       note.setClipWaveform(std::move(clip));
     }
+
+    // Extract mel spectrogram clip
+    if (!audioData.melSpectrogram.empty() && start < melSize) {
+      int melStart = std::max(0, start);
+      int melEnd = std::min(end, melSize);
+      if (melEnd > melStart) {
+        std::vector<std::vector<float>> melClip(
+            audioData.melSpectrogram.begin() + melStart,
+            audioData.melSpectrogram.begin() + melEnd);
+        note.setClipMel(std::move(melClip));
+      }
+    }
+
     notes.push_back(note);
   };
 

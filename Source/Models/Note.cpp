@@ -2,7 +2,8 @@
 #include "../Utils/Constants.h"
 
 Note::Note(int startFrame, int endFrame, float midiNote)
-    : startFrame(startFrame), endFrame(endFrame), midiNote(midiNote)
+    : srcStartFrame(startFrame), srcEndFrame(endFrame),
+      startFrame(startFrame), endFrame(endFrame), midiNote(midiNote)
 {
 }
 

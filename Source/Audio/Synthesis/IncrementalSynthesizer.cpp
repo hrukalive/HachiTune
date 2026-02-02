@@ -265,6 +265,30 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
             }
           }
 
+          // Silence regions outside note boundaries
+          // This ensures that when notes are shrunk, the silence is preserved
+          auto& notes = capturedProject->getNotes();
+          for (int ch = 0; ch < numChannels; ++ch) {
+            float *dstCh = audioData.waveform.getWritePointer(ch);
+            for (int frame = capturedStartFrame; frame < capturedEndFrame; ++frame) {
+              bool inNote = false;
+              for (const auto& note : notes) {
+                if (!note.isRest() && frame >= note.getStartFrame() && frame < note.getEndFrame()) {
+                  inNote = true;
+                  break;
+                }
+              }
+              if (!inNote) {
+                // This frame is not covered by any note - silence it
+                int sampleStart = frame * hopSize;
+                int sampleEnd = std::min(sampleStart + hopSize, totalSamples);
+                for (int i = sampleStart; i < sampleEnd; ++i) {
+                  dstCh[i] = 0.0f;
+                }
+              }
+            }
+          }
+
           DBG("synthesizeRegion: replaced " << samplesToReplace
                                             << " samples at " << startSample);
 

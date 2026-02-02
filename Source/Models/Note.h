@@ -6,6 +6,11 @@
 /**
  * Represents a single note/pitch segment.
  *
+ * Time stretching model:
+ * - srcStartFrame/srcEndFrame: Position in original waveform (fixed after detection)
+ * - startFrame/endFrame: Position in output timeline (can be changed by dragging)
+ * - stretchRatio = (endFrame - startFrame) / (srcEndFrame - srcStartFrame)
+ *
  * Pitch model:
  * - midiNote: The base pitch of the note (can be changed by dragging)
  * - deltaPitch: Per-frame deviation from base pitch (preserved during drag)
@@ -15,6 +20,11 @@
  * - midiNote changes
  * - deltaPitch stays the same
  * - Actual pitch = midiNote + deltaPitch[frame]
+ *
+ * When stretching a note:
+ * - srcStartFrame/srcEndFrame stay the same (original position)
+ * - startFrame/endFrame change (output position)
+ * - deltaPitch is resampled to match new length
  */
 class Note
 {
@@ -22,12 +32,31 @@ public:
     Note() = default;
     Note(int startFrame, int endFrame, float midiNote);
 
-    // Frame range
+    // Source frame range (position in original waveform, fixed after detection)
+    int getSrcStartFrame() const { return srcStartFrame; }
+    int getSrcEndFrame() const { return srcEndFrame; }
+    void setSrcStartFrame(int frame) { srcStartFrame = frame; }
+    void setSrcEndFrame(int frame) { srcEndFrame = frame; }
+    int getSrcDurationFrames() const { return srcEndFrame - srcStartFrame; }
+
+    // Destination frame range (position in output timeline, can be changed)
     int getStartFrame() const { return startFrame; }
     int getEndFrame() const { return endFrame; }
     void setStartFrame(int frame) { startFrame = frame; }
     void setEndFrame(int frame) { endFrame = frame; }
     int getDurationFrames() const { return endFrame - startFrame; }
+
+    // Time stretch ratio (output length / source length)
+    float getStretchRatio() const {
+        int srcLen = srcEndFrame - srcStartFrame;
+        if (srcLen <= 0) return 1.0f;
+        return float(endFrame - startFrame) / float(srcLen);
+    }
+
+    // Check if note is stretched (ratio != 1.0)
+    bool isStretched() const {
+        return std::abs(getStretchRatio() - 1.0f) > 0.001f;
+    }
 
     // Pitch
     float getMidiNote() const { return midiNote; }
@@ -64,6 +93,11 @@ public:
     void setClipWaveform(std::vector<float> samples) { clipWaveform = std::move(samples); }
     bool hasClipWaveform() const { return !clipWaveform.empty(); }
 
+    // Mel spectrogram clip (original mel frames for this note)
+    const std::vector<std::vector<float>>& getClipMel() const { return clipMel; }
+    void setClipMel(std::vector<std::vector<float>> mel) { clipMel = std::move(mel); }
+    bool hasClipMel() const { return !clipMel.empty(); }
+
     // Selection
     bool isSelected() const { return selected; }
     void setSelected(bool sel) { selected = sel; }
@@ -92,8 +126,14 @@ public:
     bool containsFrame(int frame) const;
 
 private:
+    // Source position (in original waveform, fixed after detection)
+    int srcStartFrame = 0;
+    int srcEndFrame = 0;
+
+    // Destination position (in output timeline, can be changed by stretching)
     int startFrame = 0;
     int endFrame = 0;
+
     float midiNote = 60.0f;
     float pitchOffset = 0.0f;
 
@@ -106,6 +146,7 @@ private:
 
     std::vector<float> f0Values;
     std::vector<float> clipWaveform;
+    std::vector<std::vector<float>> clipMel;  // Mel spectrogram clip [T, numMels]
     bool selected = false;
     bool dirty = false;  // For incremental synthesis
     bool rest = false;   // Rest note (silence placeholder)

@@ -57,6 +57,22 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
         }
     }
 
+    // Ensure clip mel exists before splitting
+    if (!note->hasClipMel()) {
+        auto& audioData = project->getAudioData();
+        if (!audioData.melSpectrogram.empty()) {
+            int melSize = static_cast<int>(audioData.melSpectrogram.size());
+            int melStart = std::max(0, std::min(startFrame, melSize));
+            int melEnd = std::max(melStart, std::min(endFrame, melSize));
+            if (melEnd > melStart) {
+                std::vector<std::vector<float>> melClip(
+                    audioData.melSpectrogram.begin() + melStart,
+                    audioData.melSpectrogram.begin() + melEnd);
+                note->setClipMel(std::move(melClip));
+            }
+        }
+    }
+
     // Create the second note (right part)
     Note secondNote;
     secondNote.setStartFrame(splitFrame);
@@ -74,6 +90,17 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
         std::vector<float> rightClip(clip.begin() + splitOffset, clip.end());
         note->setClipWaveform(std::move(leftClip));
         secondNote.setClipWaveform(std::move(rightClip));
+    }
+
+    // Split clip mel if available
+    if (note->hasClipMel()) {
+        const auto& mel = note->getClipMel();
+        int splitOffset = splitFrame - startFrame;
+        splitOffset = std::max(0, std::min(splitOffset, static_cast<int>(mel.size())));
+        std::vector<std::vector<float>> leftMel(mel.begin(), mel.begin() + splitOffset);
+        std::vector<std::vector<float>> rightMel(mel.begin() + splitOffset, mel.end());
+        note->setClipMel(std::move(leftMel));
+        secondNote.setClipMel(std::move(rightMel));
     }
 
     // Modify the first note (left part)
