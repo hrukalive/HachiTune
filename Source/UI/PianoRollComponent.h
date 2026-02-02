@@ -6,6 +6,7 @@
 #include "../Utils/DrawCurve.h"
 #include "../Utils/BasePitchPreview.h"
 #include "../Utils/UndoManager.h"
+#include "../Utils/CenteredMelSpectrogram.h"
 #include "PianoRoll/BoxSelector.h"
 #include "PianoRoll/CoordinateMapper.h"
 #include "PianoRoll/NoteSplitter.h"
@@ -261,6 +262,7 @@ private:
   int hoveredStretchBoundaryIndex = -1;
   static constexpr float stretchHandleHitPadding = 6.0f;
   static constexpr int minStretchNoteFrames = 3;
+  std::unique_ptr<CenteredMelSpectrogram> centeredMelComputer;
 
   // Loop range drag state
   enum class LoopDragMode {
