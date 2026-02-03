@@ -87,6 +87,8 @@ public:
   void setScrollX(double x);
   double getScrollX() const { return scrollX; }
   void centerOnPitchRange(float minMidi, float maxMidi);
+  int getVisibleContentWidth() const;
+  int getVisibleContentHeight() const;
 
   // Edit mode
   void setEditMode(EditMode mode);

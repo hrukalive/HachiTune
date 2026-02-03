@@ -31,8 +31,8 @@ DarkLookAndFeel::DarkLookAndFeel()
     setColour(juce::ListBox::outlineColourId, APP_COLOR_BORDER);
 
     // ScrollBar
-    setColour(juce::ScrollBar::thumbColourId, APP_COLOR_PRIMARY.withAlpha(0.5f));
-    setColour(juce::ScrollBar::trackColourId, APP_COLOR_SURFACE_ALT);
+    setColour(juce::ScrollBar::thumbColourId, APP_COLOR_PRIMARY.withAlpha(0.7f));
+    setColour(juce::ScrollBar::trackColourId, juce::Colours::transparentBlack);
 
     // TextEditor
     setColour(juce::TextEditor::backgroundColourId, APP_COLOR_SURFACE_ALT);

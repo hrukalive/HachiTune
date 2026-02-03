@@ -9,6 +9,7 @@ extern const juce::Colour APP_COLOR_SURFACE_ALT;
 extern const juce::Colour APP_COLOR_SURFACE_RAISED;
 extern const juce::Colour APP_COLOR_BORDER;
 extern const juce::Colour APP_COLOR_BORDER_SUBTLE;
+extern const juce::Colour APP_COLOR_BORDER_HIGHLIGHT;
 extern const juce::Colour APP_COLOR_GRID;
 extern const juce::Colour APP_COLOR_GRID_BAR;
 extern const juce::Colour APP_COLOR_TIMELINE;

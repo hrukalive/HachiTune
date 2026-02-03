@@ -3,6 +3,7 @@
 #include "StyledComponents.h"
 #include "../Utils/Localization.h"
 #include "../Utils/SvgUtils.h"
+#include "../Utils/TimecodeFont.h"
 #include "BinaryData.h"
 
 ToolbarComponent::ToolbarComponent()
@@ -114,7 +115,7 @@ ToolbarComponent::ToolbarComponent()
     timeLabel.setText("00:00.000 / 00:00.000", juce::dontSendNotification);
     timeLabel.setColour(juce::Label::textColourId, APP_COLOR_TEXT_PRIMARY);
     timeLabel.setJustificationType(juce::Justification::centred);
-    timeLabel.setFont(AppFont::getBoldFont(20.0f));
+    timeLabel.setFont(TimecodeFont::getBoldFont(21.0f).withHorizontalScale(0.92f));
 
     // Zoom slider
     addAndMakeVisible(zoomLabel);
@@ -204,35 +205,24 @@ void ToolbarComponent::paint(juce::Graphics& g)
 
 void ToolbarComponent::resized()
 {
-    auto bounds = getLocalBounds().reduced(8, 4);
+    auto bounds = getLocalBounds().reduced(10, 6);
 
-    // Calculate center section width for centering
-    const int toolButtonSize = 32;
-    const int toolContainerPadding = 4;
-    const int numToolButtons = pluginMode ? 4 : 6;
-    const int toolContainerWidth = toolButtonSize * numToolButtons + toolContainerPadding * 2;
-    const int playbackWidth = pluginMode ? 200 : 120;
-    const int timeWidth = 160;
-    const int centerGap = 16;
-    const int centerTotalWidth = playbackWidth + centerGap + toolContainerWidth + centerGap + timeWidth;
-
-    // Right side - parameters button
+    // Right side - parameters button + status/progress
     const int rightButtonSize = 28;
-    auto rightButtonArea = bounds.removeFromRight(rightButtonSize + 10);
+    auto rightBounds = bounds.removeFromRight(240);
+    auto rightButtonArea = rightBounds.removeFromRight(rightButtonSize + 10);
     const int rightButtonY =
         rightButtonArea.getY() + (rightButtonArea.getHeight() - rightButtonSize) / 2;
     parametersButton.setBounds(rightButtonArea.getX() + 10, rightButtonY,
                                rightButtonSize, rightButtonSize);
 
-    // Right side - status/progress
-    auto rightBounds = bounds.removeFromRight(200);
     if (showingStatus && !showingProgress)
     {
-        statusLabel.setBounds(rightBounds.removeFromLeft(120));
+        statusLabel.setBounds(rightBounds.removeFromLeft(140));
     }
     if (showingProgress)
     {
-        auto progressArea = rightBounds.withWidth(std::min(180, rightBounds.getWidth()));
+        auto progressArea = rightBounds.withWidth(std::min(200, rightBounds.getWidth()));
         const int progressBarHeight = progressArea.getHeight() / 2;
         progressLabel.setBounds(progressArea.removeFromTop(progressArea.getHeight() - progressBarHeight));
         progressBar.setBounds(progressArea.withHeight(progressBarHeight));
@@ -242,17 +232,17 @@ void ToolbarComponent::resized()
     zoomLabel.setVisible(false);
     zoomSlider.setVisible(false);
 
-    // Center section - calculate starting X for centering
-    int centerStartX = (getWidth() - centerTotalWidth) / 2;
-    int currentX = centerStartX;
+    // Left section - playback + time
+    int currentX = bounds.getX();
+    const int timeWidth = 170;
 
-    // Playback controls (or plugin mode buttons) - centered
+    // Playback controls (or plugin mode buttons)
     if (pluginMode)
     {
         araModeLabel.setBounds(currentX, bounds.getY(), 90, bounds.getHeight());
         currentX += 98;
-        reanalyzeButton.setBounds(currentX, bounds.getY(), 100, bounds.getHeight());
-        currentX += 100;
+        reanalyzeButton.setBounds(currentX, bounds.getY(), 110, bounds.getHeight());
+        currentX += 118;
     }
     else
     {
@@ -263,12 +253,21 @@ void ToolbarComponent::resized()
         stopButton.setBounds(currentX, bounds.getY() + 4, 28, bounds.getHeight() - 8);
         currentX += 32;
         goToEndButton.setBounds(currentX, bounds.getY() + 4, 28, bounds.getHeight() - 8);
-        currentX += 28;
+        currentX += 36;
     }
-    currentX += centerGap;
 
-    // Edit mode buttons in a container - centered
-    toolContainerBounds = juce::Rectangle<int>(currentX, bounds.getY() + 2, toolContainerWidth, bounds.getHeight() - 4);
+    // Time display on the left cluster
+    timeLabel.setBounds(currentX, bounds.getY() + 2, timeWidth, bounds.getHeight() - 4);
+    currentX += timeWidth + 16;
+
+    // Center section - edit mode buttons
+    const int toolButtonSize = 32;
+    const int toolContainerPadding = 4;
+    const int numToolButtons = pluginMode ? 4 : 6;
+    const int toolContainerWidth = toolButtonSize * numToolButtons + toolContainerPadding * 2;
+    const int centerWidth = bounds.getRight() - currentX;
+    const int centerX = currentX + std::max(0, (centerWidth - toolContainerWidth) / 2);
+    toolContainerBounds = juce::Rectangle<int>(centerX, bounds.getY() + 2, toolContainerWidth, bounds.getHeight() - 4);
     auto toolArea = toolContainerBounds.reduced(toolContainerPadding, toolContainerPadding);
     int toolX = toolArea.getX();
     selectModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
@@ -286,11 +285,6 @@ void ToolbarComponent::resized()
         toolX += toolButtonSize;
         loopButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
     }
-
-    currentX += toolContainerWidth + centerGap;
-
-    // Time display - centered
-    timeLabel.setBounds(currentX, bounds.getY() + 2, timeWidth, bounds.getHeight() - 4);
 }
 
 void ToolbarComponent::buttonClicked(juce::Button* button)

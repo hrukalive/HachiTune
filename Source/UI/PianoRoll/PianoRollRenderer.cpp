@@ -1,4 +1,5 @@
 #include "PianoRollRenderer.h"
+#include "../../Utils/TimecodeFont.h"
 
 PianoRollRenderer::PianoRollRenderer() = default;
 
@@ -124,7 +125,7 @@ void PianoRollRenderer::drawGrid(juce::Graphics &g, int width, int height) {
   float totalWidth = std::max(duration * coordMapper->getPixelsPerSecond(),
                               static_cast<float>(width));
   float totalHeight =
-      (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * coordMapper->getPixelsPerSemitone();
+      (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * coordMapper->getPixelsPerSemitone();
   float pixelsPerSemitone = coordMapper->getPixelsPerSemitone();
 
   // Fill black key rows with darker background
@@ -200,7 +201,7 @@ void PianoRollRenderer::drawTimeline(juce::Graphics &g, int width) {
   float duration = project ? project->getAudioData().getDuration() : 60.0f;
   double scrollX = coordMapper->getScrollX();
 
-  g.setFont(12.0f);
+  g.setFont(TimecodeFont::getBoldFont(12.0f));
 
   for (float time = 0.0f; time <= duration + secondsPerTick;
        time += secondsPerTick) {
@@ -465,7 +466,7 @@ void PianoRollRenderer::drawCursor(juce::Graphics &g, double cursorTime,
 
   float x = coordMapper->timeToX(cursorTime);
   float totalHeight =
-      (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * coordMapper->getPixelsPerSemitone();
+      (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * coordMapper->getPixelsPerSemitone();
 
   g.setColour(APP_COLOR_PRIMARY);
   g.fillRect(x - 0.5f, 0.0f, 1.0f, totalHeight);

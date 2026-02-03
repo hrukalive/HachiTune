@@ -4,6 +4,7 @@
 #include "../Models/Note.h"
 #include "../Models/Project.h"
 #include "../Utils/Constants.h"
+#include "../Utils/Theme.h"
 
 class DarkLookAndFeel;  // Forward declaration
 
@@ -44,25 +45,30 @@ private:
 
     // Note info
     juce::Label noteInfoLabel;
+    juce::Rectangle<int> noteCardBounds;
     
     // Pitch controls
     juce::Label pitchSectionLabel { {}, "Pitch" };
     juce::Slider pitchOffsetSlider;
     juce::Label pitchOffsetLabel { {}, "Offset (semitones):" };
+    juce::Rectangle<int> pitchCardBounds;
 
     // Volume control (using rotary knob style)
     juce::Label volumeSectionLabel { {}, "Volume" };
     juce::Slider volumeKnob;
     juce::Label volumeValueLabel;  // Shows current dB value
+    juce::Rectangle<int> volumeCardBounds;
 
     juce::Label formantSectionLabel { {}, "Formant" };
     juce::Slider formantShiftSlider;
     juce::Label formantShiftLabel { {}, "Shift (semitones):" };
+    juce::Rectangle<int> formantCardBounds;
     
     // Global settings
     juce::Label globalSectionLabel { {}, "Global Settings" };
     juce::Slider globalPitchSlider;
     juce::Label globalPitchLabel { {}, "Global Pitch:" };
+    juce::Rectangle<int> globalCardBounds;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ParameterPanel)
 };

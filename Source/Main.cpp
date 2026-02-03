@@ -9,6 +9,7 @@
 #include "Utils/Localization.h"
 #include "Utils/PlatformUtils.h"
 #include "Utils/WindowSizing.h"
+#include "Utils/TimecodeFont.h"
 
 #if JUCE_WINDOWS
 #include <dwmapi.h>
@@ -105,6 +106,7 @@ public:
     LOG("========== APP STARTING ==========");
     LOG("Initializing fonts...");
     AppFont::initialize();
+    TimecodeFont::initialize();
     LOG("Loading localization...");
     Localization::loadFromSettings();
     LOG("Localization loaded, showing splash...");
@@ -121,6 +123,7 @@ public:
 
   void shutdown() override {
     mainWindow = nullptr;
+    TimecodeFont::shutdown();
     AppFont::shutdown(); // Release font resources before JUCE shuts down
   }
 

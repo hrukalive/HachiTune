@@ -15,7 +15,7 @@
 #include <iostream>
 
 MainComponent::MainComponent(bool enableAudioDevice)
-    : enableAudioDeviceFlag(enableAudioDevice) {
+    : enableAudioDeviceFlag(enableAudioDevice), pianoRollView(pianoRoll) {
   LOG("MainComponent: constructor start");
   setSize(WindowSizing::kDefaultWidth, WindowSizing::kDefaultHeight);
   setOpaque(true); // Required for native title bar
@@ -96,12 +96,15 @@ MainComponent::MainComponent(bool enableAudioDevice)
   addAndMakeVisible(toolbar);
   addAndMakeVisible(workspace);
 
-  // Setup workspace with piano roll as main content
-  workspace.setMainContent(&pianoRoll);
+  // Setup workspace with stacked piano roll + overview cards
+  workspace.setMainContent(&pianoRollView);
+  workspace.getMainCard().setBackgroundColour(juce::Colours::transparentBlack);
+  workspace.getMainCard().setBorderColour(juce::Colours::transparentBlack);
 
   // Add parameter panel to workspace (visible by default)
   workspace.addPanel("parameters", TR("panel.parameters"), &parameterPanel,
                      true);
+
 
   // Configure toolbar for plugin mode
   if (isPluginMode())
@@ -211,6 +214,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
 
   // Set initial project
   pianoRoll.setProject(project.get());
+  pianoRollView.setProject(project.get());
 
   // Register commands with the command manager
   commandManager->registerAllCommandsForTarget(this);
@@ -752,6 +756,7 @@ void MainComponent::loadAudioFile(const juce::File &file) {
 
       // Update UI
       safeThis->pianoRoll.setProject(safeThis->project.get());
+      safeThis->pianoRollView.setProject(safeThis->project.get());
       safeThis->parameterPanel.setProject(safeThis->project.get());
       safeThis->toolbar.setTotalTime(
           safeThis->project->getAudioData().getDuration());
@@ -895,6 +900,7 @@ void MainComponent::analyzeAudio() {
 
       // Update UI
       safeThis->pianoRoll.setProject(safeThis->project.get());
+      safeThis->pianoRollView.setProject(safeThis->project.get());
       safeThis->pianoRoll.repaint();
 
       // Trigger callbacks if needed
@@ -2188,6 +2194,7 @@ void MainComponent::setHostAudio(const juce::AudioBuffer<float> &buffer,
 
       // Update UI components (shared logic)
       safeThis->pianoRoll.setProject(safeThis->project.get());
+      safeThis->pianoRollView.setProject(safeThis->project.get());
       safeThis->parameterPanel.setProject(safeThis->project.get());
       safeThis->toolbar.setTotalTime(
           safeThis->project->getAudioData().getDuration());

@@ -19,6 +19,7 @@
 #include "Main/SettingsManager.h"
 #include "ParameterPanel.h"
 #include "PianoRollComponent.h"
+#include "PianoRollWorkspaceView.h"
 #include "SettingsComponent.h"
 #include "ToolbarComponent.h"
 #include "Workspace/WorkspaceComponent.h"
@@ -155,6 +156,7 @@ private:
   ToolbarComponent toolbar;
   WorkspaceComponent workspace;
   PianoRollComponent pianoRoll;
+  PianoRollWorkspaceView pianoRollView;
   ParameterPanel parameterPanel;
 
   std::unique_ptr<SettingsOverlay> settingsOverlay;

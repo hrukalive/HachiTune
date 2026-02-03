@@ -4,6 +4,9 @@ WorkspaceComponent::WorkspaceComponent()
 {
     setOpaque(true);
 
+    mainCard.setPadding(0);
+    mainCard.setCornerRadius(10.0f);
+    mainCard.setBorderColour(APP_COLOR_BORDER_SUBTLE.withAlpha(0.35f));
     addAndMakeVisible(mainCard);
     addAndMakeVisible(panelContainer);
 
@@ -24,8 +27,8 @@ void WorkspaceComponent::paint(juce::Graphics& g)
 void WorkspaceComponent::resized()
 {
     auto bounds = getLocalBounds();
-    const int margin = 8;
-    const int topMargin = 2; // Smaller top margin to be closer to toolbar
+    const int margin = 10;
+    const int topMargin = 6; // Slight spacing from toolbar
 
     // Apply top margin first so sidebar aligns with content
     bounds.removeFromTop(topMargin);
@@ -45,6 +48,8 @@ void WorkspaceComponent::resized()
     // Apply left/bottom margins
     bounds.removeFromLeft(margin);
     bounds.removeFromBottom(margin);
+
+    // No sidebar; main content starts after outer margin
 
     if (hasPanels)
     {
@@ -70,7 +75,7 @@ void WorkspaceComponent::addPanel(const juce::String& id, const juce::String& ti
 {
     // Set content size before adding to panel
     if (content != nullptr)
-        content->setSize(panelContainerWidth - 32, 500);
+        content->setSize(panelContainerWidth - 40, 520);
 
     // Create draggable panel wrapper
     auto panel = std::make_unique<DraggablePanel>(id, title);

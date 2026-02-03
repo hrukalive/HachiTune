@@ -2,6 +2,7 @@
 #include "../UI/StyledComponents.h"
 #include "../Utils/AppLogger.h"
 #include "../Utils/WindowSizing.h"
+#include "../Utils/TimecodeFont.h"
 #include "HostCompatibility.h"
 
 #if JucePlugin_Enable_ARA
@@ -19,6 +20,7 @@ HachiTuneAudioProcessorEditor::HachiTuneAudioProcessorEditor(
   // Initialize app font
   AppLogger::init();
   AppFont::initialize();
+  TimecodeFont::initialize();
 
   // Enable keyboard focus for the editor
   setWantsKeyboardFocus(true);
@@ -52,6 +54,7 @@ HachiTuneAudioProcessorEditor::HachiTuneAudioProcessorEditor(
 
 HachiTuneAudioProcessorEditor::~HachiTuneAudioProcessorEditor() {
   audioProcessor.setMainComponent(nullptr);
+  TimecodeFont::shutdown();
   AppFont::shutdown(); // Release font resources (reference counted)
 }
 

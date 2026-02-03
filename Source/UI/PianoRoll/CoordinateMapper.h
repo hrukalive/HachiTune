@@ -78,7 +78,7 @@ public:
     }
 
     float getTotalHeight() const {
-        return (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
+        return (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * pixelsPerSemitone;
     }
 
 private:

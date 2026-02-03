@@ -58,7 +58,7 @@ void DraggablePanel::resized()
 {
     if (contentComponent != nullptr)
     {
-        auto contentBounds = getLocalBounds().withTrimmedTop(headerHeight);
+        auto contentBounds = getLocalBounds().withTrimmedTop(headerHeight).reduced(10);
         contentComponent->setBounds(contentBounds);
     }
 }

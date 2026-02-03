@@ -7,6 +7,7 @@ const juce::Colour APP_COLOR_SURFACE_ALT = juce::Colour(0xFF1A1F2Bu);
 const juce::Colour APP_COLOR_SURFACE_RAISED = juce::Colour(0xFF242B3Bu);
 const juce::Colour APP_COLOR_BORDER = juce::Colour(0xFF2A3244u);
 const juce::Colour APP_COLOR_BORDER_SUBTLE = juce::Colour(0xFF202735u);
+const juce::Colour APP_COLOR_BORDER_HIGHLIGHT = juce::Colour(0xFF3A4460u);
 const juce::Colour APP_COLOR_GRID = juce::Colour(0xFF252C3Du);
 const juce::Colour APP_COLOR_GRID_BAR = juce::Colour(0xFF323B50u);
 const juce::Colour APP_COLOR_TIMELINE = juce::Colour(0xFF1A202Cu);

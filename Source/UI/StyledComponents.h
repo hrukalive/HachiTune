@@ -7,8 +7,8 @@
 #include <cmath>
 
 /**
- * Global font manager - loads custom font from Resources/fonts/
- * Falls back to system font if not found.
+ * Global font manager - uses system font by default.
+ * Falls back to system font if custom font is not found.
  * Uses reference counting to support multiple plugin instances.
  * Supports DPI-aware font scaling.
  */
@@ -25,43 +25,7 @@ public:
 
         instance.initialized = true;
 
-        // Try to load custom font from Resources/fonts/
-        juce::File appDir = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
-
-        // Check multiple possible locations
-        juce::StringArray fontPaths = {
-            appDir.getChildFile("Resources/fonts/NotoSansCJKjp-Regular.otf").getFullPathName(),
-            appDir.getChildFile("../Resources/fonts/NotoSansCJKjp-Regular.otf").getFullPathName(),
-            appDir.getChildFile("fonts/NotoSansCJKjp-Regular.otf").getFullPathName(),
-#if JUCE_MAC
-            appDir.getChildFile("../Resources/fonts/NotoSansCJKjp-Regular.otf").getFullPathName(),
-#endif
-        };
-
-        for (const auto& path : fontPaths)
-        {
-            juce::File fontFile(path);
-            if (fontFile.existsAsFile())
-            {
-                juce::MemoryBlock fontData;
-                if (fontFile.loadFileAsData(fontData))
-                {
-                    instance.customTypeface = juce::Typeface::createSystemTypefaceFor(
-                        fontData.getData(), fontData.getSize());
-                    if (instance.customTypeface != nullptr)
-                    {
-                        instance.fontLoaded = true;
-                        DBG("Loaded custom font: " + path);
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (!instance.fontLoaded)
-        {
-            DBG("Custom font not found, using system font");
-        }
+        // Custom font removed; keep system font
     }
 
     /**
@@ -338,11 +302,35 @@ public:
         const bool isEnabled = slider.isEnabled();
         const float alpha = isEnabled ? 1.0f : 0.4f;
 
-        // === Outer track ring ===
+        // === Outer progress ring ===
         const float trackRadius = radius + 2.0f;
+        const float ringThickness = 3.0f;
+        juce::Path ringPath;
+        ringPath.addCentredArc(centreX, centreY, trackRadius, trackRadius, 0.0f,
+                               rotaryStartAngle, rotaryEndAngle, true);
         g.setColour(APP_COLOR_BORDER.withAlpha(alpha));
-        g.drawEllipse(centreX - trackRadius, centreY - trackRadius,
-                      trackRadius * 2.0f, trackRadius * 2.0f, 3.0f);
+        g.strokePath(ringPath, juce::PathStrokeType(ringThickness, juce::PathStrokeType::curved));
+
+        // Bipolar progress from center (for symmetric ranges like -12..+12)
+        const double minValue = slider.getMinimum();
+        const double maxValue = slider.getMaximum();
+        const double midValue = (minValue + maxValue) * 0.5;
+        const double value = slider.getValue();
+        const double span = static_cast<double>(rotaryEndAngle - rotaryStartAngle);
+        const double midAngle = static_cast<double>(rotaryStartAngle) + span * 0.5;
+        const double valueOffset = (value - midValue) / (maxValue - minValue); // [-0.5, 0.5]
+        const double arcSpan = valueOffset * span;
+
+        if (std::abs(arcSpan) > 1e-6)
+        {
+            juce::Path valuePath;
+            const double startAngle = arcSpan > 0.0 ? midAngle : midAngle + arcSpan;
+            const double endAngle = arcSpan > 0.0 ? midAngle + arcSpan : midAngle;
+            valuePath.addCentredArc(centreX, centreY, trackRadius, trackRadius, 0.0f,
+                                    static_cast<float>(startAngle), static_cast<float>(endAngle), true);
+            g.setColour(APP_COLOR_PRIMARY.withAlpha(alpha));
+            g.strokePath(valuePath, juce::PathStrokeType(ringThickness, juce::PathStrokeType::curved));
+        }
 
         // === Knob body ===
         const float knobRadius = radius * 0.85f;

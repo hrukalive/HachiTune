@@ -39,7 +39,7 @@ private:
     PanelContainer panelContainer;
 
     juce::Component* mainContent = nullptr;
-    int panelContainerWidth = 280;
+    int panelContainerWidth = 320;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WorkspaceComponent)
 };

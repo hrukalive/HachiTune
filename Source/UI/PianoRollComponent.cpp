@@ -3,6 +3,7 @@
 #include "../Utils/CenteredMelSpectrogram.h"
 #include "../Utils/CurveResampler.h"
 #include "../Utils/Constants.h"
+#include "../Utils/TimecodeFont.h"
 #include "../Utils/Theme.h"
 #include "../Utils/PitchCurveProcessor.h"
 #include <algorithm>
@@ -72,8 +73,8 @@ PianoRollComponent::PianoRollComponent() {
   verticalScrollBar.addListener(this);
 
   // Style scrollbars to match theme
-  auto thumbColor = APP_COLOR_PRIMARY.withAlpha(0.6f);
-  auto trackColor = APP_COLOR_SURFACE_ALT;
+  auto thumbColor = APP_COLOR_PRIMARY.withAlpha(0.8f);
+  auto trackColor = juce::Colours::transparentBlack;
 
   horizontalScrollBar.setColour(juce::ScrollBar::thumbColourId, thumbColor);
   horizontalScrollBar.setColour(juce::ScrollBar::trackColourId, trackColor);
@@ -81,7 +82,7 @@ PianoRollComponent::PianoRollComponent() {
   verticalScrollBar.setColour(juce::ScrollBar::trackColourId, trackColor);
 
   // Set initial scroll range
-  verticalScrollBar.setRangeLimits(0, (MAX_MIDI_NOTE - MIN_MIDI_NOTE) *
+  verticalScrollBar.setRangeLimits(0, (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) *
                                           pixelsPerSemitone);
   verticalScrollBar.setCurrentRange(0, 500);
 
@@ -90,11 +91,21 @@ PianoRollComponent::PianoRollComponent() {
 
   // Enable keyboard focus for shortcuts
   setWantsKeyboardFocus(true);
+
+  // No extra controls here; overview lives outside the piano roll.
 }
 
 PianoRollComponent::~PianoRollComponent() {
   horizontalScrollBar.removeListener(this);
   verticalScrollBar.removeListener(this);
+}
+
+int PianoRollComponent::getVisibleContentWidth() const {
+  return std::max(0, getWidth() - pianoKeysWidth - 14);
+}
+
+int PianoRollComponent::getVisibleContentHeight() const {
+  return std::max(0, getHeight() - headerHeight - 14);
 }
 
 void PianoRollComponent::paint(juce::Graphics &g) {
@@ -108,9 +119,10 @@ void PianoRollComponent::paint(juce::Graphics &g) {
   g.fillAll(APP_COLOR_BACKGROUND);
 
   constexpr int scrollBarSize = 8;
+  auto contentBounds = getLocalBounds();
 
   // Create clipping region for main area (below timelines)
-  auto mainArea = getLocalBounds()
+  auto mainArea = contentBounds
                       .withTrimmedLeft(pianoKeysWidth)
                       .withTrimmedTop(headerHeight)
                       .withTrimmedBottom(scrollBarSize)
@@ -280,7 +292,7 @@ void PianoRollComponent::drawGrid(juce::Graphics &g) {
   float duration = project ? project->getAudioData().getDuration() : 60.0f;
   float width =
       std::max(duration * pixelsPerSecond, static_cast<float>(getWidth()));
-  float height = (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
+  float height = (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * pixelsPerSemitone;
 
   // Fill black key rows with semi-transparent darker background
   g.setColour(APP_COLOR_SELECTION_OVERLAY);
@@ -350,7 +362,7 @@ void PianoRollComponent::drawLoopOverlay(juce::Graphics &g) {
   const float endX = timeToX(loopEndSeconds);
 
   const float height =
-      (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
+      (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * pixelsPerSemitone;
   const auto baseColor = APP_COLOR_PRIMARY;
   const auto fillColor =
       loopEnabled ? baseColor.withAlpha(0.08f) : baseColor.withAlpha(0.04f);
@@ -390,7 +402,7 @@ void PianoRollComponent::drawTimeline(juce::Graphics &g) {
   float duration = project ? project->getAudioData().getDuration() : 60.0f;
 
   // Draw ticks and labels
-  g.setFont(12.0f);
+  g.setFont(TimecodeFont::getBoldFont(12.0f));
 
   for (float time = 0.0f; time <= duration + secondsPerTick;
        time += secondsPerTick) {
@@ -808,7 +820,7 @@ void PianoRollComponent::drawStretchGuides(juce::Graphics &g) {
     return;
 
   const float height =
-      (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
+      (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * pixelsPerSemitone;
 
   for (size_t i = 0; i < boundaries.size(); ++i) {
     int frame = boundaries[i].frame;
@@ -975,7 +987,7 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
 
 void PianoRollComponent::drawCursor(juce::Graphics &g) {
   float x = timeToX(cursorTime);
-  float height = (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
+  float height = (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * pixelsPerSemitone;
 
   g.setColour(APP_COLOR_PRIMARY);
   g.fillRect(x - 0.5f, 0.0f, 1.0f, height);
@@ -1706,6 +1718,12 @@ void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent &e) {
 void PianoRollComponent::mouseWheelMove(const juce::MouseEvent &e,
                                         const juce::MouseWheelDetails &wheel) {
   float scrollMultiplier = wheel.isSmooth ? 200.0f : 80.0f;
+  const int visibleHeight = getVisibleContentHeight();
+  const float minPpsForFill =
+      visibleHeight > 0
+          ? static_cast<float>(visibleHeight) / (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1)
+          : MIN_PIXELS_PER_SEMITONE;
+  const float minPps = std::max(MIN_PIXELS_PER_SEMITONE, minPpsForFill);
 
   bool isOverPianoKeys = e.x < pianoKeysWidth;
   bool isOverTimeline = e.y < headerHeight;
@@ -1719,9 +1737,14 @@ void PianoRollComponent::mouseWheelMove(const juce::MouseEvent &e,
       float midiAtMouse = (mouseY + scrollY) / pixelsPerSemitone;
 
       float zoomFactor = 1.0f + wheel.deltaY * 0.3f;
+      if (zoomFactor < 1.0f)
+      {
+        const float range = minPps * 0.35f;
+        const float t = range > 0.0f ? juce::jlimit(0.0f, 1.0f, (pixelsPerSemitone - minPps) / range) : 0.0f;
+        zoomFactor = 1.0f + (zoomFactor - 1.0f) * t; // elastic resistance near min
+      }
       float newPps = pixelsPerSemitone * zoomFactor;
-      newPps = juce::jlimit(MIN_PIXELS_PER_SEMITONE, MAX_PIXELS_PER_SEMITONE,
-                            newPps);
+      newPps = juce::jlimit(minPps, MAX_PIXELS_PER_SEMITONE, newPps);
       pixelsPerSemitone = newPps;
       coordMapper->setPixelsPerSemitone(newPps);
 
@@ -1794,8 +1817,13 @@ void PianoRollComponent::mouseWheelMove(const juce::MouseEvent &e,
       float midiAtMouse = yToMidi(mouseY + static_cast<float>(scrollY));
 
       float newPps = pixelsPerSemitone * zoomFactor;
-      newPps = juce::jlimit(MIN_PIXELS_PER_SEMITONE, MAX_PIXELS_PER_SEMITONE,
-                            newPps);
+      if (zoomFactor < 1.0f)
+      {
+        const float range = minPps * 0.35f;
+        const float t = range > 0.0f ? juce::jlimit(0.0f, 1.0f, (pixelsPerSemitone - minPps) / range) : 0.0f;
+        newPps = pixelsPerSemitone * (1.0f + (zoomFactor - 1.0f) * t);
+      }
+      newPps = juce::jlimit(minPps, MAX_PIXELS_PER_SEMITONE, newPps);
 
       // Adjust scroll to keep mouse position stable
       float newMouseY = midiToY(midiAtMouse);
@@ -1973,8 +2001,15 @@ void PianoRollComponent::setPixelsPerSecond(float pps, bool centerOnCursor) {
 }
 
 void PianoRollComponent::setPixelsPerSemitone(float pps) {
+  const int visibleHeight = getVisibleContentHeight();
+  const float minPpsForFill =
+      visibleHeight > 0
+          ? static_cast<float>(visibleHeight) / (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1)
+          : MIN_PIXELS_PER_SEMITONE;
+  const float minPps = std::max(MIN_PIXELS_PER_SEMITONE, minPpsForFill);
+
   pixelsPerSemitone =
-      juce::jlimit(MIN_PIXELS_PER_SEMITONE, MAX_PIXELS_PER_SEMITONE, pps);
+      juce::jlimit(minPps, MAX_PIXELS_PER_SEMITONE, pps);
   coordMapper->setPixelsPerSemitone(pixelsPerSemitone);
   updateScrollBars();
   repaint();
@@ -2002,14 +2037,13 @@ void PianoRollComponent::centerOnPitchRange(float minMidi, float maxMidi) {
   float centerY = midiToY(centerMidi);
 
   // Get visible height
-  auto bounds = getLocalBounds();
-  int visibleHeight = bounds.getHeight() - 8; // scrollbar height
+  int visibleHeight = getHeight() - 8; // scrollbar height
 
   // Calculate scroll position to center the pitch range
   double newScrollY = centerY - visibleHeight / 2.0;
 
   // Clamp to valid range
-  double totalHeight = (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
+  double totalHeight = (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * pixelsPerSemitone;
   newScrollY =
       juce::jlimit(0.0, std::max(0.0, totalHeight - visibleHeight), newScrollY);
 
@@ -2847,10 +2881,10 @@ Note *PianoRollComponent::findNoteAt(float x, float y) {
 void PianoRollComponent::updateScrollBars() {
   if (project) {
     float totalWidth = project->getAudioData().getDuration() * pixelsPerSecond;
-    float totalHeight = (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
+    float totalHeight = (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * pixelsPerSemitone;
 
-    int visibleWidth = getWidth() - pianoKeysWidth - 14;
-    int visibleHeight = getHeight() - 14;
+    int visibleWidth = getVisibleContentWidth();
+    int visibleHeight = getVisibleContentHeight();
 
     horizontalScrollBar.setRangeLimits(0, totalWidth);
     horizontalScrollBar.setCurrentRange(scrollX, visibleWidth);

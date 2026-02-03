@@ -12,8 +12,8 @@ constexpr float FMIN = 40.0f;
 constexpr float FMAX = 16000.0f;
 
 // MIDI constants
-constexpr int MIN_MIDI_NOTE = 24; // C1
-constexpr int MAX_MIDI_NOTE = 96; // C7
+constexpr int MIN_MIDI_NOTE = 12; // C0
+constexpr int MAX_MIDI_NOTE = 120; // C9
 constexpr int MIDI_A4 = 69;
 constexpr float FREQ_A4 = 440.0f;
 

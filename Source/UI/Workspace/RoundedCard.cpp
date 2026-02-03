@@ -18,13 +18,19 @@ void RoundedCard::paint(juce::Graphics& g)
     g.setGradientFill(bgGradient);
     g.fillRoundedRectangle(bounds, cornerRadius);
 
-    // Inner highlight
-    g.setColour(APP_COLOR_BORDER_SUBTLE.withAlpha(0.7f));
-    g.drawRoundedRectangle(bounds.reduced(1.0f), cornerRadius - 1.0f, 1.0f);
+    // Gradient border to mimic light hitting the edge
+    juce::Path borderPath;
+    borderPath.addRoundedRectangle(bounds.reduced(0.5f), cornerRadius);
 
-    // Outer border
-    g.setColour(borderColour);
-    g.drawRoundedRectangle(bounds.reduced(0.5f), cornerRadius, 1.0f);
+    juce::ColourGradient borderGradient(
+        APP_COLOR_BORDER_HIGHLIGHT, bounds.getX(), bounds.getY(),
+        borderColour.darker(0.3f), bounds.getRight(), bounds.getBottom(), false);
+    g.setGradientFill(borderGradient);
+    g.strokePath(borderPath, juce::PathStrokeType(1.1f));
+
+    // Subtle inner glow for depth
+    g.setColour(APP_COLOR_BORDER_SUBTLE.withAlpha(0.4f));
+    g.drawRoundedRectangle(bounds.reduced(1.2f), cornerRadius - 1.0f, 0.6f);
 }
 
 void RoundedCard::paintOverChildren(juce::Graphics& g)
@@ -35,8 +41,13 @@ void RoundedCard::paintOverChildren(juce::Graphics& g)
     clipPath.addRoundedRectangle(bounds, cornerRadius);
 
     // Draw border on top to create clean rounded edge
-    g.setColour(borderColour);
-    g.drawRoundedRectangle(bounds.reduced(0.5f), cornerRadius, 1.0f);
+    juce::Path borderPath;
+    borderPath.addRoundedRectangle(bounds.reduced(0.5f), cornerRadius);
+    juce::ColourGradient borderGradient(
+        APP_COLOR_BORDER_HIGHLIGHT, bounds.getX(), bounds.getY(),
+        borderColour.darker(0.3f), bounds.getRight(), bounds.getBottom(), false);
+    g.setGradientFill(borderGradient);
+    g.strokePath(borderPath, juce::PathStrokeType(1.1f));
 }
 
 void RoundedCard::resized()

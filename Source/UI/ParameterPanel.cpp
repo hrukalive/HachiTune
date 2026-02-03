@@ -83,48 +83,82 @@ void ParameterPanel::setupSlider(juce::Slider& slider, juce::Label& label,
 
 void ParameterPanel::paint(juce::Graphics& g)
 {
-    // Don't fill background - let parent DraggablePanel handle it
-    juce::ignoreUnused(g);
+    auto drawCard = [&g](const juce::Rectangle<int>& bounds)
+    {
+        if (bounds.isEmpty())
+            return;
+        const float radius = 10.0f;
+        g.setColour(APP_COLOR_SURFACE_RAISED);
+        g.fillRoundedRectangle(bounds.toFloat(), radius);
+
+        juce::Path borderPath;
+        borderPath.addRoundedRectangle(bounds.toFloat().reduced(0.5f), radius);
+        juce::ColourGradient borderGradient(
+            APP_COLOR_BORDER_HIGHLIGHT, bounds.getX(), bounds.getY(),
+            APP_COLOR_BORDER.darker(0.3f), bounds.getRight(), bounds.getBottom(), false);
+        g.setGradientFill(borderGradient);
+        g.strokePath(borderPath, juce::PathStrokeType(1.1f));
+
+        g.setColour(APP_COLOR_BORDER_SUBTLE.withAlpha(0.4f));
+        g.drawRoundedRectangle(bounds.toFloat().reduced(1.2f), radius - 1.0f, 0.6f);
+    };
+
+    drawCard(noteCardBounds);
+    drawCard(pitchCardBounds);
+    drawCard(volumeCardBounds);
+    drawCard(formantCardBounds);
+    drawCard(globalCardBounds);
 }
 
 void ParameterPanel::resized()
 {
-    auto bounds = getLocalBounds().reduced(10);
+    auto bounds = getLocalBounds().reduced(12);
+    const int cardGap = 10;
 
-    // Note info
-    noteInfoLabel.setBounds(bounds.removeFromTop(30));
-    bounds.removeFromTop(10);
+    // Note info card
+    noteCardBounds = bounds.removeFromTop(44);
+    auto noteArea = noteCardBounds.reduced(10);
+    noteInfoLabel.setBounds(noteArea);
+    bounds.removeFromTop(cardGap);
 
-    // Pitch section
-    pitchSectionLabel.setBounds(bounds.removeFromTop(20));
-    bounds.removeFromTop(5);
-    pitchOffsetLabel.setBounds(bounds.removeFromTop(20));
-    pitchOffsetSlider.setBounds(bounds.removeFromTop(24));
-    bounds.removeFromTop(15);
+    // Pitch card
+    pitchCardBounds = bounds.removeFromTop(92);
+    auto pitchArea = pitchCardBounds.reduced(10);
+    pitchSectionLabel.setBounds(pitchArea.removeFromTop(18));
+    pitchArea.removeFromTop(6);
+    pitchOffsetLabel.setBounds(pitchArea.removeFromTop(18));
+    pitchOffsetSlider.setBounds(pitchArea.removeFromTop(26));
+    bounds.removeFromTop(cardGap);
 
-    // Volume section with knob
-    volumeSectionLabel.setBounds(bounds.removeFromTop(20));
-    bounds.removeFromTop(5);
-    auto volumeArea = bounds.removeFromTop(70);  // Larger area for knob
-    const int knobSize = 60;
-    volumeKnob.setBounds(volumeArea.getX() + (volumeArea.getWidth() - knobSize) / 2,
-                         volumeArea.getY(), knobSize, knobSize);
-    volumeValueLabel.setBounds(volumeArea.getX(), volumeArea.getY() + knobSize + 2,
-                               volumeArea.getWidth(), 16);
-    bounds.removeFromTop(10);
+    // Volume card
+    volumeCardBounds = bounds.removeFromTop(112);
+    auto volumeArea = volumeCardBounds.reduced(10);
+    volumeSectionLabel.setBounds(volumeArea.removeFromTop(18));
+    volumeArea.removeFromTop(6);
+    const int knobSize = 62;
+    auto knobArea = volumeArea.removeFromTop(knobSize + 18);
+    volumeKnob.setBounds(knobArea.getX() + (knobArea.getWidth() - knobSize) / 2,
+                         knobArea.getY(), knobSize, knobSize);
+    volumeValueLabel.setBounds(knobArea.getX(), knobArea.getBottom() - 16,
+                               knobArea.getWidth(), 16);
+    bounds.removeFromTop(cardGap);
 
-    // Formant section
-    formantSectionLabel.setBounds(bounds.removeFromTop(20));
-    bounds.removeFromTop(5);
-    formantShiftLabel.setBounds(bounds.removeFromTop(20));
-    formantShiftSlider.setBounds(bounds.removeFromTop(24));
-    bounds.removeFromTop(30);
+    // Formant card
+    formantCardBounds = bounds.removeFromTop(92);
+    auto formantArea = formantCardBounds.reduced(10);
+    formantSectionLabel.setBounds(formantArea.removeFromTop(18));
+    formantArea.removeFromTop(6);
+    formantShiftLabel.setBounds(formantArea.removeFromTop(18));
+    formantShiftSlider.setBounds(formantArea.removeFromTop(26));
+    bounds.removeFromTop(cardGap);
 
-    // Global section
-    globalSectionLabel.setBounds(bounds.removeFromTop(20));
-    bounds.removeFromTop(5);
-    globalPitchLabel.setBounds(bounds.removeFromTop(20));
-    globalPitchSlider.setBounds(bounds.removeFromTop(24));
+    // Global card
+    globalCardBounds = bounds.removeFromTop(92);
+    auto globalArea = globalCardBounds.reduced(10);
+    globalSectionLabel.setBounds(globalArea.removeFromTop(18));
+    globalArea.removeFromTop(6);
+    globalPitchLabel.setBounds(globalArea.removeFromTop(18));
+    globalPitchSlider.setBounds(globalArea.removeFromTop(26));
 }
 
 void ParameterPanel::sliderValueChanged(juce::Slider* slider)

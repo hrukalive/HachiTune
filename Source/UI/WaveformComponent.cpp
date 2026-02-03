@@ -5,6 +5,8 @@
 WaveformComponent::WaveformComponent()
 {
     addAndMakeVisible(horizontalScrollBar);
+    horizontalScrollBar.setColour(juce::ScrollBar::thumbColourId, APP_COLOR_PRIMARY.withAlpha(0.8f));
+    horizontalScrollBar.setColour(juce::ScrollBar::trackColourId, juce::Colours::transparentBlack);
     horizontalScrollBar.addListener(this);
 }
 
