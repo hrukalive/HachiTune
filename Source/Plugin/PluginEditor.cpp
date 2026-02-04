@@ -1,8 +1,4 @@
 #include "PluginEditor.h"
-#include "../UI/StyledComponents.h"
-#include "../Utils/AppLogger.h"
-#include "../Utils/WindowSizing.h"
-#include "../Utils/TimecodeFont.h"
 #include "HostCompatibility.h"
 
 #if JucePlugin_Enable_ARA
@@ -11,22 +7,21 @@
 
 HachiTuneAudioProcessorEditor::HachiTuneAudioProcessorEditor(
     HachiTuneAudioProcessor &p)
-    : AudioProcessorEditor(&p), audioProcessor(p)
+    : AudioProcessorEditor(&p), audioProcessor(p),
+      mainView(createMainView(false))
 #if JucePlugin_Enable_ARA
       ,
       AudioProcessorEditorARAExtension(&p)
 #endif
 {
-  // Initialize app font
-  AppLogger::init();
-  AppFont::initialize();
-  TimecodeFont::initialize();
+  // Initialize UI resources
+  initializeUiResources();
 
   // Enable keyboard focus for the editor
   setWantsKeyboardFocus(true);
 
-  addAndMakeVisible(mainComponent);
-  audioProcessor.setMainComponent(&mainComponent);
+  addAndMakeVisible(*mainView->getComponent());
+  audioProcessor.setMainComponent(mainView.get());
 
 #if JucePlugin_Enable_ARA
   setupARAMode();
@@ -36,31 +31,22 @@ HachiTuneAudioProcessorEditor::HachiTuneAudioProcessorEditor(
 
   setupCallbacks();
 
-  auto *display = WindowSizing::getDisplayForComponent(this);
-  auto constraints = WindowSizing::Constraints();
-  if (display != nullptr) {
-    auto size = WindowSizing::getClampedSize(WindowSizing::kDefaultWidth,
-                                             WindowSizing::kDefaultHeight,
-                                             *display, constraints);
-    setSize(size.x, size.y);
-  } else {
-    setSize(WindowSizing::kDefaultWidth, WindowSizing::kDefaultHeight);
-  }
+  auto size = getDefaultMainViewSize(this);
+  setSize(size.x, size.y);
   setResizable(true, true);
 
   // Grab keyboard focus on mainComponent when editor is shown
-  mainComponent.grabKeyboardFocus();
+  mainView->getComponent()->grabKeyboardFocus();
 }
 
 HachiTuneAudioProcessorEditor::~HachiTuneAudioProcessorEditor() {
   audioProcessor.setMainComponent(nullptr);
-  TimecodeFont::shutdown();
-  AppFont::shutdown(); // Release font resources (reference counted)
+  shutdownUiResources();
 }
 
 void HachiTuneAudioProcessorEditor::setupARAMode() {
 #if JucePlugin_Enable_ARA
-  mainComponent.getToolbar().setARAMode(true);
+  mainView->setARAMode(true);
 
   auto *editorView = getARAEditorView();
   if (!editorView) {
@@ -84,26 +70,26 @@ void HachiTuneAudioProcessorEditor::setupARAMode() {
   }
 
   // Connect ARA controller to UI
-  pitchDocController->setMainComponent(&mainComponent);
+  pitchDocController->setMainComponent(mainView.get());
   pitchDocController->setRealtimeProcessor(
       &audioProcessor.getRealtimeProcessor());
 
   // Setup re-analyze callback
-  mainComponent.onReanalyzeRequested = [pitchDocController]() {
+  mainView->setOnReanalyzeRequested([pitchDocController]() {
     pitchDocController->reanalyze();
-  };
+  });
 
-  mainComponent.onRequestHostPlayState = [this](bool shouldPlay) {
+  mainView->setOnRequestHostPlayState([this](bool shouldPlay) {
     audioProcessor.requestHostPlayState(shouldPlay);
-  };
+  });
 
-  mainComponent.onRequestHostStop = [this]() {
+  mainView->setOnRequestHostStop([this]() {
     audioProcessor.requestHostStop();
-  };
+  });
 
-  mainComponent.onRequestHostSeek = [this](double timeInSeconds) {
+  mainView->setOnRequestHostSeek([this](double timeInSeconds) {
     audioProcessor.requestHostSeek(timeInSeconds);
-  };
+  });
 
   // Check for existing audio sources
   auto *juceDocument = docController->getDocument();
@@ -121,7 +107,7 @@ void HachiTuneAudioProcessorEditor::setupARAMode() {
 
         juce::AudioBuffer<float> buffer(numChannels, numSamples);
         if (reader.read(&buffer, 0, numSamples, 0, true, true)) {
-          mainComponent.setHostAudio(buffer, sampleRate);
+          mainView->setHostAudio(buffer, sampleRate);
           return;
         }
       }
@@ -131,38 +117,28 @@ void HachiTuneAudioProcessorEditor::setupARAMode() {
 }
 
 void HachiTuneAudioProcessorEditor::setupNonARAMode() {
-  mainComponent.getToolbar().setARAMode(false);
+  mainView->setARAMode(false);
 
   // Setup host transport control callbacks for non-ARA mode
-  mainComponent.onRequestHostPlayState = [this](bool shouldPlay) {
+  mainView->setOnRequestHostPlayState([this](bool shouldPlay) {
     audioProcessor.requestHostPlayState(shouldPlay);
-  };
+  });
 
-  mainComponent.onRequestHostStop = [this]() {
+  mainView->setOnRequestHostStop([this]() {
     audioProcessor.requestHostStop();
-  };
+  });
 
-  mainComponent.onRequestHostSeek = [this](double timeInSeconds) {
+  mainView->setOnRequestHostSeek([this](double timeInSeconds) {
     audioProcessor.requestHostSeek(timeInSeconds);
-  };
+  });
 }
 
 void HachiTuneAudioProcessorEditor::setupCallbacks() {
   // When project data changes (analysis complete or synthesis complete)
-  mainComponent.onProjectDataChanged = [this]() {
-    // IMPORTANT: Set project FIRST, then vocoder
-    // setProject() calls invalidate() which needs a valid project
-    if (mainComponent.getProject())
-      audioProcessor.getRealtimeProcessor().setProject(
-          mainComponent.getProject());
-
-    // setVocoder() does NOT call invalidate() anymore (safe to call anytime)
-    if (mainComponent.getVocoder())
-      audioProcessor.getRealtimeProcessor().setVocoder(
-          mainComponent.getVocoder());
-
+  mainView->setOnProjectDataChanged([this]() {
+    mainView->bindRealtimeProcessor(audioProcessor.getRealtimeProcessor());
     audioProcessor.getRealtimeProcessor().invalidate();
-  };
+  });
 
   // onPitchEditFinished is handled by onProjectDataChanged (called after async
   // synthesis completes) No need for separate callback here
@@ -173,15 +149,15 @@ void HachiTuneAudioProcessorEditor::paint(juce::Graphics &) {
 }
 
 void HachiTuneAudioProcessorEditor::resized() {
-  mainComponent.setBounds(getLocalBounds());
+  mainView->getComponent()->setBounds(getLocalBounds());
 }
 
 void HachiTuneAudioProcessorEditor::visibilityChanged() {
   if (isVisible())
-    mainComponent.grabKeyboardFocus();
+    mainView->getComponent()->grabKeyboardFocus();
 }
 
 void HachiTuneAudioProcessorEditor::mouseDown(const juce::MouseEvent& e) {
   juce::ignoreUnused(e);
-  mainComponent.grabKeyboardFocus();
+  mainView->getComponent()->grabKeyboardFocus();
 }

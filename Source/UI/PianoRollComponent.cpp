@@ -3,8 +3,8 @@
 #include "../Utils/CenteredMelSpectrogram.h"
 #include "../Utils/CurveResampler.h"
 #include "../Utils/Constants.h"
-#include "../Utils/TimecodeFont.h"
-#include "../Utils/Theme.h"
+#include "../Utils/UI/TimecodeFont.h"
+#include "../Utils/UI/Theme.h"
 #include "../Utils/PitchCurveProcessor.h"
 #include <algorithm>
 #include <cmath>

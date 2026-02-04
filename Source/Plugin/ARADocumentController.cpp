@@ -2,8 +2,7 @@
 
 #if JucePlugin_Enable_ARA
 
-#include "../Models/ProjectSerializer.h"
-#include "../UI/MainComponent.h"
+#include "../UI/IMainView.h"
 
 #include <limits>
 
@@ -125,23 +124,23 @@ bool HachiTunePlaybackRenderer::processBlock(
       state->latestSeconds.store(timeInSeconds);
 
       if (!state->posPending.exchange(true)) {
-        juce::Component::SafePointer<MainComponent> safeMain(
-            docCtrl->getMainComponent());
+        juce::Component::SafePointer<juce::Component> safeMain(
+            docCtrl->getMainComponent()->getComponent());
         juce::MessageManager::callAsync([safeMain, state]() {
           state->posPending.store(false);
-          if (safeMain != nullptr)
-            safeMain->updatePlaybackPosition(state->latestSeconds.load());
+          if (auto *view = dynamic_cast<IMainView *>(safeMain.getComponent()))
+            view->updatePlaybackPosition(state->latestSeconds.load());
         });
       }
     } else {
       auto state = hostUiSyncState;
       if (!state->stoppedPending.exchange(true)) {
-        juce::Component::SafePointer<MainComponent> safeMain(
-            docCtrl->getMainComponent());
+        juce::Component::SafePointer<juce::Component> safeMain(
+            docCtrl->getMainComponent()->getComponent());
         juce::MessageManager::callAsync([safeMain, state]() {
           state->stoppedPending.store(false);
-          if (safeMain != nullptr)
-            safeMain->notifyHostStopped();
+          if (auto *view = dynamic_cast<IMainView *>(safeMain.getComponent()))
+            view->notifyHostStopped();
         });
       }
     }
@@ -256,12 +255,14 @@ void HachiTuneDocumentController::processAudioSource(
   if (numSamples <= 0 || numChannels <= 0 || sourceSampleRate <= 0)
     return;
 
-  juce::Component::SafePointer<MainComponent> safeMain(mainComponent);
+  juce::Component::SafePointer<juce::Component> safeMain(
+      mainComponent->getComponent());
   auto *sourcePtr = source;
   auto state = analysisState;
   analysisThread = std::thread([safeMain, sourcePtr, state, jobId, numSamples,
                                 numChannels, sourceSampleRate]() mutable {
-    if (safeMain == nullptr)
+    auto *view = dynamic_cast<IMainView *>(safeMain.getComponent());
+    if (!view)
       return;
     if (!state)
       return;
@@ -284,8 +285,8 @@ void HachiTuneDocumentController::processAudioSource(
         return;
       if (state->jobId.load() != jobId)
         return;
-      safeMain->getToolbar().setStatusMessage("ARA Mode - Analyzing...");
-      safeMain->setHostAudio(buffer, sourceSampleRate);
+      view->setStatusMessage("ARA Mode - Analyzing...");
+      view->setHostAudio(buffer, sourceSampleRate);
     });
   });
 }
@@ -318,14 +319,11 @@ bool HachiTuneDocumentController::doRestoreObjectsFromStream(
   data.setSize(static_cast<size_t>(dataSize));
   input.read(data.getData(), static_cast<int>(dataSize));
 
-  if (mainComponent && mainComponent->getProject()) {
+  if (mainComponent) {
     juce::String jsonString(
         juce::CharPointer_UTF8(static_cast<const char *>(data.getData())),
         data.getSize());
-    auto json = juce::JSON::parse(jsonString);
-    if (json.isObject()) {
-      ProjectSerializer::fromJson(*mainComponent->getProject(), json);
-    }
+    mainComponent->restoreProjectJson(jsonString);
   }
 
   return !input.failed();
@@ -334,13 +332,16 @@ bool HachiTuneDocumentController::doRestoreObjectsFromStream(
 bool HachiTuneDocumentController::doStoreObjectsToStream(
     juce::ARAOutputStream &output,
     const juce::ARAStoreObjectsFilter *) noexcept {
-  if (!mainComponent || !mainComponent->getProject()) {
+  if (!mainComponent) {
     output.writeInt64(0);
     return true;
   }
 
-  auto json = ProjectSerializer::toJson(*mainComponent->getProject());
-  auto jsonString = juce::JSON::toString(json, false);
+  auto jsonString = mainComponent->serializeProjectJson();
+  if (jsonString.isEmpty()) {
+    output.writeInt64(0);
+    return true;
+  }
 
   output.writeInt64(static_cast<juce::int64>(jsonString.getNumBytesAsUTF8()));
   return output.write(jsonString.toRawUTF8(),

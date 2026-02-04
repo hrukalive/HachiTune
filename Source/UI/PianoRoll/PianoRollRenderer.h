@@ -4,7 +4,7 @@
 #include "../../Models/Project.h"
 #include "../../Utils/BasePitchCurve.h"
 #include "../../Utils/Constants.h"
-#include "../../Utils/Theme.h"
+#include "../../Utils/UI/Theme.h"
 #include "CoordinateMapper.h"
 #include <vector>
 

@@ -187,40 +187,64 @@ if(ARA_AVAILABLE)
 endif()
 
 # Add source files using GLOB_RECURSE
-file(GLOB_RECURSE PITCH_EDITOR_COMMON_SOURCES
+file(GLOB_RECURSE HACHITUNE_CORE_SOURCES
     "Source/Audio/*.cpp" "Source/Audio/*.h"
-    "Source/UI/*.cpp" "Source/UI/*.h"
     "Source/Models/*.cpp" "Source/Models/*.h"
     "Source/Utils/*.cpp" "Source/Utils/*.h" "Source/Utils/*.mm"
-    "Source/JuceHeader.h"
-    "Source/Plugin/HostCompatibility.cpp" "Source/Plugin/HostCompatibility.h")
+    "Source/JuceHeader.h")
 
-# Ensure new preview utility is always built even if glob cache is stale.
-list(APPEND PITCH_EDITOR_COMMON_SOURCES
-    "Source/Utils/BasePitchPreview.cpp"
-    "Source/Utils/BasePitchPreview.h")
+list(FILTER HACHITUNE_CORE_SOURCES EXCLUDE REGEX "Source/Utils/UI/")
+
+file(GLOB_RECURSE HACHITUNE_UI_SOURCES
+    "Source/UI/*.cpp" "Source/UI/*.h"
+    "Source/Utils/UI/*.cpp" "Source/Utils/UI/*.h")
 
 file(GLOB PLUGIN_SOURCES
     "Source/Plugin/PluginProcessor.cpp" "Source/Plugin/PluginProcessor.h"
     "Source/Plugin/PluginEditor.cpp" "Source/Plugin/PluginEditor.h"
     "Source/Plugin/ARADocumentController.cpp" "Source/Plugin/ARADocumentController.h"
-    "Source/Plugin/NonAraCaptureController.cpp" "Source/Plugin/NonAraCaptureController.h")
+    "Source/Plugin/NonAraCaptureController.cpp" "Source/Plugin/NonAraCaptureController.h"
+    "Source/Plugin/HostCompatibility.cpp" "Source/Plugin/HostCompatibility.h")
 
 target_sources(HachiTune PRIVATE
     Source/Main.cpp
-    ${PITCH_EDITOR_COMMON_SOURCES})
+    )
 
 target_sources(HachiTunePlugin PRIVATE
     ${PLUGIN_SOURCES}
-    ${PITCH_EDITOR_COMMON_SOURCES})
+    )
+
+# Core/UI libraries (stage 1 modularization)
+add_library(hachitune_core STATIC ${HACHITUNE_CORE_SOURCES})
+add_library(hachitune_ui STATIC ${HACHITUNE_UI_SOURCES})
 
 # Binary data for SVG icons
 file(GLOB SVG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/Resources/svg/*.svg")
 juce_add_binary_data(BinaryData SOURCES ${SVG_FILES})
 
+target_link_libraries(hachitune_core PUBLIC
+    juce::juce_gui_basics
+    juce::juce_gui_extra
+    juce::juce_audio_basics
+    juce::juce_audio_devices
+    juce::juce_audio_formats
+    juce::juce_audio_utils
+    juce::juce_dsp)
+
+target_link_libraries(hachitune_ui PUBLIC
+    hachitune_core
+    BinaryData
+    juce::juce_gui_basics
+    juce::juce_gui_extra
+    juce::juce_audio_basics
+    juce::juce_audio_formats
+    juce::juce_audio_utils
+    juce::juce_dsp)
+
 # Link JUCE modules
 target_link_libraries(HachiTune PRIVATE
-    BinaryData
+    hachitune_ui
+    hachitune_core
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_audio_basics
@@ -233,7 +257,8 @@ target_link_libraries(HachiTune PRIVATE
     juce::juce_recommended_warning_flags)
 
 target_link_libraries(HachiTunePlugin PRIVATE
-    BinaryData
+    hachitune_ui
+    hachitune_core
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_audio_basics
@@ -248,37 +273,29 @@ target_link_libraries(HachiTunePlugin PRIVATE
     juce::juce_recommended_warning_flags)
 
 if(HACHITUNE_ASIO_ENABLED)
-    target_include_directories(HachiTune PRIVATE ${ASIO_INCLUDE_DIR})
-    target_include_directories(HachiTunePlugin PRIVATE ${ASIO_INCLUDE_DIR})
+    target_include_directories(hachitune_core PUBLIC ${ASIO_INCLUDE_DIR})
 endif()
 
 # Link ONNX Runtime if found
 if(ONNXRUNTIME_FOUND)
-    target_include_directories(HachiTune PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(HachiTune PRIVATE ${ONNXRUNTIME_LIBRARY})
-    target_compile_definitions(HachiTune PRIVATE HAVE_ONNXRUNTIME=1)
-
-    target_include_directories(HachiTunePlugin PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(HachiTunePlugin PRIVATE ${ONNXRUNTIME_LIBRARY})
-    target_compile_definitions(HachiTunePlugin PRIVATE HAVE_ONNXRUNTIME=1)
+    target_include_directories(hachitune_core PUBLIC ${ONNXRUNTIME_INCLUDE_DIR})
+    target_link_libraries(hachitune_core PUBLIC ${ONNXRUNTIME_LIBRARY})
+    target_compile_definitions(hachitune_core PUBLIC HAVE_ONNXRUNTIME=1)
 
     # Pass GPU option to code (macOS always uses CPU)
     if(USE_GPU AND NOT APPLE)
-        target_compile_definitions(HachiTune PRIVATE ONNXRUNTIME_USE_GPU=1)
-        target_compile_definitions(HachiTunePlugin PRIVATE ONNXRUNTIME_USE_GPU=1)
+        target_compile_definitions(hachitune_core PUBLIC ONNXRUNTIME_USE_GPU=1)
     endif()
 
     # Enable CUDA if requested
     if(USE_CUDA)
-        target_compile_definitions(HachiTune PRIVATE USE_CUDA=1)
-        target_compile_definitions(HachiTunePlugin PRIVATE USE_CUDA=1)
+        target_compile_definitions(hachitune_core PUBLIC USE_CUDA=1)
         message(STATUS "CUDA execution provider: ENABLED")
     endif()
 
     # Enable DirectML if requested (Windows only)
     if(USE_DIRECTML AND WIN32)
-        target_compile_definitions(HachiTune PRIVATE USE_DIRECTML=1)
-        target_compile_definitions(HachiTunePlugin PRIVATE USE_DIRECTML=1)
+        target_compile_definitions(hachitune_core PUBLIC USE_DIRECTML=1)
         message(STATUS "DirectML execution provider: ENABLED")
     endif()
 
@@ -522,46 +539,37 @@ target_compile_features(HachiTunePlugin PRIVATE cxx_std_17)
 # Platform-specific settings
 if(WIN32)
     # NOMINMAX prevents Windows.h from defining min/max macros that conflict with std::min/std::max
-    target_compile_definitions(HachiTune PRIVATE
-        NOMINMAX
-        JUCE_WASAPI=1
-        JUCE_DIRECTSOUND=1
-        JUCE_ASIO=${HACHITUNE_JUCE_ASIO}
-        JUCE_ASIO_USE_EXTERNAL_SDK=${HACHITUNE_JUCE_ASIO_EXTERNAL})
-
-    target_compile_definitions(HachiTunePlugin PRIVATE
+    target_compile_definitions(hachitune_core PUBLIC
         NOMINMAX
         JUCE_WASAPI=1
         JUCE_DIRECTSOUND=1
         JUCE_ASIO=${HACHITUNE_JUCE_ASIO}
         JUCE_ASIO_USE_EXTERNAL_SDK=${HACHITUNE_JUCE_ASIO_EXTERNAL})
 elseif(APPLE)
-    target_compile_definitions(HachiTune PRIVATE
-        JUCE_COREAUDIO=1)
-
-    target_compile_definitions(HachiTunePlugin PRIVATE
+    target_compile_definitions(hachitune_core PUBLIC
         JUCE_COREAUDIO=1)
 else()
-    target_compile_definitions(HachiTune PRIVATE
-        JUCE_ALSA=1
-        JUCE_JACK=1)
-
-    target_compile_definitions(HachiTunePlugin PRIVATE
+    target_compile_definitions(hachitune_core PUBLIC
         JUCE_ALSA=1
         JUCE_JACK=1)
 endif()
 
 # Common definitions
-target_compile_definitions(HachiTune PRIVATE
+target_compile_definitions(hachitune_core PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
-    JUCE_MODAL_LOOPS_PERMITTED=1
+    JUCE_MODAL_LOOPS_PERMITTED=1)
+
+target_compile_definitions(hachitune_ui PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=1)
+
+target_compile_definitions(HachiTune PRIVATE
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:HachiTune,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:HachiTune,JUCE_VERSION>")
 
 target_compile_definitions(HachiTunePlugin PRIVATE
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:HachiTunePlugin,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:HachiTunePlugin,JUCE_VERSION>")

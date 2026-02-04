@@ -1,15 +1,13 @@
 #include "MainComponent.h"
+#include "../Audio/RealtimePitchProcessor.h"
 #include "../Audio/IO/MidiExporter.h"
 #include "../Models/ProjectSerializer.h"
 #include "../Utils/AppLogger.h"
 #include "../Utils/Constants.h"
-#include "../Utils/Theme.h"
-#include "../Utils/F0Smoother.h"
+#include "../Utils/UI/Theme.h"
 #include "../Utils/Localization.h"
-#include "../Utils/MelSpectrogram.h"
-#include "../Utils/PitchCurveProcessor.h"
 #include "../Utils/PlatformPaths.h"
-#include "../Utils/WindowSizing.h"
+#include "../Utils/UI/WindowSizing.h"
 #include <atomic>
 #include <climits>
 #include <iostream>
@@ -22,59 +20,38 @@ MainComponent::MainComponent(bool enableAudioDevice)
 
   LOG("MainComponent: creating core components...");
   // Initialize components
-  project = std::make_unique<Project>();
-  if (enableAudioDeviceFlag)
-    audioEngine = std::make_unique<AudioEngine>();
-  fcpePitchDetector = std::make_unique<FCPEPitchDetector>();
-  rmvpePitchDetector = std::make_unique<RMVPEPitchDetector>();
-  vocoder = std::make_unique<Vocoder>();
+  editorController = std::make_unique<EditorController>(enableAudioDeviceFlag);
   undoManager = std::make_unique<PitchUndoManager>(100);
   commandManager = std::make_unique<juce::ApplicationCommandManager>();
+  undoManager->onHistoryChanged = [this]() {
+    if (commandManager)
+      commandManager->commandStatusChanged();
+  };
 
   // Initialize new modular components
   fileManager = std::make_unique<AudioFileManager>();
-  audioAnalyzer = std::make_unique<AudioAnalyzer>();
-  incrementalSynth = std::make_unique<IncrementalSynthesizer>();
-  playbackController = std::make_unique<PlaybackController>();
   menuHandler = std::make_unique<MenuHandler>();
   settingsManager = std::make_unique<SettingsManager>();
 
   LOG("MainComponent: loading ONNX models...");
-  // Try to load FCPE model
-  auto modelsDir = PlatformPaths::getModelsDirectory();
-
-  fcpeModelPath = modelsDir.getChildFile("fcpe.onnx");
-  melFilterbankPath = modelsDir.getChildFile("mel_filterbank.bin");
-  centTablePath = modelsDir.getChildFile("cent_table.bin");
-  rmvpeModelPath = modelsDir.getChildFile("rmvpe.onnx");
-  someModelPath = modelsDir.getChildFile("some.onnx");
-
-  // Initialize legacy SOME detector
-  someDetector = std::make_unique<SOMEDetector>();
-  reloadInferenceModels(false);
+  editorController->setPitchDetectorType(
+      settingsManager->getPitchDetectorType());
+  editorController->setDeviceConfig(settingsManager->getDevice(),
+                                    settingsManager->getGPUDeviceId());
+  editorController->reloadInferenceModels(false);
 
   LOG("MainComponent: wiring up components...");
-  // Wire up modular components (after all detectors are initialized)
-  audioAnalyzer->setFCPEDetector(fcpePitchDetector.get());
-  audioAnalyzer->setRMVPEDetector(rmvpePitchDetector.get());
-  audioAnalyzer->setSOMEDetector(someDetector.get());
-
-  // Apply pitch detector type from settings
-  audioAnalyzer->setPitchDetectorType(settingsManager->getPitchDetectorType());
-
-  incrementalSynth->setVocoder(vocoder.get());
-  playbackController->setAudioEngine(audioEngine.get());
   menuHandler->setUndoManager(undoManager.get());
   menuHandler->setCommandManager(commandManager.get());
   menuHandler->setPluginMode(isPluginMode());
-  settingsManager->setVocoder(vocoder.get());
+  settingsManager->setVocoder(editorController->getVocoder());
 
   // Load vocoder settings
   settingsManager->applySettings();
 
   LOG("MainComponent: initializing audio device...");
   // Initialize audio (standalone app only)
-  if (audioEngine)
+  if (auto *audioEngine = editorController->getAudioEngine())
     audioEngine->initializeAudio();
   LOG("MainComponent: audio initialized");
 
@@ -119,18 +96,21 @@ MainComponent::MainComponent(bool enableAudioDevice)
   toolbar.onStop = [this]() { stop(); };
   toolbar.onGoToStart = [this]() { seek(0.0); };
   toolbar.onGoToEnd = [this]() {
-    if (project)
+    if (auto *project = getProject())
       seek(project->getAudioData().getDuration());
   };
   toolbar.onZoomChanged = [this](float pps) { onZoomChanged(pps); };
   toolbar.onEditModeChanged = [this](EditMode mode) { setEditMode(mode); };
   toolbar.onLoopToggled = [this](bool enabled) {
+    auto *project = getProject();
     if (!project)
       return;
     project->setLoopEnabled(enabled);
     const auto &loopRange = project->getLoopRange();
     toolbar.setLoopEnabled(loopRange.enabled);
-    if (audioEngine) {
+    if (auto *audioEngine = editorController
+                                ? editorController->getAudioEngine()
+                                : nullptr) {
       if (loopRange.enabled)
         audioEngine->setLoopRange(loopRange.startSeconds, loopRange.endSeconds);
       audioEngine->setLoopEnabled(loopRange.enabled);
@@ -156,13 +136,16 @@ MainComponent::MainComponent(bool enableAudioDevice)
   pianoRoll.onPitchEditFinished = [this]() {
     resynthesizeIncremental();
     // Melodyne-style: trigger real-time processor update in plugin mode
+    notifyProjectDataChanged();
     if (isPluginMode() && onPitchEditFinished)
       onPitchEditFinished();
   };
   pianoRoll.onZoomChanged = [this](float pps) { onZoomChanged(pps); };
   pianoRoll.onLoopRangeChanged = [this](const LoopRange &range) {
     toolbar.setLoopEnabled(range.enabled);
-    if (audioEngine) {
+    if (auto *audioEngine = editorController
+                                ? editorController->getAudioEngine()
+                                : nullptr) {
       audioEngine->setLoopRange(range.startSeconds, range.endSeconds);
       audioEngine->setLoopEnabled(range.enabled);
     }
@@ -173,6 +156,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   parameterPanel.onParameterEditFinished = [this]() {
     resynthesizeIncremental();
     // Melodyne-style: trigger real-time processor update in plugin mode
+    notifyProjectDataChanged();
     if (isPluginMode() && onPitchEditFinished)
       onPitchEditFinished();
   };
@@ -180,10 +164,12 @@ MainComponent::MainComponent(bool enableAudioDevice)
     pianoRoll.repaint(); // Update display
   };
   parameterPanel.onVolumeChanged = [this](float dB) {
-    if (audioEngine)
+    if (auto *audioEngine = editorController
+                                ? editorController->getAudioEngine()
+                                : nullptr)
       audioEngine->setVolumeDb(dB);
   };
-  parameterPanel.setProject(project.get());
+  parameterPanel.setProject(getProject());
 
   // Sync toolbar toggle with panel visibility
   toolbar.setParametersVisible(workspace.isPanelVisible("parameters"));
@@ -193,7 +179,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   };
 
   // Setup audio engine callbacks
-  if (audioEngine) {
+  if (auto *audioEngine = editorController->getAudioEngine()) {
     juce::Component::SafePointer<MainComponent> safeThis(this);
 
     audioEngine->setPositionCallback([safeThis](double position) {
@@ -213,8 +199,8 @@ MainComponent::MainComponent(bool enableAudioDevice)
   }
 
   // Set initial project
-  pianoRoll.setProject(project.get());
-  pianoRollView.setProject(project.get());
+  pianoRoll.setProject(editorController->getProject());
+  pianoRollView.setProject(editorController->getProject());
 
   // Register commands with the command manager
   commandManager->registerAllCommandsForTarget(this);
@@ -238,116 +224,23 @@ MainComponent::MainComponent(bool enableAudioDevice)
   LOG("MainComponent: constructor complete");
 }
 
-GPUProvider MainComponent::getProviderFromDevice(
-    const juce::String &device) const {
-  if (device == "CUDA")
-    return GPUProvider::CUDA;
-  if (device == "DirectML")
-    return GPUProvider::DirectML;
-  if (device == "CoreML")
-    return GPUProvider::CoreML;
-  if (device.isNotEmpty() && device != "CPU")
-    LOG("Unsupported pitch detector device: " + device + ", using CPU");
-  return GPUProvider::CPU;
-}
-
 void MainComponent::reloadInferenceModels(bool async) {
-  if (!settingsManager)
+  if (!settingsManager || !editorController)
     return;
 
-  const auto device = settingsManager->getDevice();
-  const auto provider = getProviderFromDevice(device);
-  int deviceId = settingsManager->getGPUDeviceId();
-  if (deviceId < 0)
-    deviceId = 0;
-
-  auto fcpePath = fcpeModelPath;
-  auto melPath = melFilterbankPath;
-  auto centPath = centTablePath;
-  auto rmvpePath = rmvpeModelPath;
-  auto somePath = someModelPath;
-
-  auto reloadTask = [device, provider, deviceId, fcpePath, melPath, centPath,
-                     rmvpePath, somePath](MainComponent *self) {
-    if (!self)
-      return;
-
-    if (self->fcpePitchDetector) {
-      if (fcpePath.existsAsFile()) {
-        LOG("MainComponent: loading FCPE model (device " + device + ", id " +
-            juce::String(deviceId) + ")...");
-        if (self->fcpePitchDetector->loadModel(fcpePath, melPath, centPath,
-                                               provider, deviceId)) {
-          LOG("FCPE pitch detector loaded successfully");
-        } else {
-          LOG("Failed to load FCPE model");
-        }
-      } else {
-        LOG("FCPE model not found at: " + fcpePath.getFullPathName());
-      }
-    }
-
-    if (self->rmvpePitchDetector) {
-      if (rmvpePath.existsAsFile()) {
-        LOG("MainComponent: loading RMVPE model (device " + device + ", id " +
-            juce::String(deviceId) + ")...");
-        if (self->rmvpePitchDetector->loadModel(rmvpePath, provider,
-                                                deviceId)) {
-          LOG("RMVPE pitch detector loaded successfully");
-        } else {
-          LOG("Failed to load RMVPE model");
-        }
-      } else {
-        LOG("RMVPE model not found at: " + rmvpePath.getFullPathName());
-      }
-    }
-
-    if (self->someDetector) {
-      if (somePath.existsAsFile()) {
-        LOG("MainComponent: loading SOME model (device " + device + ", id " +
-            juce::String(deviceId) + ")...");
-        if (self->someDetector->loadModel(somePath, provider, deviceId)) {
-          LOG("SOME detector loaded successfully");
-        } else {
-          LOG("Failed to load SOME model");
-        }
-      } else {
-        LOG("SOME model not found at: " + somePath.getFullPathName());
-      }
-    }
-  };
-
-  if (!async) {
-    reloadTask(this);
-    return;
-  }
-
-  if (isReloadingModels.exchange(true))
-    return;
-
-  if (modelReloadThread.joinable())
-    modelReloadThread.join();
-
-  juce::Component::SafePointer<MainComponent> safeThis(this);
-  modelReloadThread = std::thread([safeThis, reloadTask]() mutable {
-    if (safeThis == nullptr)
-      return;
-    reloadTask(safeThis.getComponent());
-    if (safeThis != nullptr)
-      safeThis->isReloadingModels = false;
-  });
+  editorController->setDeviceConfig(settingsManager->getDevice(),
+                                    settingsManager->getGPUDeviceId());
+  editorController->reloadInferenceModels(async);
 }
 
 bool MainComponent::isInferenceBusy() const {
   if (isLoadingAudio.load())
     return true;
-  if (audioAnalyzer && audioAnalyzer->isAnalyzing())
+  if (editorController && editorController->isLoading())
     return true;
-  if (incrementalSynth && incrementalSynth->isSynthesizing())
+  if (editorController && editorController->isRendering())
     return true;
-  if (isRendering.load())
-    return true;
-  if (isReloadingModels.load())
+  if (editorController && editorController->isInferenceBusy())
     return true;
   return false;
 }
@@ -362,20 +255,8 @@ MainComponent::~MainComponent() {
   removeKeyListener(commandManager->getKeyMappings());
   stopTimer();
 
-  if (modelReloadThread.joinable())
-    modelReloadThread.join();
 
-  cancelLoading = true;
-  if (loaderThread.joinable())
-    loaderThread.join();
-  if (loaderJoinerThread.joinable())
-    loaderJoinerThread.join();
-
-  cancelRender = true;
-  if (renderThread.joinable())
-    renderThread.join();
-
-  if (audioEngine) {
+  if (auto *audioEngine = editorController->getAudioEngine()) {
     audioEngine->clearCallbacks();
     audioEngine->shutdownAudio();
   }
@@ -496,6 +377,7 @@ void MainComponent::saveProject() {
     return;
   }
 
+  auto *project = getProject();
   if (!project)
     return;
 
@@ -563,9 +445,14 @@ void MainComponent::saveProject() {
       safeThis->toolbar.showProgress(TR("progress.saving"));
       safeThis->toolbar.setProgress(-1.0f);
 
-      const bool ok = ProjectSerializer::saveToFile(*safeThis->project, file);
+      auto *project = safeThis ? safeThis->getProject() : nullptr;
+      if (!project) {
+        safeThis->toolbar.hideProgress();
+        return;
+      }
+      const bool ok = ProjectSerializer::saveToFile(*project, file);
       if (ok)
-        safeThis->project->setProjectFilePath(file);
+        project->setProjectFilePath(file);
 
       safeThis->toolbar.hideProgress();
     });
@@ -621,7 +508,6 @@ void MainComponent::loadAudioFile(const juce::File &file) {
   if (isLoadingAudio.load())
     return;
 
-  cancelLoading = false;
   isLoadingAudio = true;
   loadingProgress = 0.0;
   {
@@ -631,473 +517,144 @@ void MainComponent::loadAudioFile(const juce::File &file) {
   toolbar.showProgress(TR("progress.loading_audio"));
   toolbar.setProgress(0.0f);
 
-  if (loaderThread.joinable())
-    loaderThread.join();
-
   juce::Component::SafePointer<MainComponent> safeThis(this);
-  loaderThread = std::thread([safeThis, file]() {
-    if (safeThis == nullptr)
-      return;
+  if (!editorController) {
+    isLoadingAudio = false;
+    return;
+  }
 
-    auto updateProgress = [safeThis](double p, const juce::String &msg) {
-      if (safeThis == nullptr)
-        return;
-      safeThis->loadingProgress = juce::jlimit(0.0, 1.0, p);
-      const juce::ScopedLock sl(safeThis->loadingMessageLock);
-      safeThis->loadingMessage = msg;
-    };
+  editorController->loadAudioFileAsync(
+      file,
+      [safeThis](double p, const juce::String &msg) {
+        if (safeThis == nullptr)
+          return;
+        safeThis->loadingProgress = juce::jlimit(0.0, 1.0, p);
+        const juce::ScopedLock sl(safeThis->loadingMessageLock);
+        safeThis->loadingMessage = msg;
+      },
+      [safeThis](const juce::AudioBuffer<float> &original) {
+        if (safeThis == nullptr)
+          return;
 
-    updateProgress(0.05, TR("progress.loading_audio"));
+        // Clear undo history before replacing project to avoid dangling pointers
+        if (safeThis->undoManager)
+          safeThis->undoManager->clear();
 
-    juce::AudioFormatManager formatManager;
-    formatManager.registerBasicFormats();
+        auto *project = safeThis->getProject();
+        if (!project)
+          return;
 
-    std::unique_ptr<juce::AudioFormatReader> reader(
-        formatManager.createReaderFor(file));
-    if (reader == nullptr || safeThis->cancelLoading.load()) {
-      juce::MessageManager::callAsync([safeThis]() {
-        if (safeThis != nullptr)
-          safeThis->isLoadingAudio = false;
-      });
-      return;
-    }
+        // Update UI
+        safeThis->pianoRoll.setProject(project);
+        safeThis->pianoRollView.setProject(project);
+        safeThis->parameterPanel.setProject(project);
+        safeThis->toolbar.setTotalTime(project->getAudioData().getDuration());
+        safeThis->toolbar.setLoopEnabled(project->getLoopRange().enabled);
 
-    // Read audio data
-    const int numSamples = static_cast<int>(reader->lengthInSamples);
-    const int srcSampleRate = static_cast<int>(reader->sampleRate);
+        auto &audioData = project->getAudioData();
 
-    juce::AudioBuffer<float> buffer(1, numSamples);
-
-    updateProgress(0.10, "Reading audio...");
-    if (reader->numChannels == 1) {
-      reader->read(&buffer, 0, numSamples, 0, true, false);
-    } else {
-      juce::AudioBuffer<float> stereoBuffer(2, numSamples);
-      reader->read(&stereoBuffer, 0, numSamples, 0, true, true);
-
-      const float *left = stereoBuffer.getReadPointer(0);
-      const float *right = stereoBuffer.getReadPointer(1);
-      float *mono = buffer.getWritePointer(0);
-
-      for (int i = 0; i < numSamples; ++i)
-        mono[i] = (left[i] + right[i]) * 0.5f;
-    }
-
-    if (safeThis->cancelLoading.load()) {
-      juce::MessageManager::callAsync([safeThis]() {
-        if (safeThis != nullptr)
-          safeThis->isLoadingAudio = false;
-      });
-      return;
-    }
-
-    // Resample if needed
-    if (srcSampleRate != SAMPLE_RATE) {
-      updateProgress(0.18, "Resampling...");
-      const double ratio = static_cast<double>(srcSampleRate) / SAMPLE_RATE;
-      const int newNumSamples = static_cast<int>(numSamples / ratio);
-
-      juce::AudioBuffer<float> resampledBuffer(1, newNumSamples);
-      const float *src = buffer.getReadPointer(0);
-      float *dst = resampledBuffer.getWritePointer(0);
-
-      for (int i = 0; i < newNumSamples; ++i) {
-        const double srcPos = i * ratio;
-        const int srcIndex = static_cast<int>(srcPos);
-        const double frac = srcPos - srcIndex;
-
-        if (srcIndex + 1 < numSamples)
-          dst[i] = static_cast<float>(src[srcIndex] * (1.0 - frac) +
-                                      src[srcIndex + 1] * frac);
-        else
-          dst[i] = src[srcIndex];
-      }
-
-      buffer = std::move(resampledBuffer);
-    }
-
-    updateProgress(0.22, "Preparing project...");
-    auto newProject = std::make_shared<Project>();
-    newProject->setFilePath(file);
-    auto &audioData = newProject->getAudioData();
-    audioData.waveform = std::move(buffer);
-    audioData.sampleRate = SAMPLE_RATE;
-
-    if (safeThis->cancelLoading.load()) {
-      juce::MessageManager::callAsync([safeThis]() {
-        if (safeThis != nullptr)
-          safeThis->isLoadingAudio = false;
-      });
-      return;
-    }
-
-    updateProgress(0.25, TR("progress.analyzing_audio"));
-    safeThis->analyzeAudio(*newProject, updateProgress);
-
-    if (safeThis->cancelLoading.load()) {
-      juce::MessageManager::callAsync([safeThis]() {
-        if (safeThis != nullptr)
-          safeThis->isLoadingAudio = false;
-      });
-      return;
-    }
-
-    updateProgress(0.95, "Finalizing...");
-
-    juce::MessageManager::callAsync([safeThis, newProject]() mutable {
-      if (safeThis == nullptr)
-        return;
-
-      // Clear undo history before replacing project to avoid dangling pointers
-      if (safeThis->undoManager)
-        safeThis->undoManager->clear();
-
-      safeThis->project = std::make_unique<Project>(std::move(*newProject));
-
-      // Update UI
-      safeThis->pianoRoll.setProject(safeThis->project.get());
-      safeThis->pianoRollView.setProject(safeThis->project.get());
-      safeThis->parameterPanel.setProject(safeThis->project.get());
-      safeThis->toolbar.setTotalTime(
-          safeThis->project->getAudioData().getDuration());
-      safeThis->toolbar.setLoopEnabled(
-          safeThis->project->getLoopRange().enabled);
-
-      // Get audio data reference (used in multiple places below)
-      auto &audioData = safeThis->project->getAudioData();
-
-      // Set audio to engine (standalone mode only)
-      // CRITICAL: In plugin mode, audioEngine is nullptr and should NEVER be
-      // accessed
-      if (safeThis) {
-        // CRITICAL FIRST CHECK: Never call loadWaveform in plugin mode
         if (safeThis->isPluginMode()) {
-          // This is expected in plugin mode - audioEngine doesn't exist
-          // No need to log or call loadWaveform
-        } else if (safeThis->audioEngine) {
-          // Double-check audioEngine is still valid before calling
-          AudioEngine *engine = safeThis->audioEngine.get();
-          if (engine) {
-            DBG("MainComponent::loadAudioFile - calling loadWaveform, "
-                "engine="
-                << juce::String::toHexString(
-                       reinterpret_cast<uintptr_t>(engine)));
-            try {
-              engine->loadWaveform(audioData.waveform, audioData.sampleRate);
-              const auto &loopRange = safeThis->project->getLoopRange();
-              if (loopRange.enabled)
-                engine->setLoopRange(loopRange.startSeconds,
-                                     loopRange.endSeconds);
-              engine->setLoopEnabled(loopRange.enabled);
-            } catch (...) {
-              DBG("MainComponent::loadAudioFile - EXCEPTION in loadWaveform!");
+          // plugin mode: no audio engine
+        } else if (auto *engine = safeThis->editorController
+                                       ? safeThis->editorController->getAudioEngine()
+                                       : nullptr) {
+          try {
+            engine->loadWaveform(audioData.waveform, audioData.sampleRate);
+            const auto &loopRange = project->getLoopRange();
+            if (loopRange.enabled)
+              engine->setLoopRange(loopRange.startSeconds,
+                                   loopRange.endSeconds);
+            engine->setLoopEnabled(loopRange.enabled);
+          } catch (...) {
+            DBG("MainComponent::loadAudioFile - EXCEPTION in loadWaveform!");
+          }
+        }
+
+        safeThis->originalWaveform.makeCopyOf(original);
+        safeThis->hasOriginalWaveform = true;
+
+        const auto &f0 = audioData.f0;
+        if (!f0.empty()) {
+          float minF0 = 10000.0f, maxF0 = 0.0f;
+          for (float freq : f0) {
+            if (freq > 50.0f) {
+              minF0 = std::min(minF0, freq);
+              maxF0 = std::max(maxF0, freq);
+            }
+          }
+          if (maxF0 > minF0) {
+            float minMidi = freqToMidi(minF0) - 2.0f;
+            float maxMidi = freqToMidi(maxF0) + 2.0f;
+            safeThis->pianoRoll.centerOnPitchRange(minMidi, maxMidi);
+          }
+        }
+
+        if (auto *vocoder = safeThis->editorController
+                                ? safeThis->editorController->getVocoder()
+                                : nullptr;
+            vocoder && !vocoder->isLoaded()) {
+          auto modelPath = PlatformPaths::getModelsDirectory().getChildFile(
+              "pc_nsf_hifigan.onnx");
+          if (modelPath.existsAsFile()) {
+            if (!vocoder->loadModel(modelPath)) {
+              juce::AlertWindow::showMessageBoxAsync(
+                  juce::AlertWindow::WarningIcon, "Inference failed",
+                  "Failed to load vocoder model at:\n" +
+                      modelPath.getFullPathName() +
+                      "\n\nPlease check your model installation and try again.");
+              return;
             }
           } else {
-            DBG("MainComponent::loadAudioFile - engine pointer is null!");
-          }
-        } else {
-          DBG("MainComponent::loadAudioFile - audioEngine is null in "
-              "standalone mode!");
-        }
-      }
-
-      // Save original waveform for incremental synthesis
-      safeThis->originalWaveform.makeCopyOf(audioData.waveform);
-      safeThis->hasOriginalWaveform = true;
-
-      // Center view on detected pitch range
-      const auto &f0 = audioData.f0;
-      if (!f0.empty()) {
-        float minF0 = 10000.0f, maxF0 = 0.0f;
-        for (float freq : f0) {
-          if (freq > 50.0f) // Valid pitch
-          {
-            minF0 = std::min(minF0, freq);
-            maxF0 = std::max(maxF0, freq);
-          }
-        }
-        if (maxF0 > minF0) {
-          float minMidi = freqToMidi(minF0) - 2.0f; // Add margin
-          float maxMidi = freqToMidi(maxF0) + 2.0f;
-          safeThis->pianoRoll.centerOnPitchRange(minMidi, maxMidi);
-        }
-      }
-
-      // Ensure vocoder is loaded (shared logic - analyzeAudio should have
-      // loaded it, but double-check)
-      if (!safeThis->vocoder->isLoaded()) {
-        DBG("MainComponent::loadAudioFile - vocoder not loaded, loading now");
-        auto modelPath = PlatformPaths::getModelsDirectory().getChildFile(
-            "pc_nsf_hifigan.onnx");
-        if (modelPath.existsAsFile()) {
-          if (safeThis->vocoder->loadModel(modelPath)) {
-            DBG("MainComponent::loadAudioFile - vocoder model loaded "
-                "successfully");
-          } else {
             juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon, "Inference failed",
-                "Failed to load vocoder model at:\n" +
+                juce::AlertWindow::WarningIcon, "Missing model file",
+                "pc_nsf_hifigan.onnx was not found at:\n" +
                     modelPath.getFullPathName() +
-                    "\n\nPlease check your model installation and try again.");
+                    "\n\nPlease install the required model files and try again.");
             return;
           }
-        } else {
-          juce::AlertWindow::showMessageBoxAsync(
-              juce::AlertWindow::WarningIcon, "Missing model file",
-              "pc_nsf_hifigan.onnx was not found at:\n" +
-                  modelPath.getFullPathName() +
-                  "\n\nPlease install the required model files and try again.");
-          return;
         }
-      }
 
-      safeThis->repaint();
-      safeThis->isLoadingAudio = false;
+        safeThis->repaint();
+        safeThis->isLoadingAudio = false;
 
-      // Notify plugin mode that project data is ready
-      if (safeThis->isPluginMode() && safeThis->onProjectDataChanged)
-        safeThis->onProjectDataChanged();
-    });
-  });
+        if (safeThis->isPluginMode())
+          safeThis->notifyProjectDataChanged();
+      },
+      [safeThis]() {
+        if (safeThis == nullptr)
+          return;
+        safeThis->isLoadingAudio = false;
+      });
 }
 
 void MainComponent::analyzeAudio() {
-  if (!project)
+  auto *project = getProject();
+  if (!project || !editorController)
     return;
 
-  // Run analysis in background thread to avoid blocking UI
-  // All model inference (FCPE, RMVPE, SOME, vocoder) happens in background
   juce::Component::SafePointer<MainComponent> safeThis(this);
-
-  if (loaderThread.joinable())
-    loaderThread.join();
-
-  loaderThread = std::thread([safeThis]() {
-    if (safeThis == nullptr || !safeThis->project)
-      return;
-
-    // Create a copy for thread safety
-    auto projectCopy = std::make_shared<Project>(*safeThis->project);
-
-    // Perform analysis in background thread (all model inference here)
-    safeThis->analyzeAudio(*projectCopy, [](double, const juce::String &) {});
-
-    // Update main project on UI thread
-    juce::MessageManager::callAsync([safeThis, projectCopy]() {
-      if (safeThis == nullptr)
-        return;
-
-      // Copy analyzed data back
-      safeThis->project->getAudioData().melSpectrogram =
-          projectCopy->getAudioData().melSpectrogram;
-      safeThis->project->getAudioData().f0 = projectCopy->getAudioData().f0;
-      safeThis->project->getAudioData().voicedMask =
-          projectCopy->getAudioData().voicedMask;
-      safeThis->project->getAudioData().basePitch =
-          projectCopy->getAudioData().basePitch;
-      safeThis->project->getAudioData().deltaPitch =
-          projectCopy->getAudioData().deltaPitch;
-
-      // Update UI
-      safeThis->pianoRoll.setProject(safeThis->project.get());
-      safeThis->pianoRollView.setProject(safeThis->project.get());
-      safeThis->pianoRoll.repaint();
-
-      // Trigger callbacks if needed
-      if (safeThis->onProjectDataChanged)
-        safeThis->onProjectDataChanged();
-    });
-  });
+  editorController->analyzeAudioAsync(
+      [safeThis](Project &projectRef) {
+        if (safeThis == nullptr)
+          return;
+        safeThis->pianoRoll.setProject(&projectRef);
+        safeThis->pianoRollView.setProject(&projectRef);
+        safeThis->pianoRoll.repaint();
+      },
+      [safeThis]() {
+        if (safeThis == nullptr)
+          return;
+        safeThis->notifyProjectDataChanged();
+      });
 }
 
 void MainComponent::analyzeAudio(
     Project &targetProject,
     const std::function<void(double, const juce::String &)> &onProgress,
     std::function<void()> onComplete) {
-  // NOTE: This function performs all model inference operations.
-  // It should ONLY be called from background threads to avoid blocking UI.
-  // All model inference (FCPE, RMVPE, SOME, vocoder, mel spectrogram) happens
-  // here.
-
-  auto &audioData = targetProject.getAudioData();
-  if (audioData.waveform.getNumSamples() == 0)
-    return;
-
-  auto showMissingModelAndAbort = [](const juce::String &modelName,
-                                     const juce::File &path) {
-    juce::MessageManager::callAsync([modelName, path]() {
-      juce::AlertWindow::showMessageBoxAsync(
-          juce::AlertWindow::WarningIcon, "Missing model file",
-          modelName + " was not found at:\n" + path.getFullPathName() +
-              "\n\nPlease install the required model files and try again.");
-    });
-  };
-
-  // Extract F0
-  const float *samples = audioData.waveform.getReadPointer(0);
-  int numSamples = audioData.waveform.getNumSamples();
-
-  onProgress(0.35, "Computing mel spectrogram...");
-  // Compute mel spectrogram first (to know target frame count)
-  // This is computationally intensive and runs in background thread
-  MelSpectrogram melComputer(audioData.sampleRate, N_FFT, HOP_SIZE, NUM_MELS,
-                             FMIN, FMAX);
-  audioData.melSpectrogram = melComputer.compute(samples, numSamples);
-
-  int targetFrames = static_cast<int>(audioData.melSpectrogram.size());
-
-  onProgress(0.55, "Extracting pitch (F0)...");
-
-  // Get pitch detector type from settings
-  PitchDetectorType detectorType = settingsManager->getPitchDetectorType();
-
-  if (detectorType == PitchDetectorType::RMVPE) {
-    const auto rmvpeModelPath =
-        PlatformPaths::getModelsDirectory().getChildFile("rmvpe.onnx");
-    if (!rmvpeModelPath.existsAsFile() || !rmvpePitchDetector ||
-        !rmvpePitchDetector->isLoaded()) {
-      showMissingModelAndAbort("rmvpe.onnx", rmvpeModelPath);
-      return;
-    }
-  } else if (detectorType == PitchDetectorType::FCPE) {
-    const auto modelsDir = PlatformPaths::getModelsDirectory();
-    const auto fcpeModelPath = modelsDir.getChildFile("fcpe.onnx");
-    const auto melFilterbankPath = modelsDir.getChildFile("mel_filterbank.bin");
-    const auto centTablePath = modelsDir.getChildFile("cent_table.bin");
-
-    if (!fcpeModelPath.existsAsFile() || !fcpePitchDetector ||
-        !fcpePitchDetector->isLoaded()) {
-      showMissingModelAndAbort("fcpe.onnx", fcpeModelPath);
-      return;
-    }
-    if (!melFilterbankPath.existsAsFile()) {
-      showMissingModelAndAbort("mel_filterbank.bin", melFilterbankPath);
-      return;
-    }
-    if (!centTablePath.existsAsFile()) {
-      showMissingModelAndAbort("cent_table.bin", centTablePath);
-      return;
-    }
+  if (editorController) {
+    editorController->analyzeAudio(targetProject, onProgress, onComplete);
   }
-
-  LOG("========== PITCH DETECTOR SELECTION ==========");
-  LOG("Selected detector: " +
-      juce::String(pitchDetectorTypeToString(detectorType)));
-  LOG("RMVPE loaded: " +
-      juce::String(
-          rmvpePitchDetector && rmvpePitchDetector->isLoaded() ? "YES" : "NO"));
-  LOG("FCPE loaded: " +
-      juce::String(fcpePitchDetector && fcpePitchDetector->isLoaded() ? "YES"
-                                                                      : "NO"));
-
-  // Extract F0 based on selected detector type
-  std::vector<float> extractedF0;
-  if (detectorType == PitchDetectorType::RMVPE) {
-    extractedF0 = rmvpePitchDetector->extractF0(samples, numSamples,
-                                                audioData.sampleRate);
-  } else if (detectorType == PitchDetectorType::FCPE) {
-    extractedF0 =
-        fcpePitchDetector->extractF0(samples, numSamples, audioData.sampleRate);
-  }
-
-  if (extractedF0.empty() || targetFrames <= 0) {
-    juce::MessageManager::callAsync([]() {
-      juce::AlertWindow::showMessageBoxAsync(
-          juce::AlertWindow::WarningIcon, "Inference failed",
-          "Failed to extract pitch (F0). Please check your model installation "
-          "and settings.");
-    });
-    return;
-  }
-
-  {
-    // Resample neural F0 (100 fps @ 16kHz) to vocoder frame rate (86.1 fps
-    // @ 44.1kHz)
-    audioData.f0.resize(targetFrames);
-
-    // Time per frame for each system
-    const double neuralFrameTime = 160.0 / 16000.0; // 0.01 seconds
-    const double vocoderFrameTime =
-        static_cast<double>(HOP_SIZE) /
-        static_cast<double>(std::max(1, audioData.sampleRate));
-
-    for (int i = 0; i < targetFrames; ++i) {
-      double vocoderTime = i * vocoderFrameTime;
-      double neuralFramePos = vocoderTime / neuralFrameTime;
-      int srcIdx = static_cast<int>(neuralFramePos);
-      double frac = neuralFramePos - srcIdx;
-
-      if (srcIdx + 1 < static_cast<int>(extractedF0.size())) {
-        float f0_a = extractedF0[srcIdx];
-        float f0_b = extractedF0[srcIdx + 1];
-
-        if (f0_a > 0.0f && f0_b > 0.0f) {
-          // Log-domain interpolation for musical accuracy
-          float logF0_a = std::log(f0_a);
-          float logF0_b = std::log(f0_b);
-          float logF0_interp = logF0_a * (1.0 - frac) + logF0_b * frac;
-          audioData.f0[i] = std::exp(logF0_interp);
-        } else if (f0_a > 0.0f) {
-          audioData.f0[i] = f0_a;
-        } else if (f0_b > 0.0f) {
-          audioData.f0[i] = f0_b;
-        } else {
-          audioData.f0[i] = 0.0f;
-        }
-      } else if (srcIdx < static_cast<int>(extractedF0.size())) {
-        audioData.f0[i] = extractedF0[srcIdx];
-      } else {
-        audioData.f0[i] = extractedF0.back() > 0.0f ? extractedF0.back() : 0.0f;
-      }
-    }
-
-    // Create voiced mask
-    audioData.voicedMask.resize(audioData.f0.size());
-    for (size_t i = 0; i < audioData.f0.size(); ++i) {
-      audioData.voicedMask[i] = audioData.f0[i] > 0;
-    }
-
-    // Apply F0 smoothing
-    onProgress(0.65, "Smoothing pitch curve...");
-    audioData.f0 = F0Smoother::smoothF0(audioData.f0, audioData.voicedMask);
-    audioData.f0 = PitchCurveProcessor::interpolateWithUvMask(
-        audioData.f0, audioData.voicedMask);
-  }
-
-  onProgress(0.75, TR("progress.loading_vocoder"));
-  // Load vocoder model (model loading happens in background thread)
-  auto modelPath =
-      PlatformPaths::getModelsDirectory().getChildFile("pc_nsf_hifigan.onnx");
-
-  if (!modelPath.existsAsFile() && !vocoder->isLoaded()) {
-    showMissingModelAndAbort("pc_nsf_hifigan.onnx", modelPath);
-    return;
-  }
-
-  if (modelPath.existsAsFile() && !vocoder->isLoaded()) {
-    if (vocoder->loadModel(modelPath)) {
-      DBG("Vocoder model loaded successfully: " + modelPath.getFullPathName());
-    } else {
-      juce::MessageManager::callAsync([modelPath]() {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon, "Inference failed",
-            "Failed to load vocoder model at:\n" + modelPath.getFullPathName() +
-                "\n\nPlease check your model installation and try again.");
-      });
-      return;
-    }
-  }
-
-  onProgress(0.90, "Segmenting notes...");
-  // Segment into notes (SOME model inference runs in background thread)
-  segmentIntoNotes(targetProject);
-
-  // Build dense base/delta curves from the detected pitch
-  PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
-
-  // Call completion callback if provided
-  if (onComplete)
-    onComplete();
 }
 
 void MainComponent::exportFile() {
@@ -1110,6 +667,7 @@ void MainComponent::exportFile() {
     return;
   }
 
+  auto *project = getProject();
   if (!project)
     return;
 
@@ -1130,7 +688,7 @@ void MainComponent::exportFile() {
   if (file.getFileExtension().isEmpty())
     file = file.withFileExtension("wav");
 
-  auto &audioData = project->getAudioData();
+    auto &audioData = project->getAudioData();
 
   // Show progress
   toolbar.showProgress(TR("progress.exporting_audio"));
@@ -1151,10 +709,9 @@ void MainComponent::exportFile() {
   toolbar.setProgress(0.3f);
 
   // Create output stream
-  std::unique_ptr<juce::FileOutputStream> outputStream =
-      std::make_unique<juce::FileOutputStream>(file);
+  auto fileStream = std::make_unique<juce::FileOutputStream>(file);
 
-  if (!outputStream->openedOk()) {
+  if (!fileStream->openedOk()) {
     toolbar.hideProgress();
     StyledMessageBox::show(
         this, TR("dialog.export_failed"),
@@ -1162,17 +719,18 @@ void MainComponent::exportFile() {
         StyledMessageBox::WarningIcon);
     return;
   }
+  std::unique_ptr<juce::OutputStream> outputStream = std::move(fileStream);
 
   toolbar.setProgress(0.5f);
 
   // Create writer
   juce::WavAudioFormat wavFormat;
-  std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
-      outputStream.release(), // Writer takes ownership of stream
-      SAMPLE_RATE,
-      1,  // mono
-      16, // 16-bit
-      {}, 0));
+  auto writerOptions = juce::AudioFormatWriterOptions{}
+                           .withSampleRate(SAMPLE_RATE)
+                           .withNumChannels(1)
+                           .withBitsPerSample(16);
+  std::unique_ptr<juce::AudioFormatWriter> writer(
+      wavFormat.createWriterFor(outputStream, writerOptions));
 
   if (writer == nullptr) {
     toolbar.hideProgress();
@@ -1235,7 +793,10 @@ void MainComponent::exportFile() {
     if (file.getFileExtension().isEmpty())
       file = file.withFileExtension("wav");
 
-    auto &audioData = safeThis->project->getAudioData();
+    auto *project = safeThis ? safeThis->getProject() : nullptr;
+    if (!project)
+      return;
+    auto &audioData = project->getAudioData();
 
     // Show progress
     safeThis->toolbar.showProgress(TR("progress.exporting_audio"));
@@ -1256,10 +817,9 @@ void MainComponent::exportFile() {
     safeThis->toolbar.setProgress(0.3f);
 
     // Create output stream
-    std::unique_ptr<juce::FileOutputStream> outputStream =
-        std::make_unique<juce::FileOutputStream>(file);
+    auto fileStream = std::make_unique<juce::FileOutputStream>(file);
 
-    if (!outputStream->openedOk()) {
+    if (!fileStream->openedOk()) {
       safeThis->toolbar.hideProgress();
       StyledMessageBox::show(
           safeThis.getComponent(), TR("dialog.export_failed"),
@@ -1267,17 +827,18 @@ void MainComponent::exportFile() {
           StyledMessageBox::WarningIcon);
       return;
     }
+    std::unique_ptr<juce::OutputStream> outputStream = std::move(fileStream);
 
     safeThis->toolbar.setProgress(0.5f);
 
     // Create writer
     juce::WavAudioFormat wavFormat;
-    std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
-        outputStream.release(), // Writer takes ownership of stream
-        SAMPLE_RATE,
-        1,  // mono
-        16, // 16-bit
-        {}, 0));
+    auto writerOptions = juce::AudioFormatWriterOptions{}
+                             .withSampleRate(SAMPLE_RATE)
+                             .withNumChannels(1)
+                             .withBitsPerSample(16);
+    std::unique_ptr<juce::AudioFormatWriter> writer(
+        wavFormat.createWriterFor(outputStream, writerOptions));
 
     if (writer == nullptr) {
       safeThis->toolbar.hideProgress();
@@ -1330,6 +891,7 @@ void MainComponent::exportMidiFile() {
     return;
   }
 
+  auto *project = getProject();
   if (!project)
     return;
 
@@ -1436,8 +998,11 @@ void MainComponent::exportMidiFile() {
         safeThis->toolbar.setProgress(0.6f);
 
         // Export using adjusted pitch data (includes user edits)
-        bool success = MidiExporter::exportToFile(safeThis->project->getNotes(),
-                                                  file, options);
+        auto *project = safeThis ? safeThis->getProject() : nullptr;
+        if (!project)
+          return;
+        bool success =
+            MidiExporter::exportToFile(project->getNotes(), file, options);
 
         safeThis->toolbar.setProgress(1.0f);
         safeThis->toolbar.hideProgress();
@@ -1458,6 +1023,7 @@ void MainComponent::exportMidiFile() {
 }
 
 void MainComponent::play() {
+  auto *project = getProject();
   if (!project)
     return;
 
@@ -1474,6 +1040,7 @@ void MainComponent::play() {
   }
 
   // Standalone mode: use AudioEngine for playback
+  auto *audioEngine = editorController ? editorController->getAudioEngine() : nullptr;
   if (!audioEngine)
     return;
 
@@ -1503,6 +1070,7 @@ void MainComponent::pause() {
   }
 
   // Standalone mode: use AudioEngine for playback
+  auto *audioEngine = editorController ? editorController->getAudioEngine() : nullptr;
   if (!audioEngine)
     return;
   isPlaying = false;
@@ -1521,6 +1089,7 @@ void MainComponent::stop() {
   }
 
   // Standalone mode: use AudioEngine for playback
+  auto *audioEngine = editorController ? editorController->getAudioEngine() : nullptr;
   if (!audioEngine)
     return;
   isPlaying = false;
@@ -1542,6 +1111,7 @@ void MainComponent::seek(double time) {
   }
 
   // Standalone mode: use AudioEngine for seeking
+  auto *audioEngine = editorController ? editorController->getAudioEngine() : nullptr;
   if (!audioEngine)
     return;
   audioEngine->seek(time);
@@ -1571,79 +1141,25 @@ void MainComponent::seek(double time) {
 void MainComponent::resynthesizeIncremental() {
   DBG("resynthesizeIncremental() called");
 
-  if (!project) {
-    DBG("  Skipped: no project");
+  auto *project = getProject();
+  if (!project || !editorController) {
+    DBG("  Skipped: no project or controller");
     return;
   }
 
-  // If a synthesis is already running, cancel it and coalesce to a single
-  // rerun.
-  if (incrementalSynth && incrementalSynth->isSynthesizing()) {
-    DBG("  Coalescing: synthesis in progress, cancelling and scheduling rerun");
-    pendingIncrementalResynth.store(true);
-    incrementalSynth->cancel();
-    return;
-  }
-
-  auto &audioData = project->getAudioData();
-  if (audioData.melSpectrogram.empty() || audioData.f0.empty()) {
-    DBG("  Skipped: mel or f0 empty");
-    return;
-  }
-  if (!vocoder->isLoaded()) {
-    DBG("  Skipped: vocoder not loaded");
-    return;
-  }
-
-  // Check if there are dirty notes or F0 edits
-  if (!project->hasDirtyNotes() && !project->hasF0DirtyRange()) {
-    DBG("  Skipped: no dirty notes or F0 edits");
-    return;
-  }
-
-  auto [dirtyStart, dirtyEnd] = project->getDirtyFrameRange();
-  if (dirtyStart < 0 || dirtyEnd < 0) {
-    DBG("  Skipped: invalid dirty range: " + juce::String(dirtyStart) + " to " +
-        juce::String(dirtyEnd));
-    return;
-  }
-
-  DBG("  Proceeding with synthesis: dirty frames " + juce::String(dirtyStart) +
-      " to " + juce::String(dirtyEnd));
-
-  // Setup incrementalSynth
-  incrementalSynth->setProject(project.get());
-  incrementalSynth->setVocoder(vocoder.get());
-
-  // We're starting a new synthesis run; clear any previously pending rerun.
-  pendingIncrementalResynth.store(false);
-
-  // Show progress during synthesis
   toolbar.showProgress(TR("progress.synthesizing"));
-  toolbar.setProgress(-1.0f); // Indeterminate progress
-
-  // Disable toolbar during synthesis
+  toolbar.setProgress(-1.0f);
   toolbar.setEnabled(false);
 
-  // Use SafePointer to prevent accessing destroyed component
   juce::Component::SafePointer<MainComponent> safeThis(this);
-
-  // Capture audioEngine pointer for async callback (only if not in plugin mode)
-  AudioEngine *audioEnginePtr = nullptr;
-  if (!isPluginMode() && audioEngine) {
-    audioEnginePtr = audioEngine.get();
-  }
-
-  // Run synthesis (expands to silence boundaries, no padding, no crossfade)
-  incrementalSynth->synthesizeRegion(
-      // Progress callback
+  editorController->resynthesizeIncrementalAsync(
+      *project,
       [safeThis](const juce::String &message) {
         if (safeThis == nullptr)
           return;
         safeThis->toolbar.showProgress(message);
       },
-      // Complete callback
-      [safeThis, audioEnginePtr](bool success) {
+      [safeThis](bool success) {
         if (safeThis == nullptr)
           return;
 
@@ -1652,46 +1168,15 @@ void MainComponent::resynthesizeIncremental() {
 
         if (!success) {
           DBG("resynthesizeIncremental: Synthesis failed or was cancelled");
-
-          if (safeThis->pendingIncrementalResynth.exchange(false)) {
-            juce::MessageManager::callAsync([safeThis]() {
-              if (safeThis != nullptr)
-                safeThis->resynthesizeIncremental();
-            });
-          }
           return;
         }
 
-        // Reload waveform in audio engine (standalone mode only)
-        if (audioEnginePtr && !safeThis->isPluginMode()) {
-          if (safeThis->audioEngine &&
-              safeThis->audioEngine.get() == audioEnginePtr) {
-            auto &audioData = safeThis->project->getAudioData();
-            try {
-              audioEnginePtr->loadWaveform(audioData.waveform,
-                                           audioData.sampleRate, true);
-            } catch (...) {
-              DBG("resynthesizeIncremental: EXCEPTION in loadWaveform!");
-            }
-          }
-        }
-
-        // Repaint piano roll to show updated waveform
         safeThis->pianoRoll.repaint();
-
-        // Notify plugin mode that project data changed
-        if (safeThis->isPluginMode() && safeThis->onProjectDataChanged)
-          safeThis->onProjectDataChanged();
-
-        // If edits happened during synthesis, run one more time for the latest
-        // state.
-        if (safeThis->pendingIncrementalResynth.exchange(false)) {
-          juce::MessageManager::callAsync([safeThis]() {
-            if (safeThis != nullptr)
-              safeThis->resynthesizeIncremental();
-          });
-        }
-      });
+        if (safeThis->isPluginMode())
+          safeThis->notifyProjectDataChanged();
+      },
+      pendingIncrementalResynth,
+      isPluginMode());
 }
 
 void MainComponent::onNoteSelected(Note *note) {
@@ -1716,6 +1201,11 @@ void MainComponent::onZoomChanged(float pixelsPerSecond) {
   isSyncingZoom = false;
 }
 
+void MainComponent::notifyProjectDataChanged() {
+  if (onProjectDataChanged)
+    onProjectDataChanged();
+}
+
 void MainComponent::undo() {
   // Cancel any in-progress drawing first
   pianoRoll.cancelDrawing();
@@ -1725,7 +1215,7 @@ void MainComponent::undo() {
     pianoRoll.invalidateBasePitchCache(); // Refresh cache after note split etc.
     pianoRoll.repaint();
 
-    if (project) {
+    if (getProject()) {
       // Don't mark all notes as dirty - let undo action callbacks handle
       // the specific dirty range. This avoids synthesizing the entire project.
       // The undo action's callback will set the correct F0 dirty range.
@@ -1744,7 +1234,7 @@ void MainComponent::redo() {
     pianoRoll.invalidateBasePitchCache(); // Refresh cache after note split etc.
     pianoRoll.repaint();
 
-    if (project) {
+    if (getProject()) {
       // Don't mark all notes as dirty - let redo action callbacks handle
       // the specific dirty range. This avoids synthesizing the entire project.
       // The redo action's callback will set the correct F0 dirty range.
@@ -1767,241 +1257,42 @@ void MainComponent::setEditMode(EditMode mode) {
 }
 
 void MainComponent::segmentIntoNotes() {
-  if (!project)
+  auto *project = getProject();
+  if (!project || !editorController)
     return;
 
-  // Run segmentation in background thread to avoid blocking UI
-  // SOME model inference happens in background
   juce::Component::SafePointer<MainComponent> safeThis(this);
-
-  if (loaderThread.joinable())
-    loaderThread.join();
-
-  loaderThread = std::thread([safeThis]() {
-    if (safeThis == nullptr || !safeThis->project)
-      return;
-
-    // Create a copy for thread safety
-    auto projectCopy = std::make_shared<Project>(*safeThis->project);
-
-    // Perform segmentation in background thread (SOME model inference here)
-    safeThis->segmentIntoNotes(*projectCopy);
-
-    // Update main project on UI thread
-    juce::MessageManager::callAsync([safeThis, projectCopy]() {
-      if (safeThis == nullptr)
-        return;
-
-      // Copy notes back
-      safeThis->project->getNotes() = projectCopy->getNotes();
-
-      // Update UI
-      safeThis->pianoRoll.invalidateBasePitchCache();
-      safeThis->pianoRoll.repaint();
-    });
-  });
+  editorController->segmentIntoNotesAsync(
+      [safeThis](Project &projectRef) {
+        if (safeThis == nullptr)
+          return;
+        safeThis->pianoRoll.setProject(&projectRef);
+        safeThis->pianoRollView.setProject(&projectRef);
+      },
+      [safeThis]() {
+        if (safeThis == nullptr)
+          return;
+        safeThis->pianoRoll.invalidateBasePitchCache();
+        safeThis->pianoRoll.repaint();
+      });
 }
 
 void MainComponent::segmentIntoNotes(Project &targetProject) {
-  // NOTE: This function performs SOME model inference.
-  // It should ONLY be called from background threads to avoid blocking UI.
-
-  auto &audioData = targetProject.getAudioData();
-  auto &notes = targetProject.getNotes();
-  notes.clear();
-
-  juce::Component::SafePointer<MainComponent> safeThis(this);
-
-  if (audioData.f0.empty())
-    return;
-
-  const auto someModelPath =
-      PlatformPaths::getModelsDirectory().getChildFile("some.onnx");
-  if (!someDetector || !someDetector->isLoaded()) {
-    juce::MessageManager::callAsync([someModelPath]() {
-      juce::AlertWindow::showMessageBoxAsync(
-          juce::AlertWindow::WarningIcon, "Missing model file",
-          "some.onnx was not found at:\n" + someModelPath.getFullPathName() +
-              "\n\nPlease install the required model files and try again.");
+  if (editorController) {
+    editorController->segmentIntoNotes(targetProject, [this]() {
+      pianoRoll.invalidateBasePitchCache();
+      pianoRoll.repaint();
     });
-    return;
   }
-
-  // Try to use SOME model for segmentation if available
-  // SOME model inference runs in background thread
-  if (someDetector && someDetector->isLoaded() &&
-      audioData.waveform.getNumSamples() > 0) {
-
-    const float *samples = audioData.waveform.getReadPointer(0);
-    int numSamples = audioData.waveform.getNumSamples();
-
-    // audioData.f0 uses vocoder frame rate: 44100Hz / 512 hop = 86.13 fps
-    // SOME uses 44100Hz / 512 hop = 86.13 fps (same!)
-    // So SOME frames map directly to F0 frames
-    const int f0Size = static_cast<int>(audioData.f0.size());
-
-    // Use streaming detection to show notes as they're detected
-    someDetector->detectNotesStreaming(
-        samples, numSamples, SOMEDetector::SAMPLE_RATE,
-        [&](const std::vector<SOMEDetector::NoteEvent> &chunkNotes) {
-          for (const auto &someNote : chunkNotes) {
-            if (someNote.isRest)
-              continue;
-
-            // SOME frames are already in the same frame rate as F0 (hop 512 at
-            // 44100Hz)
-            int f0Start = someNote.startFrame;
-            int f0End = someNote.endFrame;
-
-            f0Start = std::max(0, std::min(f0Start, f0Size - 1));
-            f0End = std::max(f0Start + 1, std::min(f0End, f0Size));
-
-            if (f0End - f0Start < 3)
-              continue;
-
-            // Use SOME's predicted MIDI value directly for note position
-            // Delta pitch (from RMVPE/FCPE F0) will capture the pitch curve
-            // details
-            Note note(f0Start, f0End, someNote.midiNote);
-            std::vector<float> f0Values(audioData.f0.begin() + f0Start,
-                                        audioData.f0.begin() + f0End);
-            note.setF0Values(std::move(f0Values));
-            notes.push_back(note);
-          }
-
-          // Update UI on main thread
-          juce::MessageManager::callAsync([safeThis]() {
-            if (safeThis == nullptr)
-              return;
-            safeThis->pianoRoll
-                .invalidateBasePitchCache(); // Regenerate smoothed base pitch
-            safeThis->pianoRoll.repaint();
-          });
-        },
-        nullptr // progress callback
-    );
-
-    // Wait a bit for streaming to complete (notes are added asynchronously)
-    juce::Thread::sleep(100);
-
-    DBG("SOME segmented into " << notes.size() << " notes");
-
-    if (!audioData.f0.empty())
-      PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
-
-    return;
-  }
-
-  // Fallback: segment based on F0 pitch changes
-
-  // Helper to finalize a note
-  auto finalizeNote = [&](int start, int end) {
-    if (end - start < 5)
-      return; // Minimum 5 frames
-
-    // Calculate average MIDI for this segment (only voiced frames)
-    // Important: average the MIDI values, not the frequencies
-    float midiSum = 0.0f;
-    int midiCount = 0;
-    for (int j = start; j < end; ++j) {
-      if (j < static_cast<int>(audioData.voicedMask.size()) &&
-          audioData.voicedMask[j] && audioData.f0[j] > 0) {
-        midiSum += freqToMidi(audioData.f0[j]);
-        midiCount++;
-      }
-    }
-    if (midiCount == 0)
-      return; // No voiced frames at all
-
-    float midi = midiSum / midiCount;
-
-    Note note(start, end, midi);
-    std::vector<float> f0Values(audioData.f0.begin() + start,
-                                audioData.f0.begin() + end);
-    note.setF0Values(std::move(f0Values));
-    notes.push_back(note);
-  };
-
-  // Segment F0 into notes, splitting on pitch changes > 0.5 semitones
-  constexpr float pitchSplitThreshold = 0.5f; // semitones
-  constexpr int minFramesForSplit =
-      3; // require consecutive frames to confirm pitch change
-  constexpr int maxUnvoicedGap =
-      INT_MAX; // never break on unvoiced, only on pitch change
-
-  bool inNote = false;
-  int noteStart = 0;
-  int currentMidiNote = 0; // quantized to nearest semitone
-  int pitchChangeCount = 0;
-  int pitchChangeStart = 0;
-  int unvoicedCount = 0;
-
-  for (size_t i = 0; i < audioData.f0.size(); ++i) {
-    bool voiced = i < audioData.voicedMask.size() && audioData.voicedMask[i];
-
-    if (voiced && !inNote) {
-      // Start new note
-      inNote = true;
-      noteStart = static_cast<int>(i);
-      currentMidiNote =
-          static_cast<int>(std::round(freqToMidi(audioData.f0[i])));
-      pitchChangeCount = 0;
-      unvoicedCount = 0;
-    } else if (voiced && inNote) {
-      unvoicedCount = 0; // Reset unvoiced counter
-
-      // Check for pitch change
-      float currentMidi = freqToMidi(audioData.f0[i]);
-      int quantizedMidi = static_cast<int>(std::round(currentMidi));
-
-      if (quantizedMidi != currentMidiNote &&
-          std::abs(currentMidi - currentMidiNote) > pitchSplitThreshold) {
-        if (pitchChangeCount == 0)
-          pitchChangeStart = static_cast<int>(i);
-        pitchChangeCount++;
-
-        // Confirm pitch change after consecutive frames
-        if (pitchChangeCount >= minFramesForSplit) {
-          // Finalize current note up to pitch change point
-          finalizeNote(noteStart, pitchChangeStart);
-
-          // Start new note from pitch change point
-          noteStart = pitchChangeStart;
-          currentMidiNote = quantizedMidi;
-          pitchChangeCount = 0;
-        }
-      } else {
-        pitchChangeCount = 0; // Reset if pitch returns
-      }
-    } else if (!voiced && inNote) {
-      // Allow short unvoiced gaps within notes
-      unvoicedCount++;
-      if (unvoicedCount > maxUnvoicedGap) {
-        // End note after long unvoiced gap
-        finalizeNote(noteStart, static_cast<int>(i) - unvoicedCount);
-        inNote = false;
-        pitchChangeCount = 0;
-        unvoicedCount = 0;
-      }
-    }
-  }
-
-  // Handle note at end
-  if (inNote) {
-    finalizeNote(noteStart, static_cast<int>(audioData.f0.size()));
-  }
-
-  // Update dense pitch curves after segmentation
-  if (!audioData.f0.empty())
-    PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
 }
 
 void MainComponent::showSettings() {
   if (!settingsOverlay) {
     // Pass AudioDeviceManager only in standalone mode
     juce::AudioDeviceManager *deviceMgr = nullptr;
-    if (!isPluginMode() && audioEngine)
-      deviceMgr = &audioEngine->getDeviceManager();
+    if (!isPluginMode() && editorController &&
+        editorController->getAudioEngine())
+      deviceMgr = &editorController->getAudioEngine()->getDeviceManager();
 
     settingsOverlay =
         std::make_unique<SettingsOverlay>(settingsManager.get(), deviceMgr);
@@ -2021,7 +1312,8 @@ void MainComponent::showSettings() {
     };
     settingsOverlay->getSettingsComponent()->onPitchDetectorChanged =
         [this](PitchDetectorType type) {
-          audioAnalyzer->setPitchDetectorType(type);
+          if (editorController)
+            editorController->setPitchDetectorType(type);
         };
   }
 
@@ -2058,210 +1350,91 @@ void MainComponent::setHostAudio(const juce::AudioBuffer<float> &buffer,
 
   DBG("MainComponent::setHostAudio called - starting async analysis");
 
-  // Use SafePointer to prevent accessing destroyed component
-  juce::Component::SafePointer<MainComponent> safeThis(this);
-
-  // Create project if needed (on message thread)
-  if (!project)
-    project = std::make_unique<Project>();
-
-  juce::AudioBuffer<float> resampledBuffer;
-  const double inputSampleRate = sampleRate;
-  if (inputSampleRate > 0.0 &&
-      std::abs(inputSampleRate - static_cast<double>(SAMPLE_RATE)) > 1e-6) {
-    const int inSamples = buffer.getNumSamples();
-    const int outSamples = static_cast<int>(
-        std::llround(static_cast<double>(inSamples) *
-                     (static_cast<double>(SAMPLE_RATE) / inputSampleRate)));
-    const int channels = buffer.getNumChannels();
-    resampledBuffer.setSize(channels, std::max(0, outSamples), false, false,
-                            true);
-    resampledBuffer.clear();
-
-    const double ratio = inputSampleRate / static_cast<double>(SAMPLE_RATE);
-    for (int ch = 0; ch < channels; ++ch) {
-      juce::LagrangeInterpolator interp;
-      interp.reset();
-      interp.process(ratio, buffer.getReadPointer(ch),
-                     resampledBuffer.getWritePointer(ch),
-                     resampledBuffer.getNumSamples());
-    }
-  }
-
-  const juce::AudioBuffer<float> &stored =
-      resampledBuffer.getNumSamples() > 0 ? resampledBuffer : buffer;
-  const double storedSampleRate = resampledBuffer.getNumSamples() > 0
-                                      ? static_cast<double>(SAMPLE_RATE)
-                                      : inputSampleRate;
-
-  // Store sample rate and waveform (on message thread)
-  project->getAudioData().sampleRate = static_cast<int>(storedSampleRate);
-  project->getAudioData().waveform = stored;
-
-  // Store original waveform for synthesis
-  originalWaveform = stored;
-  hasOriginalWaveform = true;
+  if (!editorController)
+    return;
 
   // Show analyzing progress
   toolbar.showProgress(TR("progress.analyzing"));
 
-  // Run analysis in background thread to avoid blocking UI
-  // Use the same analysis logic as loadAudioFile for code sharing
-  cancelLoading.store(true);
-  if (loaderThread.joinable()) {
-    if (loaderJoinerThread.joinable())
-      loaderJoinerThread.join();
-    auto old = std::move(loaderThread);
-    loaderJoinerThread = std::thread([t = std::move(old)]() mutable {
-      if (t.joinable())
-        t.join();
-    });
-  }
-  cancelLoading.store(false);
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  editorController->setHostAudioAsync(
+      buffer, sampleRate,
+      [safeThis](double /*p*/, const juce::String &msg) {
+        if (safeThis == nullptr)
+          return;
+        juce::MessageManager::callAsync([safeThis, msg]() {
+          if (safeThis != nullptr)
+            safeThis->toolbar.showProgress(msg);
+        });
+      },
+      [safeThis](const juce::AudioBuffer<float> &original) {
+        if (safeThis == nullptr)
+          return;
 
-  const auto jobId = hostAnalysisJobId.fetch_add(1) + 1;
+        if (safeThis->undoManager)
+          safeThis->undoManager->clear();
 
-  loaderThread = std::thread([safeThis, jobId]() {
-    if (safeThis == nullptr)
-      return;
+        auto *project = safeThis->getProject();
+        if (!project)
+          return;
 
-    if (safeThis->cancelLoading.load() ||
-        safeThis->hostAnalysisJobId.load() != jobId)
-      return;
+        safeThis->pianoRoll.setProject(project);
+        safeThis->pianoRollView.setProject(project);
+        safeThis->parameterPanel.setProject(project);
+        safeThis->toolbar.setTotalTime(project->getAudioData().getDuration());
 
-    // Create a copy of project data for analysis
-    // This ensures thread safety
-    auto projectCopy = std::make_shared<Project>();
-    {
-      // Copy project data (safe to read from background thread)
-      projectCopy->getAudioData().waveform =
-          safeThis->project->getAudioData().waveform;
-      projectCopy->getAudioData().sampleRate =
-          safeThis->project->getAudioData().sampleRate;
-    }
+        safeThis->originalWaveform.makeCopyOf(original);
+        safeThis->hasOriginalWaveform = true;
 
-    DBG("MainComponent::setHostAudio - analysis thread started");
-
-    // Use shared analyzeAudio function (same as loadAudioFile)
-    // This ensures code reuse and consistency
-    auto updateProgress = [safeThis, jobId](double p, const juce::String &msg) {
-      if (safeThis == nullptr)
-        return;
-      if (safeThis->cancelLoading.load() ||
-          safeThis->hostAnalysisJobId.load() != jobId)
-        return;
-
-      // Progress updates can be shown in toolbar if needed
-      juce::MessageManager::callAsync([safeThis, msg, p, jobId]() {
-        if (safeThis != nullptr) {
-          if (safeThis->cancelLoading.load() ||
-              safeThis->hostAnalysisJobId.load() != jobId)
-            return;
-          // Could update progress bar here if needed
-          DBG("MainComponent::setHostAudio - " << msg << " (" << (p * 100)
-                                               << "%)");
-        }
-      });
-    };
-
-    // Perform analysis using shared function
-    if (safeThis->cancelLoading.load() ||
-        safeThis->hostAnalysisJobId.load() != jobId)
-      return;
-
-    safeThis->analyzeAudio(*projectCopy, updateProgress);
-
-    if (safeThis->cancelLoading.load() ||
-        safeThis->hostAnalysisJobId.load() != jobId)
-      return;
-
-    DBG("MainComponent::setHostAudio - analysis complete, updating UI");
-
-    // Analysis complete - update main project on message thread
-    // Use same UI update logic as loadAudioFile for consistency
-    juce::MessageManager::callAsync([safeThis, projectCopy, jobId]() mutable {
-      if (safeThis == nullptr)
-        return;
-
-      if (safeThis->hostAnalysisJobId.load() != jobId)
-        return;
-
-      // Clear undo history before replacing project to avoid dangling pointers
-      if (safeThis->undoManager)
-        safeThis->undoManager->clear();
-
-      safeThis->project = std::make_unique<Project>(std::move(*projectCopy));
-
-      // Update UI components (shared logic)
-      safeThis->pianoRoll.setProject(safeThis->project.get());
-      safeThis->pianoRollView.setProject(safeThis->project.get());
-      safeThis->parameterPanel.setProject(safeThis->project.get());
-      safeThis->toolbar.setTotalTime(
-          safeThis->project->getAudioData().getDuration());
-
-      // Center view on detected pitch range (shared logic)
-      const auto &f0 = safeThis->project->getAudioData().f0;
-      if (!f0.empty()) {
-        float minF0 = 10000.0f, maxF0 = 0.0f;
-        for (float freq : f0) {
-          if (freq > 50.0f) {
-            minF0 = std::min(minF0, freq);
-            maxF0 = std::max(maxF0, freq);
+        const auto &f0 = project->getAudioData().f0;
+        if (!f0.empty()) {
+          float minF0 = 10000.0f, maxF0 = 0.0f;
+          for (float freq : f0) {
+            if (freq > 50.0f) {
+              minF0 = std::min(minF0, freq);
+              maxF0 = std::max(maxF0, freq);
+            }
+          }
+          if (maxF0 > minF0) {
+            float minMidi = freqToMidi(minF0) - 2.0f;
+            float maxMidi = freqToMidi(maxF0) + 2.0f;
+            safeThis->pianoRoll.centerOnPitchRange(minMidi, maxMidi);
           }
         }
-        if (maxF0 > minF0) {
-          float minMidi = freqToMidi(minF0) - 2.0f;
-          float maxMidi = freqToMidi(maxF0) + 2.0f;
-          safeThis->pianoRoll.centerOnPitchRange(minMidi, maxMidi);
-        }
-      }
 
-      safeThis->repaint();
-
-      // Load vocoder if not already loaded (required for real-time processing)
-      // This is done in analyzeAudio, but we ensure it's loaded here too
-      if (!safeThis->vocoder->isLoaded()) {
-        DBG("MainComponent::setHostAudio - loading vocoder model");
-        auto modelPath = PlatformPaths::getModelsDirectory().getChildFile(
-            "pc_nsf_hifigan.onnx");
-        if (modelPath.existsAsFile()) {
-          if (safeThis->vocoder->loadModel(modelPath)) {
-            DBG("MainComponent::setHostAudio - vocoder model loaded "
-                "successfully: "
-                << modelPath.getFullPathName());
+        auto *vocoder = safeThis->editorController
+                            ? safeThis->editorController->getVocoder()
+                            : nullptr;
+        if (vocoder && !vocoder->isLoaded()) {
+          auto modelPath = PlatformPaths::getModelsDirectory().getChildFile(
+              "pc_nsf_hifigan.onnx");
+          if (modelPath.existsAsFile()) {
+            if (!vocoder->loadModel(modelPath)) {
+              juce::AlertWindow::showMessageBoxAsync(
+                  juce::AlertWindow::WarningIcon, "Inference failed",
+                  "Failed to load vocoder model at:\n" +
+                      modelPath.getFullPathName() +
+                      "\n\nPlease check your model installation and try again.");
+              safeThis->toolbar.hideProgress();
+              return;
+            }
           } else {
             juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon, "Inference failed",
-                "Failed to load vocoder model at:\n" +
+                juce::AlertWindow::WarningIcon, "Missing model file",
+                "pc_nsf_hifigan.onnx was not found at:\n" +
                     modelPath.getFullPathName() +
-                    "\n\nPlease check your model installation and try again.");
+                    "\n\nPlease install the required model files and try again.");
             safeThis->toolbar.hideProgress();
             return;
           }
-        } else {
-          juce::AlertWindow::showMessageBoxAsync(
-              juce::AlertWindow::WarningIcon, "Missing model file",
-              "pc_nsf_hifigan.onnx was not found at:\n" +
-                  modelPath.getFullPathName() +
-                  "\n\nPlease install the required model files and try again.");
-          safeThis->toolbar.hideProgress();
-          return;
         }
-      } else {
-        DBG("MainComponent::setHostAudio - vocoder already loaded");
-      }
 
-      // Trigger real-time processor update (this will also set vocoder if
-      // needed)
-      if (safeThis->onProjectDataChanged)
-        safeThis->onProjectDataChanged();
+        safeThis->repaint();
 
-      // Hide progress bar
-      safeThis->toolbar.hideProgress();
+        safeThis->notifyProjectDataChanged();
 
-      DBG("MainComponent::setHostAudio - UI update complete");
-    });
-  });
+        safeThis->toolbar.hideProgress();
+      });
 }
 
 void MainComponent::updatePlaybackPosition(double timeSeconds) {
@@ -2269,6 +1442,7 @@ void MainComponent::updatePlaybackPosition(double timeSeconds) {
     return;
 
   // Only follow host position if we have a valid project with audio
+  auto *project = getProject();
   if (!project || project->getAudioData().waveform.getNumSamples() == 0)
     return;
 
@@ -2284,6 +1458,41 @@ void MainComponent::updatePlaybackPosition(double timeSeconds) {
   // Set isPlaying to true when we receive position updates
   // This enables "follow playback" feature
   isPlaying = true;
+}
+
+bool MainComponent::hasAnalyzedProject() const {
+  if (auto *project = getProject()) {
+    auto &audioData = project->getAudioData();
+    return audioData.waveform.getNumSamples() > 0 && !audioData.f0.empty();
+  }
+  return false;
+}
+
+void MainComponent::bindRealtimeProcessor(RealtimePitchProcessor &processor) {
+  processor.setProject(getProject());
+  processor.setVocoder(editorController ? editorController->getVocoder()
+                                        : nullptr);
+}
+
+juce::String MainComponent::serializeProjectJson() const {
+  if (auto *project = getProject()) {
+    auto json = ProjectSerializer::toJson(*project);
+    return juce::JSON::toString(json, false);
+  }
+  return {};
+}
+
+bool MainComponent::restoreProjectJson(const juce::String &jsonString) {
+  if (jsonString.isEmpty())
+    return false;
+  if (auto *project = getProject()) {
+    auto json = juce::JSON::parse(jsonString);
+    if (json.isObject()) {
+      ProjectSerializer::fromJson(*project, json);
+      return true;
+    }
+  }
+  return false;
 }
 
 void MainComponent::notifyHostStopped() {
@@ -2305,7 +1514,8 @@ bool MainComponent::isARAModeActive() const {
   // If we have project data and it wasn't captured manually, it's likely from
   // ARA This is a heuristic - in a real implementation, we'd track this
   // explicitly
-  if (project && project->getAudioData().waveform.getNumSamples() > 0) {
+  if (auto *project = getProject();
+      project && project->getAudioData().waveform.getNumSamples() > 0) {
     // Check if we're not currently capturing (which would indicate non-ARA
     // mode) Note: This requires access to PluginProcessor, which we don't have
     // here A better approach would be to set a flag when ARA audio is received
@@ -2322,90 +1532,27 @@ void MainComponent::renderProcessedAudio() {
   // Show progress
   toolbar.showProgress(TR("progress.rendering"));
 
-  // Cancel any previous render and wait for it
-  cancelRender = true;
-  if (renderThread.joinable())
-    renderThread.join();
-  isRendering = false;
-  cancelRender = false;
-
-  // Snapshot required data to avoid accessing Project concurrently from the
-  // background thread
+  auto *project = getProject();
+  auto *vocoder = editorController ? editorController->getVocoder() : nullptr;
   if (!project || !vocoder) {
     toolbar.hideProgress();
     return;
   }
 
-  auto f0Snapshot = project->getAudioData().f0;
-  auto voicedMaskSnapshot = project->getAudioData().voicedMask;
-  auto melSpecSnapshot = project->getAudioData().melSpectrogram;
   const float globalOffset = project->getGlobalPitchOffset();
-  const int numChannels = originalWaveform.getNumChannels();
-  Vocoder *voc = vocoder.get();
-  auto onChanged = onProjectDataChanged;
-
   juce::Component::SafePointer<MainComponent> safeThis(this);
 
-  renderThread =
-      std::thread([this, safeThis, f0Snapshot = std::move(f0Snapshot),
-                   voicedMaskSnapshot = std::move(voicedMaskSnapshot),
-                   melSpecSnapshot = std::move(melSpecSnapshot), globalOffset,
-                   numChannels, voc, onChanged]() mutable {
-        if (safeThis == nullptr)
-          return;
-
-        safeThis->isRendering = true;
-
-        auto finishRendering = [safeThis]() {
-          if (safeThis != nullptr)
-            safeThis->isRendering = false;
-        };
-
-        if (cancelRender.load())
-          return finishRendering();
-
-        if (f0Snapshot.empty() || melSpecSnapshot.empty()) {
-          juce::MessageManager::callAsync([safeThis]() {
-            if (safeThis != nullptr)
-              safeThis->toolbar.hideProgress();
-          });
-          return finishRendering();
-        }
-
-        if (voicedMaskSnapshot.size() < f0Snapshot.size())
-          voicedMaskSnapshot.resize(f0Snapshot.size(), true);
-
-        // Apply global pitch offset
-        for (size_t i = 0; i < f0Snapshot.size(); ++i) {
-          if (cancelRender.load())
-            return finishRendering();
-          if (voicedMaskSnapshot[i] && f0Snapshot[i] > 0)
-            f0Snapshot[i] *= std::pow(2.0f, globalOffset / 12.0f);
-        }
-
-        if (cancelRender.load())
-          return finishRendering();
-
-        // Synthesize
-        auto synthesized = voc ? voc->infer(melSpecSnapshot, f0Snapshot)
-                               : std::vector<float>{};
-
-        if (cancelRender.load())
-          return finishRendering();
-
-        // (Output buffer currently not propagated; we keep behavior: just
-        // notify + hide progress)
-        juce::MessageManager::callAsync(
-            [safeThis, ok = !synthesized.empty(), onChanged]() {
-              if (safeThis == nullptr)
-                return;
-              safeThis->toolbar.hideProgress();
-              if (ok && onChanged)
-                onChanged();
-              safeThis->isRendering = false;
-            });
-        finishRendering();
-      });
+  if (editorController) {
+    editorController->renderProcessedAudioAsync(
+        *project, globalOffset,
+        [safeThis](bool ok) {
+          if (safeThis == nullptr)
+            return;
+          safeThis->toolbar.hideProgress();
+          if (ok)
+            safeThis->notifyProjectDataChanged();
+        });
+  }
 }
 
 // ApplicationCommandTarget interface implementations
@@ -2447,23 +1594,31 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands) {
     commands.addArray(commandArray, sizeof(commandArray) / sizeof(commandArray[0]));
 }
 
-void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result) {
+void MainComponent::getCommandInfo(juce::CommandID commandID,
+                                   juce::ApplicationCommandInfo& result) {
+    const auto primaryModifier =
+#if JUCE_MAC
+        juce::ModifierKeys::commandModifier;
+#else
+        juce::ModifierKeys::ctrlModifier;
+#endif
+    auto *project = getProject();
     switch (commandID) {
         // File commands
         case CommandIDs::openFile:
             result.setInfo(TR("command.open_audio"), TR("command.open_audio.desp"), "File", 0);
-            result.addDefaultKeypress('o', juce::ModifierKeys::ctrlModifier);
+            result.addDefaultKeypress('o', primaryModifier);
             break;
             
         case CommandIDs::saveProject:
             result.setInfo(TR("command.save_project"), TR("command.save_project.desp"), "File", 0);
-            result.addDefaultKeypress('s', juce::ModifierKeys::ctrlModifier);
+            result.addDefaultKeypress('s', primaryModifier);
             result.setActive(project != nullptr);
             break;
             
         case CommandIDs::exportAudio:
             result.setInfo(TR("command.export_audio"), TR("command.export_audio.desp"), "File", 0);
-            result.addDefaultKeypress('e', juce::ModifierKeys::ctrlModifier);
+            result.addDefaultKeypress('e', primaryModifier);
             result.setActive(project != nullptr);
             break;
             
@@ -2474,45 +1629,48 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
             
         case CommandIDs::quit:
             result.setInfo(TR("command.quit"), TR("command.quit.desp"), "File", 0);
-            result.addDefaultKeypress('q', juce::ModifierKeys::ctrlModifier);
+            result.addDefaultKeypress('q', primaryModifier);
             result.setActive(!isPluginMode());
             break;
             
         // Edit commands
         case CommandIDs::undo:
             result.setInfo(TR("command.undo"), TR("command.undo.desp"), "Edit", 0);
-            result.addDefaultKeypress('z', juce::ModifierKeys::ctrlModifier);
+            result.addDefaultKeypress('z', primaryModifier);
             result.setActive(undoManager != nullptr && undoManager->canUndo());
             break;
             
         case CommandIDs::redo:
             result.setInfo(TR("command.redo"), TR("command.redo.desp"), "Edit", 0);
-            result.addDefaultKeypress('y', juce::ModifierKeys::ctrlModifier);
-            result.addDefaultKeypress('z', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+#if JUCE_MAC
+            result.addDefaultKeypress('z', primaryModifier | juce::ModifierKeys::shiftModifier);
+#else
+            result.addDefaultKeypress('y', primaryModifier);
+#endif
             result.setActive(undoManager != nullptr && undoManager->canRedo());
             break;
             
         case CommandIDs::selectAll:
             result.setInfo(TR("command.select_all"), TR("command.select_all.desp"), "Edit", 0);
-            result.addDefaultKeypress('a', juce::ModifierKeys::ctrlModifier);
+            result.addDefaultKeypress('a', primaryModifier);
             result.setActive(project != nullptr);
             break;
             
         // View commands
         case CommandIDs::showSettings:
             result.setInfo(TR("command.settings"), TR("command.settings.desp"), "View", 0);
-            result.addDefaultKeypress(',', juce::ModifierKeys::ctrlModifier);
+            result.addDefaultKeypress(',', primaryModifier);
             break;
             
         case CommandIDs::showDeltaPitch:
             result.setInfo(TR("command.show_delta_pitch"), TR("command.show_delta_pitch.desp"), "View", 0);
-            result.addDefaultKeypress('d', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+            result.addDefaultKeypress('d', primaryModifier | juce::ModifierKeys::shiftModifier);
             result.setTicked(settingsManager->getShowDeltaPitch());
             break;
             
         case CommandIDs::showBasePitch:
             result.setInfo(TR("command.show_base_pitch"), TR("command.show_base_pitch.desp"), "View", 0);
-            result.addDefaultKeypress('b', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+            result.addDefaultKeypress('b', primaryModifier | juce::ModifierKeys::shiftModifier);
             result.setTicked(settingsManager->getShowBasePitch());
             break;
             
@@ -2593,7 +1751,7 @@ bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo& info
             return true;
             
         case CommandIDs::selectAll:
-            if (project) {
+            if (auto *project = getProject()) {
                 project->selectAllNotes();
                 pianoRoll.repaint();
             }
@@ -2641,7 +1799,7 @@ bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo& info
             return true;
             
         case CommandIDs::goToEnd:
-            if (project) {
+            if (auto *project = getProject()) {
                 seek(project->getAudioData().getDuration());
             }
             return true;

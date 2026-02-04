@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../JuceHeader.h"
+#include "../../JuceHeader.h"
 
 // UI theme colors (defined in Theme.cpp)
 extern const juce::Colour APP_COLOR_BACKGROUND;

@@ -1,5 +1,5 @@
 #include "PianoRollWorkspaceView.h"
-#include "../Utils/Theme.h"
+#include "../Utils/UI/Theme.h"
 #include "../Utils/Constants.h"
 #include <cmath>
 

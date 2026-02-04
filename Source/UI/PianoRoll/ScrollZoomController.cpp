@@ -1,5 +1,5 @@
 #include "ScrollZoomController.h"
-#include "../../Utils/Theme.h"
+#include "../../Utils/UI/Theme.h"
 
 ScrollZoomController::ScrollZoomController() {
     horizontalScrollBar.addListener(this);

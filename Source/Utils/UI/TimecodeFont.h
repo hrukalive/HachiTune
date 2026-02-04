@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../JuceHeader.h"
+#include "../../JuceHeader.h"
 #include "DPIScaleManager.h"
 
 /**
@@ -70,14 +70,18 @@ public:
     {
         auto& instance = getInstance();
         if (instance.fontLoaded && instance.customTypeface != nullptr)
-            return juce::Font(instance.customTypeface).withHeight(height);
+            return juce::Font(
+                       juce::FontOptions(instance.customTypeface).withHeight(
+                           height));
 
 #if JUCE_MAC
-        return juce::Font("Hiragino Sans", height, juce::Font::plain);
+        return juce::Font(
+            juce::FontOptions("Hiragino Sans", height, juce::Font::plain));
 #elif JUCE_WINDOWS
-        return juce::Font("Yu Gothic UI", height, juce::Font::plain);
+        return juce::Font(
+            juce::FontOptions("Yu Gothic UI", height, juce::Font::plain));
 #else
-        return juce::Font(height);
+        return juce::Font(juce::FontOptions(height));
 #endif
     }
 
@@ -85,14 +89,19 @@ public:
     {
         auto& instance = getInstance();
         if (instance.fontLoaded && instance.customTypeface != nullptr)
-            return juce::Font(instance.customTypeface).withHeight(height).boldened();
+            return juce::Font(
+                       juce::FontOptions(instance.customTypeface).withHeight(
+                           height))
+                .boldened();
 
 #if JUCE_MAC
-        return juce::Font("Hiragino Sans", height, juce::Font::bold);
+        return juce::Font(
+            juce::FontOptions("Hiragino Sans", height, juce::Font::bold));
 #elif JUCE_WINDOWS
-        return juce::Font("Yu Gothic UI", height, juce::Font::bold);
+        return juce::Font(
+            juce::FontOptions("Yu Gothic UI", height, juce::Font::bold));
 #else
-        return juce::Font(height).boldened();
+        return juce::Font(juce::FontOptions(height)).boldened();
 #endif
     }
 

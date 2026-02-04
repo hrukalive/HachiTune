@@ -2,8 +2,8 @@
 
 #include "../JuceHeader.h"
 #include "../Utils/Constants.h"
-#include "../Utils/Theme.h"
-#include "../Utils/DPIScaleManager.h"
+#include "../Utils/UI/Theme.h"
+#include "../Utils/UI/DPIScaleManager.h"
 #include <cmath>
 
 /**
@@ -55,15 +55,19 @@ public:
     {
         auto& instance = getInstance();
         if (instance.fontLoaded && instance.customTypeface != nullptr)
-            return juce::Font(instance.customTypeface).withHeight(height);
+            return juce::Font(
+                       juce::FontOptions(instance.customTypeface).withHeight(
+                           height));
 
         // Fallback to system font
 #if JUCE_MAC
-        return juce::Font("Hiragino Sans", height, juce::Font::plain);
+        return juce::Font(
+            juce::FontOptions("Hiragino Sans", height, juce::Font::plain));
 #elif JUCE_WINDOWS
-        return juce::Font("Yu Gothic UI", height, juce::Font::plain);
+        return juce::Font(
+            juce::FontOptions("Yu Gothic UI", height, juce::Font::plain));
 #else
-        return juce::Font(height);
+        return juce::Font(juce::FontOptions(height));
 #endif
     }
 
@@ -86,15 +90,20 @@ public:
     {
         auto& instance = getInstance();
         if (instance.fontLoaded && instance.customTypeface != nullptr)
-            return juce::Font(instance.customTypeface).withHeight(height).boldened();
+            return juce::Font(
+                       juce::FontOptions(instance.customTypeface).withHeight(
+                           height))
+                .boldened();
 
         // Fallback to system font
 #if JUCE_MAC
-        return juce::Font("Hiragino Sans", height, juce::Font::bold);
+        return juce::Font(
+            juce::FontOptions("Hiragino Sans", height, juce::Font::bold));
 #elif JUCE_WINDOWS
-        return juce::Font("Yu Gothic UI", height, juce::Font::bold);
+        return juce::Font(
+            juce::FontOptions("Yu Gothic UI", height, juce::Font::bold));
 #else
-        return juce::Font(height).boldened();
+        return juce::Font(juce::FontOptions(height)).boldened();
 #endif
     }
 
@@ -276,7 +285,7 @@ public:
     {
         setText(text, juce::dontSendNotification);
         setColour(juce::Label::textColourId, APP_COLOR_PRIMARY);
-        setFont(juce::Font(14.0f, juce::Font::bold));
+        setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold)));
     }
 };
 
@@ -391,8 +400,8 @@ public:
         ErrorIcon
     };
 
-    StyledMessageBox(const juce::String& title, const juce::String& message, IconType iconType = NoIcon)
-        : titleText(title), messageText(message), iconType(iconType)
+    StyledMessageBox(const juce::String& title, const juce::String& message, IconType iconTypeValue = NoIcon)
+        : titleText(title), messageText(message), iconType(iconTypeValue)
     {
         setOpaque(true);
         
@@ -430,7 +439,7 @@ public:
 
         // Title
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(18.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(18.0f, juce::Font::bold)));
         g.drawText(titleText, 20, 20, getWidth() - 40, 30, juce::Justification::left);
 
         // Icon (if any)
@@ -451,7 +460,8 @@ public:
             g.setColour(iconColour);
             g.fillEllipse(iconX, iconY, iconSize, iconSize);
             g.setColour(APP_COLOR_BACKGROUND);
-            g.setFont(juce::Font(iconSize * 0.6f, juce::Font::bold));
+            g.setFont(juce::Font(
+                juce::FontOptions(iconSize * 0.6f, juce::Font::bold)));
             
             juce::String iconChar;
             if (iconType == InfoIcon)
@@ -467,7 +477,7 @@ public:
 
         // Message text
         g.setColour(juce::Colours::lightgrey);
-        g.setFont(juce::Font(15.0f));
+        g.setFont(juce::Font(juce::FontOptions(15.0f)));
         g.drawMultiLineText(messageText, iconX, iconY + 5, getWidth() - iconX - 20, juce::Justification::topLeft);
     }
 
@@ -486,7 +496,7 @@ private:
     class StyledMessageDialog : public juce::DialogWindow
     {
     public:
-        StyledMessageDialog(juce::Component* parent, const juce::String& title, const juce::String& message, StyledMessageBox::IconType iconType)
+        StyledMessageDialog(juce::Component* parent, const juce::String& title, const juce::String& message, StyledMessageBox::IconType iconTypeValue)
             : juce::DialogWindow(title, APP_COLOR_BACKGROUND, true)
         {
             setOpaque(true);
@@ -496,7 +506,7 @@ private:
             // Remove close button from title bar
             setTitleBarButtonsRequired(0, false);
             
-            messageBox = std::make_unique<StyledMessageBox>(title, message, iconType);
+            messageBox = std::make_unique<StyledMessageBox>(title, message, iconTypeValue);
             messageBox->onClose = [this] { closeDialog(); };
             setContentOwned(messageBox.get(), false);
             

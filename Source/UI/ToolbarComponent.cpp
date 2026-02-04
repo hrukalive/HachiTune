@@ -2,8 +2,8 @@
 #include "PianoRollComponent.h"  // For EditMode enum
 #include "StyledComponents.h"
 #include "../Utils/Localization.h"
-#include "../Utils/SvgUtils.h"
-#include "../Utils/TimecodeFont.h"
+#include "../Utils/UI/SvgUtils.h"
+#include "../Utils/UI/TimecodeFont.h"
 #include "BinaryData.h"
 
 ToolbarComponent::ToolbarComponent()
@@ -74,7 +74,8 @@ ToolbarComponent::ToolbarComponent()
     araModeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     araModeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     araModeLabel.setJustificationType(juce::Justification::centred);
-    araModeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    araModeLabel.setFont(
+        juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
 
     goToStartButton.addListener(this);
     playButton.addListener(this);
@@ -148,7 +149,7 @@ ToolbarComponent::ToolbarComponent()
     addChildComponent(statusLabel);
     statusLabel.setColour(juce::Label::textColourId, APP_COLOR_TEXT_MUTED);
     statusLabel.setJustificationType(juce::Justification::centredLeft);
-    statusLabel.setFont(juce::Font(12.0f));
+    statusLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
 }
 
 ToolbarComponent::~ToolbarComponent()

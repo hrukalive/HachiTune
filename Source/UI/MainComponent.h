@@ -1,14 +1,8 @@
 #pragma once
 
-#include "../Audio/Analysis/AudioAnalyzer.h"
-#include "../Audio/AudioEngine.h"
-#include "../Audio/Engine/PlaybackController.h"
-#include "../Audio/FCPEPitchDetector.h"
+#include "../Audio/EditorController.h"
+#include "IMainView.h"
 #include "../Audio/IO/AudioFileManager.h"
-#include "../Audio/RMVPEPitchDetector.h"
-#include "../Audio/SOMEDetector.h"
-#include "../Audio/Synthesis/IncrementalSynthesizer.h"
-#include "../Audio/Vocoder.h"
 #include "../JuceHeader.h"
 #include "../Models/Project.h"
 #include "../Utils/UndoManager.h"
@@ -26,14 +20,15 @@
 
 #include <atomic>
 #include <cstdint>
-#include <thread>
 
 class MainComponent : public juce::Component,
                       public juce::Timer,
                       public juce::KeyListener,
                       public juce::FileDragAndDropTarget,
-                      public juce::ApplicationCommandTarget {
+                      public juce::ApplicationCommandTarget,
+                      public IMainView {
 public:
+  using juce::Component::keyPressed;
   explicit MainComponent(bool enableAudioDevice = true);
   ~MainComponent() override;
 
@@ -63,16 +58,49 @@ public:
 
   // Plugin mode
   bool isPluginMode() const { return !enableAudioDeviceFlag; }
-  Project *getProject() { return project.get(); }
-  Vocoder *getVocoder() { return vocoder.get(); }
-  ToolbarComponent &getToolbar() { return toolbar; }
+  juce::Component *getComponent() override { return this; }
+  Project *getProject() const override {
+    return editorController ? editorController->getProject() : nullptr;
+  }
+  Vocoder *getVocoder() const override {
+    return editorController ? editorController->getVocoder() : nullptr;
+  }
+  bool hasAnalyzedProject() const override;
+  void bindRealtimeProcessor(RealtimePitchProcessor &processor) override;
+  juce::String serializeProjectJson() const override;
+  bool restoreProjectJson(const juce::String &json) override;
+  void setStatusMessage(const juce::String &message) override {
+    toolbar.setStatusMessage(message);
+  }
+  void setARAMode(bool enabled) override { toolbar.setARAMode(enabled); }
+  void setOnReanalyzeRequested(std::function<void()> callback) override {
+    onReanalyzeRequested = std::move(callback);
+  }
+  void setOnProjectDataChanged(std::function<void()> callback) override {
+    onProjectDataChanged = std::move(callback);
+  }
+  void setOnPitchEditFinished(std::function<void()> callback) override {
+    onPitchEditFinished = std::move(callback);
+  }
+  void setOnRequestHostPlayState(
+      std::function<void(bool)> callback) override {
+    onRequestHostPlayState = std::move(callback);
+  }
+  void setOnRequestHostStop(std::function<void()> callback) override {
+    onRequestHostStop = std::move(callback);
+  }
+  void setOnRequestHostSeek(
+      std::function<void(double)> callback) override {
+    onRequestHostSeek = std::move(callback);
+  }
   juce::Point<int> getSavedWindowSize() const;
 
   // Check if ARA mode is active (for UI display)
   bool isARAModeActive() const;
 
   // Plugin mode - host audio handling
-  void setHostAudio(const juce::AudioBuffer<float> &buffer, double sampleRate);
+  void setHostAudio(const juce::AudioBuffer<float> &buffer,
+                    double sampleRate) override;
   void renderProcessedAudio();
 
   // Plugin mode callbacks
@@ -90,8 +118,8 @@ public:
   std::function<void(double timeInSeconds)> onRequestHostSeek;
 
   // Plugin mode - update playback position from host
-  void updatePlaybackPosition(double timeSeconds);
-  void notifyHostStopped(); // Called when host stops playback
+  void updatePlaybackPosition(double timeSeconds) override;
+  void notifyHostStopped() override; // Called when host stops playback
 
 private:
   void openFile();
@@ -109,9 +137,9 @@ private:
   void onZoomChanged(float pixelsPerSecond);
   void reinterpolateUV(int startFrame,
                        int endFrame); // Re-infer UV regions using FCPE
+  void notifyProjectDataChanged();
 
   void reloadInferenceModels(bool async = false);
-  GPUProvider getProviderFromDevice(const juce::String &device) const;
   bool isInferenceBusy() const;
 
   void loadAudioFile(const juce::File &file);
@@ -129,23 +157,12 @@ private:
   void redo();
   void setEditMode(EditMode mode);
 
-  std::unique_ptr<Project> project;
-  std::unique_ptr<AudioEngine> audioEngine;
-  std::unique_ptr<FCPEPitchDetector>
-      fcpePitchDetector; // FCPE neural network detector (legacy)
-  std::unique_ptr<RMVPEPitchDetector>
-      rmvpePitchDetector; // RMVPE neural network detector
-  std::unique_ptr<SOMEDetector>
-      someDetector; // SOME note segmentation detector (legacy)
-  std::unique_ptr<Vocoder> vocoder;
+  std::unique_ptr<EditorController> editorController;
   std::unique_ptr<PitchUndoManager> undoManager;
   std::unique_ptr<juce::ApplicationCommandManager> commandManager;
 
   // New modular components
   std::unique_ptr<AudioFileManager> fileManager;
-  std::unique_ptr<AudioAnalyzer> audioAnalyzer;
-  std::unique_ptr<IncrementalSynthesizer> incrementalSynth;
-  std::unique_ptr<PlaybackController> playbackController;
   std::unique_ptr<MenuHandler> menuHandler;
   std::unique_ptr<SettingsManager> settingsManager;
 
@@ -163,12 +180,6 @@ private:
 
   std::unique_ptr<juce::FileChooser> fileChooser;
 
-  juce::File fcpeModelPath;
-  juce::File melFilterbankPath;
-  juce::File centTablePath;
-  juce::File rmvpeModelPath;
-  juce::File someModelPath;
-
   // Original waveform for incremental synthesis
   juce::AudioBuffer<float> originalWaveform;
   bool hasOriginalWaveform = false;
@@ -179,23 +190,13 @@ private:
   bool isSyncingZoom = false;
 
   // Async load state
-  std::thread loaderThread;
-  std::thread loaderJoinerThread;
   std::atomic<bool> isLoadingAudio{false};
-  std::atomic<bool> cancelLoading{false};
-  std::atomic<std::uint64_t> hostAnalysisJobId{0};
   std::atomic<double> loadingProgress{0.0};
   juce::CriticalSection loadingMessageLock;
   juce::String loadingMessage;
   juce::String lastLoadingMessage;
 
-  // Async render state (plugin mode)
-  std::thread renderThread;
-  std::atomic<bool> cancelRender{false};
-  std::atomic<bool> isRendering{false};
-  std::atomic<bool> isReloadingModels{false};
-  std::thread modelReloadThread;
-
+  // Async render state (plugin mode) is managed by EditorController
   // Incremental synthesis coalescing
   std::atomic<bool> pendingIncrementalResynth{false};
 

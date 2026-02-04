@@ -9,7 +9,7 @@
 
 #if JucePlugin_Enable_ARA
 
-class MainComponent;
+class IMainView;
 class HachiTuneDocumentController;
 
 /**
@@ -64,8 +64,8 @@ public:
                                    juce::ARAAudioSource *audioSource) override;
   void reanalyze();
 
-  void setMainComponent(MainComponent *mc) { mainComponent = mc; }
-  MainComponent *getMainComponent() const { return mainComponent; }
+  void setMainComponent(IMainView *mc) { mainComponent = mc; }
+  IMainView *getMainComponent() const { return mainComponent; }
 
   void setRealtimeProcessor(RealtimePitchProcessor *processor) {
     realtimeProcessor = processor;
@@ -93,7 +93,7 @@ private:
     std::atomic<bool> cancel{false};
   };
 
-  MainComponent *mainComponent = nullptr;
+  IMainView *mainComponent = nullptr;
   juce::ARAAudioSource *currentAudioSource = nullptr;
   RealtimePitchProcessor *realtimeProcessor = nullptr;
 

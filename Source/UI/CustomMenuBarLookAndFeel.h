@@ -2,7 +2,7 @@
 
 #include "../JuceHeader.h"
 #include "../Utils/Constants.h"
-#include "../Utils/Theme.h"
+#include "../Utils/UI/Theme.h"
 
 class CustomMenuBarLookAndFeel : public juce::LookAndFeel_V4
 {
@@ -116,7 +116,8 @@ public:
         g.setColour(APP_COLOR_TEXT_PRIMARY);
         // Use larger DPI-aware font size
         float scaleFactor = juce::Desktop::getInstance().getGlobalScaleFactor();
-        g.setFont(juce::Font(height * 0.75f * scaleFactor));
+        g.setFont(
+            juce::Font(juce::FontOptions(height * 0.75f * scaleFactor)));
         g.drawFittedText(itemText, 0, 0, width, height, juce::Justification::centred, 1);
     }
 
@@ -124,6 +125,6 @@ public:
     {
         // Use larger DPI-aware font size
         float scaleFactor = juce::Desktop::getInstance().getGlobalScaleFactor();
-        return juce::Font(16.0f * scaleFactor);
+        return juce::Font(juce::FontOptions(16.0f * scaleFactor));
     }
 };

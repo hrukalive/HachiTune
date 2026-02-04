@@ -25,7 +25,7 @@ constexpr float MAX_PIXELS_PER_SECOND = 500.0f;
 constexpr float MIN_PIXELS_PER_SEMITONE = 8.0f;
 constexpr float MAX_PIXELS_PER_SEMITONE = 120.0f;
 
-// UI colors moved to Source/Utils/Theme.h
+// UI colors moved to Source/Utils/UI/Theme.h
 
 // Utility functions
 inline float midiToFreq(float midi) {

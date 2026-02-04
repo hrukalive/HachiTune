@@ -3,7 +3,7 @@
 #include "../JuceHeader.h"
 #include "../Models/Project.h"
 #include "../Utils/Constants.h"
-#include "../Utils/DrawCurve.h"
+#include "../Utils/UI/DrawCurve.h"
 #include "../Utils/BasePitchPreview.h"
 #include "../Utils/UndoManager.h"
 #include "Commands.h"
@@ -39,6 +39,7 @@ class PianoRollComponent : public juce::Component,
                            public juce::ScrollBar::Listener,
                            public juce::KeyListener {
 public:
+  using juce::Component::keyPressed;
   PianoRollComponent();
   ~PianoRollComponent() override;
 

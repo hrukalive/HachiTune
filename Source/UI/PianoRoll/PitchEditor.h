@@ -3,7 +3,7 @@
 #include "../../JuceHeader.h"
 #include "../../Models/Project.h"
 #include "../../Utils/UndoManager.h"
-#include "../../Utils/DrawCurve.h"
+#include "../../Utils/UI/DrawCurve.h"
 #include "../../Utils/BasePitchPreview.h"
 #include "../../Utils/PitchCurveProcessor.h"
 #include "CoordinateMapper.h"

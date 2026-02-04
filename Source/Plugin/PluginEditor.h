@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../JuceHeader.h"
-#include "../UI/MainComponent.h"
+#include "../UI/IMainView.h"
+#include "../UI/MainViewFactory.h"
+#include <memory>
 #include "PluginProcessor.h"
 
 class HachiTuneAudioProcessorEditor : public juce::AudioProcessorEditor
@@ -28,7 +30,7 @@ private:
     void setupCallbacks();
 
     HachiTuneAudioProcessor& audioProcessor;
-    MainComponent mainComponent{false};
+    std::unique_ptr<IMainView> mainView;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HachiTuneAudioProcessorEditor)
 };

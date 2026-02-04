@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../JuceHeader.h"
+#include "../../JuceHeader.h"
 
 /**
  * DPI Scale Manager - Handles multi-platform, multi-monitor DPI scaling.

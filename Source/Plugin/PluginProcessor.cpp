@@ -1,6 +1,5 @@
 #include "PluginProcessor.h"
-#include "../Models/ProjectSerializer.h"
-#include "../UI/MainComponent.h"
+#include "../UI/IMainView.h"
 #include "../Utils/Localization.h"
 #include "PluginEditor.h"
 
@@ -144,10 +143,7 @@ void HachiTuneAudioProcessor::processNonARAMode(
 
   // Check if we have analyzed project ready for real-time processing
   bool hasProject =
-      mainComponent && mainComponent->getProject() &&
-      mainComponent->getProject()->getAudioData().waveform.getNumSamples() >
-          0 &&
-      !mainComponent->getProject()->getAudioData().f0.empty();
+      mainComponent && mainComponent->hasAnalyzedProject();
 
   // Update UI cursor position from host playback position (only when we have
   // analyzed audio)
@@ -165,21 +161,25 @@ void HachiTuneAudioProcessor::processNonARAMode(
 
       // Never touch UI on the audio thread: coalesce to a single async update
       if (!state->posPending.exchange(true)) {
-        juce::Component::SafePointer<MainComponent> safeMain(mainComponent);
+        juce::Component::SafePointer<juce::Component> safeMain(
+            mainComponent->getComponent());
         juce::MessageManager::callAsync([safeMain, state]() {
           state->posPending.store(false);
-          if (safeMain != nullptr)
-            safeMain->updatePlaybackPosition(state->latestSeconds.load());
+          if (auto *view =
+                  dynamic_cast<IMainView *>(safeMain.getComponent()))
+            view->updatePlaybackPosition(state->latestSeconds.load());
         });
       }
     } else if (!hostIsPlaying && hasProject) {
       auto state = hostUiSyncState;
       if (!state->stoppedPending.exchange(true)) {
-        juce::Component::SafePointer<MainComponent> safeMain(mainComponent);
+        juce::Component::SafePointer<juce::Component> safeMain(
+            mainComponent->getComponent());
         juce::MessageManager::callAsync([safeMain, state]() {
           state->stoppedPending.store(false);
-          if (safeMain != nullptr)
-            safeMain->notifyHostStopped();
+          if (auto *view =
+                  dynamic_cast<IMainView *>(safeMain.getComponent()))
+            view->notifyHostStopped();
         });
       }
     }
@@ -194,19 +194,21 @@ void HachiTuneAudioProcessor::processNonARAMode(
       NonAraCaptureController::FinalizeResult result;
       if (captureController->finalizeCapture(hostSampleRate, result) &&
           mainComponent) {
-        juce::Component::SafePointer<MainComponent> safeMain(mainComponent);
+        juce::Component::SafePointer<juce::Component> safeMain(
+            mainComponent->getComponent());
         auto controller = captureController;
         juce::MessageManager::callAsync([safeMain, controller,
                                          samples = result.numSamples,
                                          sr = result.sampleRate]() mutable {
-          if (safeMain == nullptr)
+          auto *view = dynamic_cast<IMainView *>(safeMain.getComponent());
+          if (!view)
             return;
           if (!controller)
             return;
           auto trimmed = controller->copyCapturedAudio(samples);
           controller->onAnalysisDispatched();
-          safeMain->getToolbar().setStatusMessage(TR("progress.analyzing"));
-          safeMain->setHostAudio(trimmed, sr);
+          view->setStatusMessage(TR("progress.analyzing"));
+          view->setHostAudio(trimmed, sr);
         });
       }
     }
@@ -233,10 +235,11 @@ void HachiTuneAudioProcessor::processNonARAMode(
   if (currentState != lastCaptureUiState) {
     if (currentState == NonAraCaptureController::State::Capturing &&
         mainComponent) {
-      juce::Component::SafePointer<MainComponent> safeMain(mainComponent);
+      juce::Component::SafePointer<juce::Component> safeMain(
+          mainComponent->getComponent());
       juce::MessageManager::callAsync([safeMain]() {
-        if (safeMain)
-          safeMain->getToolbar().setStatusMessage(TR("progress.recording"));
+        if (auto *view = dynamic_cast<IMainView *>(safeMain.getComponent()))
+          view->setStatusMessage(TR("progress.recording"));
       });
     }
     lastCaptureUiState = currentState;
@@ -246,19 +249,21 @@ void HachiTuneAudioProcessor::processNonARAMode(
     NonAraCaptureController::FinalizeResult result;
     if (captureController->finalizeCapture(hostSampleRate, result) &&
         mainComponent) {
-      juce::Component::SafePointer<MainComponent> safeMain(mainComponent);
+      juce::Component::SafePointer<juce::Component> safeMain(
+          mainComponent->getComponent());
       auto controller = captureController;
       juce::MessageManager::callAsync([safeMain, controller,
                                        samples = result.numSamples,
                                        sr = result.sampleRate]() mutable {
-        if (safeMain == nullptr)
+        auto *view = dynamic_cast<IMainView *>(safeMain.getComponent());
+        if (!view)
           return;
         if (!controller)
           return;
         auto trimmed = controller->copyCapturedAudio(samples);
         controller->onAnalysisDispatched();
-        safeMain->getToolbar().setStatusMessage(TR("progress.analyzing"));
-        safeMain->setHostAudio(trimmed, sr);
+        view->setStatusMessage(TR("progress.analyzing"));
+        view->setHostAudio(trimmed, sr);
       });
     }
   }
@@ -272,17 +277,12 @@ void HachiTuneAudioProcessor::startCapture() {
 
 void HachiTuneAudioProcessor::stopCapture() { captureController->stop(); }
 
-void HachiTuneAudioProcessor::setMainComponent(MainComponent *mc) {
+void HachiTuneAudioProcessor::setMainComponent(IMainView *mc) {
   mainComponent = mc;
   if (mc) {
-    realtimeProcessor.setProject(mc->getProject());
-    realtimeProcessor.setVocoder(mc->getVocoder());
-
-    if (mc->getProject() && pendingStateJson.isNotEmpty()) {
-      auto json = juce::JSON::parse(pendingStateJson);
-      if (json.isObject()) {
-        ProjectSerializer::fromJson(*mc->getProject(), json);
-      }
+    mc->bindRealtimeProcessor(realtimeProcessor);
+    if (pendingStateJson.isNotEmpty() &&
+        mc->restoreProjectJson(pendingStateJson)) {
       pendingStateJson.clear();
     }
   } else {
@@ -297,9 +297,8 @@ juce::AudioProcessorEditor *HachiTuneAudioProcessor::createEditor() {
 
 void HachiTuneAudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
   juce::String jsonString;
-  if (mainComponent && mainComponent->getProject()) {
-    auto json = ProjectSerializer::toJson(*mainComponent->getProject());
-    jsonString = juce::JSON::toString(json, false);
+  if (mainComponent) {
+    jsonString = mainComponent->serializeProjectJson();
   } else if (pendingStateJson.isNotEmpty()) {
     jsonString = pendingStateJson;
   }
@@ -313,12 +312,8 @@ void HachiTuneAudioProcessor::setStateInformation(const void *data,
       juce::CharPointer_UTF8(static_cast<const char *>(data)),
       static_cast<size_t>(sizeInBytes));
 
-  if (mainComponent && mainComponent->getProject()) {
-    auto json = juce::JSON::parse(jsonString);
-    if (json.isObject()) {
-      ProjectSerializer::fromJson(*mainComponent->getProject(), json);
-      return;
-    }
+  if (mainComponent && mainComponent->restoreProjectJson(jsonString)) {
+    return;
   }
 
   pendingStateJson = jsonString;

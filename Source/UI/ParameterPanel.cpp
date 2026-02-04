@@ -41,7 +41,8 @@ ParameterPanel::ParameterPanel()
     {
         addAndMakeVisible(label);
         label->setColour(juce::Label::textColourId, APP_COLOR_PRIMARY);
-        label->setFont(juce::Font(14.0f, juce::Font::bold));
+        label->setFont(
+            juce::Font(juce::FontOptions(14.0f, juce::Font::bold)));
     }
 
     // Formant slider disabled (not implemented yet)

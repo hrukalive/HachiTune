@@ -249,9 +249,21 @@ void AudioFileManager::exportAudioFileAsync(
 
   // Export synchronously for now (could be made async if needed)
   juce::WavAudioFormat wavFormat;
-  std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
-      new juce::FileOutputStream(file), sampleRate,
-      static_cast<unsigned int>(buffer.getNumChannels()), 16, {}, 0));
+  auto writerOptions = juce::AudioFormatWriterOptions{}
+                           .withSampleRate(sampleRate)
+                           .withNumChannels(buffer.getNumChannels())
+                           .withBitsPerSample(16);
+  auto fileStream = std::make_unique<juce::FileOutputStream>(file);
+  if (!fileStream->openedOk()) {
+    if (onProgress)
+      onProgress(1.0, TR("progress.export_failed"));
+    if (onComplete)
+      onComplete(false);
+    return;
+  }
+  std::unique_ptr<juce::OutputStream> outputStream = std::move(fileStream);
+  std::unique_ptr<juce::AudioFormatWriter> writer(
+      wavFormat.createWriterFor(outputStream, writerOptions));
 
   bool success = false;
   if (writer) {

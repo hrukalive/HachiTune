@@ -1,6 +1,6 @@
 #include "SettingsComponent.h"
 #include "../Utils/Constants.h"
-#include "../Utils/Theme.h"
+#include "../Utils/UI/Theme.h"
 #include "../Utils/Localization.h"
 
 #ifdef HAVE_ONNXRUNTIME

@@ -1,6 +1,6 @@
 #include "WaveformComponent.h"
 #include "../Utils/Constants.h"
-#include "../Utils/Theme.h"
+#include "../Utils/UI/Theme.h"
 
 WaveformComponent::WaveformComponent()
 {

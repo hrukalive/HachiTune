@@ -8,8 +8,8 @@
 #include "Utils/Constants.h"
 #include "Utils/Localization.h"
 #include "Utils/PlatformUtils.h"
-#include "Utils/WindowSizing.h"
-#include "Utils/TimecodeFont.h"
+#include "Utils/UI/WindowSizing.h"
+#include "Utils/UI/TimecodeFont.h"
 
 #if JUCE_WINDOWS
 #include <dwmapi.h>

@@ -1,5 +1,5 @@
 #include "SidebarComponent.h"
-#include "../../Utils/SvgUtils.h"
+#include "../../Utils/UI/SvgUtils.h"
 
 // SidebarButton implementation
 SidebarButton::SidebarButton(const juce::String& id, const juce::String& tooltip)

@@ -8,7 +8,7 @@
 #include <atomic>
 #include <memory>
 
-class MainComponent;
+class IMainView;
 
 /**
  * HachiTune Audio Processor
@@ -61,8 +61,8 @@ public:
   juce::String getHostStatusMessage() const;
 
   // Editor connection
-  void setMainComponent(MainComponent *mc);
-  MainComponent *getMainComponent() const { return mainComponent; }
+  void setMainComponent(IMainView *mc);
+  IMainView *getMainComponent() const { return mainComponent; }
 
   // ========== Host Transport Control ==========
 
@@ -134,7 +134,7 @@ private:
 
   PluginTransportController transportController;
   RealtimePitchProcessor realtimeProcessor;
-  MainComponent *mainComponent = nullptr;
+  IMainView *mainComponent = nullptr;
   std::shared_ptr<HostUiSyncState> hostUiSyncState =
       std::make_shared<HostUiSyncState>();
   double hostSampleRate = 44100.0;
