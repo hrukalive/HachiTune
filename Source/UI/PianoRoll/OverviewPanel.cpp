@@ -2,6 +2,22 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+juce::Colour getPitchColour(float midi) {
+  const float norm = juce::jlimit(
+      0.0f, 1.0f,
+      (midi - static_cast<float>(MIN_MIDI_NOTE)) /
+          static_cast<float>(MAX_MIDI_NOTE - MIN_MIDI_NOTE));
+  return APP_COLOR_PRIMARY.interpolatedWith(APP_COLOR_PITCH_CURVE, norm);
+}
+
+float f0ToMidi(float f0) {
+  if (f0 <= 0.0f)
+    return 0.0f;
+  return 69.0f + 12.0f * std::log2(f0 / 440.0f);
+}
+} // namespace
+
 void OverviewPanel::paint(juce::Graphics &g) {
   auto content = getContentBounds();
   const float cornerRadius = 6.0f;
@@ -29,6 +45,8 @@ void OverviewPanel::paint(juce::Graphics &g) {
   if (width <= 0 || height <= 0)
     return;
 
+  const double totalTime = static_cast<double>(numSamples) / audioData.sampleRate;
+
   const float centerY = content.getY() + content.getHeight() * 0.5f;
   const float amplitude = content.getHeight() * 0.58f;
 
@@ -52,6 +70,142 @@ void OverviewPanel::paint(juce::Graphics &g) {
     float y1 = centerY - maxVal * amplitude;
     float y2 = centerY + maxVal * amplitude;
     g.drawLine(x, y1, x, y2);
+  }
+
+  if (totalTime > 0.0) {
+    const float pitchRange =
+        static_cast<float>(MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1);
+    if (pitchRange > 0.0f) {
+      const float noteHeight =
+          juce::jlimit(1.0f, 4.0f, content.getHeight() / pitchRange);
+      const float thickness =
+          juce::jlimit(1.0f, 3.0f, noteHeight);
+
+      for (const auto &note : project->getNotes()) {
+        if (note.isRest())
+          continue;
+
+        const double startTime =
+            static_cast<double>(note.getStartFrame()) * HOP_SIZE / SAMPLE_RATE;
+        const double endTime =
+            static_cast<double>(note.getEndFrame()) * HOP_SIZE / SAMPLE_RATE;
+
+        if (endTime <= startTime)
+          continue;
+
+        float midi = note.getAdjustedMidiNote();
+        if (midi < MIN_MIDI_NOTE - 1 || midi > MAX_MIDI_NOTE + 1)
+          continue;
+
+        const auto baseColour =
+            note.isSelected() ? APP_COLOR_NOTE_SELECTED : getPitchColour(midi);
+        g.setColour(baseColour.withAlpha(0.18f));
+
+        const auto &delta = note.getDeltaPitch();
+        if (delta.size() > 1) {
+          juce::Path path;
+          const double duration = endTime - startTime;
+          for (size_t i = 0; i < delta.size(); ++i) {
+            const float t =
+                static_cast<float>(i) /
+                static_cast<float>(std::max<size_t>(1, delta.size() - 1));
+            const double time = startTime + duration * t;
+            const float x = content.getX() +
+                            static_cast<float>((time / totalTime) *
+                                               content.getWidth());
+            const float pitch = midi + delta[i];
+            const float y = content.getY() +
+                            (MAX_MIDI_NOTE - pitch) / pitchRange *
+                                content.getHeight();
+            if (i == 0)
+              path.startNewSubPath(x, y);
+            else
+              path.lineTo(x, y);
+          }
+          g.strokePath(path,
+                       juce::PathStrokeType(thickness * 2.6f,
+                                            juce::PathStrokeType::curved,
+                                            juce::PathStrokeType::rounded));
+          g.setColour(baseColour.withAlpha(0.75f));
+          g.strokePath(path,
+                       juce::PathStrokeType(thickness,
+                                            juce::PathStrokeType::curved,
+                                            juce::PathStrokeType::rounded));
+        } else {
+          const float x1 = content.getX() +
+                           static_cast<float>((startTime / totalTime) *
+                                              content.getWidth());
+          const float x2 = content.getX() +
+                           static_cast<float>((endTime / totalTime) *
+                                              content.getWidth());
+          const float y = content.getY() +
+                          (MAX_MIDI_NOTE - midi) / pitchRange *
+                              content.getHeight();
+          g.setColour(baseColour.withAlpha(0.18f));
+          g.drawLine(x1, y, x2, y, thickness * 2.6f);
+          g.setColour(baseColour.withAlpha(0.75f));
+          g.drawLine(x1, y, x2, y, thickness);
+        }
+      }
+
+      const auto &f0 = audioData.f0;
+      if (!f0.empty()) {
+        const auto &voiced = audioData.voicedMask;
+        const int widthPx = static_cast<int>(content.getWidth());
+        juce::Path f0Path;
+        bool hasSegment = false;
+
+        for (int px = 0; px < widthPx; ++px) {
+          const double t0 = (static_cast<double>(px) / widthPx) * totalTime;
+          const double t1 =
+              (static_cast<double>(px + 1) / widthPx) * totalTime;
+          const int startFrame =
+              juce::jlimit(0, static_cast<int>(f0.size()) - 1,
+                           static_cast<int>(t0 * SAMPLE_RATE / HOP_SIZE));
+          const int endFrame =
+              juce::jlimit(startFrame + 1, static_cast<int>(f0.size()),
+                           static_cast<int>(t1 * SAMPLE_RATE / HOP_SIZE));
+
+          float midi = 0.0f;
+          bool found = false;
+          for (int i = startFrame; i < endFrame; ++i) {
+            if (i < 0 || i >= static_cast<int>(f0.size()))
+              continue;
+            if (!voiced.empty() &&
+                (i >= static_cast<int>(voiced.size()) || !voiced[i]))
+              continue;
+            if (f0[static_cast<size_t>(i)] <= 0.0f)
+              continue;
+            midi = f0ToMidi(f0[static_cast<size_t>(i)]);
+            found = true;
+            break;
+          }
+
+          if (!found) {
+            hasSegment = false;
+            continue;
+          }
+
+          const float x = content.getX() + static_cast<float>(px);
+          const float y = content.getY() +
+                          (MAX_MIDI_NOTE - midi) / pitchRange *
+                              content.getHeight();
+          if (!hasSegment) {
+            f0Path.startNewSubPath(x, y);
+            hasSegment = true;
+          } else {
+            f0Path.lineTo(x, y);
+          }
+        }
+
+        g.setColour(APP_COLOR_PITCH_CURVE.withAlpha(0.2f));
+        g.strokePath(
+            f0Path,
+            juce::PathStrokeType(thickness * 1.4f,
+                                 juce::PathStrokeType::curved,
+                                 juce::PathStrokeType::rounded));
+      }
+    }
   }
 
   auto viewport = computeViewport();
