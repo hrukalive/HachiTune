@@ -15,6 +15,7 @@
 #include "PianoRoll/PitchToolHandles.h"
 #include "PianoRoll/ScrollZoomController.h"
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 
@@ -285,6 +286,10 @@ private:
   void drawStretchGuides(juce::Graphics &g);
 #endif
   void updatePitchToolHandlesFromSelection();
+  void invalidateInteractionCaches();
+  void invalidateNoteHitTestCache();
+  void invalidatePitchToolHandleCache();
+  void ensureNoteHitTestCache();
 
   float midiToY(float midiNote) const;
   float yToMidi(float y) const;
@@ -306,6 +311,15 @@ private:
 
   Project *project = nullptr;
   PitchUndoManager *undoManager = nullptr;
+
+  struct NoteHitTestEntry
+  {
+    Note *note = nullptr;
+    int startFrame = 0;
+    int endFrame = 0;
+    float adjustedMidi = 0.0f;
+    int order = 0;
+  };
 
   // New modular components
   std::unique_ptr<CoordinateMapper> coordMapper;
@@ -395,6 +409,17 @@ private:
   int cachedTotalFrames = 0;
   bool cacheInvalidated = true; // Start invalidated, force first calculation
 
+  static constexpr int noteHitTestRowMin = MIN_MIDI_NOTE - 1;
+  static constexpr int noteHitTestRowCount =
+      MAX_MIDI_NOTE - MIN_MIDI_NOTE + 3;
+  static constexpr int noteHitTestBucketFrames = 128;
+  std::vector<std::vector<NoteHitTestEntry>> noteHitTestBuckets;
+  int noteHitTestBucketCount = 0;
+  bool noteHitTestCacheValid = false;
+
+  std::uint64_t cachedPitchToolHandleSignature = 0;
+  bool pitchToolHandleCacheValid = false;
+
 public:
   void invalidateWaveformCache()
   {
@@ -403,6 +428,7 @@ public:
 
   void invalidateBasePitchCache()
   {
+    invalidateInteractionCaches();
     cacheInvalidated = true;
     cachedNoteCount = 0;
     cachedBasePitch.clear();

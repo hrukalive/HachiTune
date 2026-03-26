@@ -25,6 +25,7 @@ public:
   void draw(juce::Graphics &g) override;
   bool isActive() const override;
   void cancel() override;
+  void invalidateBoundaryCache();
 
   struct StretchBoundary
   {
@@ -48,11 +49,11 @@ public:
   };
 
   int getHoveredBoundaryIndex() const { return hoveredStretchBoundaryIndex; }
-  std::vector<StretchBoundary> collectStretchBoundaries() const;
+  std::vector<StretchBoundary> collectStretchBoundaries();
   const StretchDragState &getDragState() const { return stretchDrag; }
 
 private:
-  int findStretchBoundaryIndex(float worldX, float tolerancePx) const;
+  int findStretchBoundaryIndex(float worldX, float tolerancePx);
   void startStretchDrag(const StretchBoundary &boundary);
   void updateStretchDrag(int targetFrame);
   void finishStretchDrag();
@@ -63,6 +64,8 @@ private:
   void updateDirtyRanges();
 
   StretchDragState stretchDrag;
+  std::vector<StretchBoundary> cachedBoundaries;
+  bool boundaryCacheDirty = true;
   int hoveredStretchBoundaryIndex = -1;
   static constexpr float stretchHandleHitPadding = 6.0f;
   static constexpr int minStretchNoteFrames = 3;

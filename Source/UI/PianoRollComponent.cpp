@@ -17,6 +17,8 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <unordered_set>
 
@@ -292,6 +294,60 @@ namespace
 
     drawDebugRangeBadge(g, lane.label, visibleStartX + 8.0f, y - 2.0f,
                         juce::Colours::white.withAlpha(0.70f));
+  }
+
+  std::uint32_t floatToBits(float value)
+  {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+  }
+
+  void hashCombine(std::uint64_t &hash, std::uint64_t value)
+  {
+    hash ^= value + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+  }
+
+  void hashNoteGeometry(std::uint64_t &hash, const Note *note)
+  {
+    if (note == nullptr)
+    {
+      hashCombine(hash, 0);
+      return;
+    }
+
+    hashCombine(hash,
+                static_cast<std::uint64_t>(
+                    reinterpret_cast<std::uintptr_t>(note)));
+    hashCombine(hash, static_cast<std::uint64_t>(note->getStartFrame()));
+    hashCombine(hash, static_cast<std::uint64_t>(note->getEndFrame()));
+    hashCombine(hash,
+                static_cast<std::uint64_t>(
+                    floatToBits(note->getAdjustedMidiNote())));
+  }
+
+  std::uint64_t buildPitchToolHandleSignature(
+      EditMode mode,
+      bool showPitchToolOnMouseMove,
+      float pixelsPerSecond,
+      float pixelsPerSemitone,
+      const std::vector<Note *> &selectedNotes,
+      const std::vector<Note *> &hoverNotes)
+  {
+    std::uint64_t hash = 0xcbf29ce484222325ULL;
+    hashCombine(hash, static_cast<std::uint64_t>(mode));
+    hashCombine(hash, showPitchToolOnMouseMove ? 1ULL : 0ULL);
+    hashCombine(hash,
+                static_cast<std::uint64_t>(floatToBits(pixelsPerSecond)));
+    hashCombine(hash,
+                static_cast<std::uint64_t>(floatToBits(pixelsPerSemitone)));
+    hashCombine(hash, static_cast<std::uint64_t>(selectedNotes.size()));
+    for (const auto *note : selectedNotes)
+      hashNoteGeometry(hash, note);
+    hashCombine(hash, static_cast<std::uint64_t>(hoverNotes.size()));
+    for (const auto *note : hoverNotes)
+      hashNoteGeometry(hash, note);
+    return hash;
   }
 }
 
@@ -1854,20 +1910,25 @@ void PianoRollComponent::drawStretchGuides(juce::Graphics &g)
 
     const bool isHovered = static_cast<int>(i) == hoveredIdx;
     const bool isPinned = boundaries[i].active;
-    float alpha = 0.18f;
-    if (isPinned)
-      alpha = 0.58f;
-    if (isHovered || isDraggingMarker)
-      alpha = 0.82f;
+    if (!isPinned && !isHovered && !isDraggingMarker)
+    {
+      g.setColour(APP_COLOR_PRIMARY.withAlpha(0.16f));
+      g.drawLine(x, 0.0f, x, height, 1.0f);
+      continue;
+    }
 
-    float thickness = 1.0f;
-    if (isPinned)
-      thickness = 2.0f;
-    if (isHovered || isDraggingMarker)
-      thickness = 2.5f;
+    const bool isEmphasized = isHovered || isDraggingMarker;
+    const float outerThickness = isEmphasized ? 3.6f : 2.8f;
+    const float innerThickness = isEmphasized ? 1.8f : 1.2f;
+    const auto outerColour = APP_COLOR_PRIMARY.withAlpha(isEmphasized ? 0.98f
+                                                                      : 0.90f);
+    const auto innerColour =
+        juce::Colours::white.withAlpha(isEmphasized ? 0.96f : 0.88f);
 
-    g.setColour(APP_COLOR_PRIMARY.withAlpha(alpha));
-    g.drawLine(x, 0.0f, x, height, thickness);
+    g.setColour(outerColour);
+    g.drawLine(x, 0.0f, x, height, outerThickness);
+    g.setColour(innerColour);
+    g.drawLine(x, 0.0f, x, height, innerThickness);
   }
 }
 #endif
@@ -2454,6 +2515,7 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
 {
   float adjustedX = e.x - pianoKeysWidth + static_cast<float>(scrollX);
   float adjustedY = e.y - headerHeight + static_cast<float>(scrollY);
+  bool needsRepaint = false;
 
   // Loop timeline cursor handling (always active)
   loopDragHandler_->mouseMove(e, adjustedX, adjustedY);
@@ -2503,6 +2565,7 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
   {
     hoveredPitchToolNote = newHoveredToolNote;
     updatePitchToolHandlesFromSelection();
+    needsRepaint = true;
   }
 
   // Pitch tool handle hover uses world-adjusted coordinates because the
@@ -2515,7 +2578,7 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
     {
       hoveredPitchToolHandle = hitIndex;
       pitchToolHandles->setHoveredHandleIndex(hitIndex);
-      repaint();
+      needsRepaint = true;
     }
   }
   else if (hoveredPitchToolHandle != -1)
@@ -2523,8 +2586,11 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
     hoveredPitchToolHandle = -1;
     if (pitchToolHandles)
       pitchToolHandles->setHoveredHandleIndex(-1);
-    repaint();
+    needsRepaint = true;
   }
+
+  if (needsRepaint)
+    repaint();
 }
 
 void PianoRollComponent::mouseExit(const juce::MouseEvent &e)
@@ -3339,6 +3405,91 @@ std::vector<Note *> PianoRollComponent::getSelectedNotes() const
   return selected;
 }
 
+void PianoRollComponent::invalidateInteractionCaches()
+{
+  invalidateNoteHitTestCache();
+  invalidatePitchToolHandleCache();
+  hoveredPitchToolNote = nullptr;
+  hoveredPitchToolHandle = -1;
+  if (pitchToolHandles)
+    pitchToolHandles->setHoveredHandleIndex(-1);
+#if HACHITUNE_ENABLE_STRETCH
+  if (stretchHandler_)
+    stretchHandler_->invalidateBoundaryCache();
+#endif
+}
+
+void PianoRollComponent::invalidateNoteHitTestCache()
+{
+  noteHitTestCacheValid = false;
+}
+
+void PianoRollComponent::invalidatePitchToolHandleCache()
+{
+  pitchToolHandleCacheValid = false;
+  cachedPitchToolHandleSignature = 0;
+}
+
+void PianoRollComponent::ensureNoteHitTestCache()
+{
+  if (noteHitTestCacheValid)
+    return;
+
+  noteHitTestBuckets.clear();
+  noteHitTestBucketCount = 0;
+
+  if (!project)
+    return;
+
+  int maxFrame = std::max(0, project->getAudioData().getNumFrames());
+  for (const auto &note : project->getNotes())
+  {
+    if (!note.isRest())
+      maxFrame = std::max(maxFrame, note.getEndFrame());
+  }
+
+  noteHitTestBucketCount =
+      std::max(1, maxFrame / noteHitTestBucketFrames + 1);
+  noteHitTestBuckets.assign(
+      static_cast<size_t>(noteHitTestRowCount * noteHitTestBucketCount), {});
+
+  int noteOrder = 0;
+  for (auto &note : project->getNotes())
+  {
+    if (note.isRest())
+      continue;
+
+    const int row = juce::jlimit(
+        0, noteHitTestRowCount - 1,
+        static_cast<int>(std::floor(note.getAdjustedMidiNote())) -
+            noteHitTestRowMin);
+    const int noteStartFrame = std::max(0, note.getStartFrame());
+    const int noteEndFrame = std::max(noteStartFrame + 1, note.getEndFrame());
+    const int startBucket = juce::jlimit(
+        0, noteHitTestBucketCount - 1,
+        noteStartFrame / noteHitTestBucketFrames);
+    const int endBucket = juce::jlimit(
+        0, noteHitTestBucketCount - 1,
+        (noteEndFrame - 1) / noteHitTestBucketFrames);
+
+    NoteHitTestEntry entry;
+    entry.note = &note;
+    entry.startFrame = note.getStartFrame();
+    entry.endFrame = note.getEndFrame();
+    entry.adjustedMidi = note.getAdjustedMidiNote();
+    entry.order = noteOrder++;
+
+    for (int bucket = startBucket; bucket <= endBucket; ++bucket)
+    {
+      noteHitTestBuckets[static_cast<size_t>(row * noteHitTestBucketCount +
+                                             bucket)]
+          .push_back(entry);
+    }
+  }
+
+  noteHitTestCacheValid = true;
+}
+
 void PianoRollComponent::updatePitchToolHandlesFromSelection()
 {
   if (!pitchToolHandles || !coordMapper)
@@ -3346,6 +3497,7 @@ void PianoRollComponent::updatePitchToolHandlesFromSelection()
 
   if (!project || editMode != EditMode::Select)
   {
+    invalidatePitchToolHandleCache();
     pitchToolHandles->clear();
     hoveredPitchToolNote = nullptr;
     hoveredPitchToolHandle = -1;
@@ -3364,15 +3516,33 @@ void PianoRollComponent::updatePitchToolHandlesFromSelection()
 
   if (targetNotes.empty() && hoverNotes.empty())
   {
+    invalidatePitchToolHandleCache();
     pitchToolHandles->clear();
     hoveredPitchToolHandle = -1;
     pitchToolHandles->setHoveredHandleIndex(-1);
     return;
   }
 
+  const auto signature = buildPitchToolHandleSignature(
+      editMode, showPitchToolOnMouseMove, pixelsPerSecond, pixelsPerSemitone,
+      targetNotes, hoverNotes);
+  if (pitchToolHandleCacheValid &&
+      cachedPitchToolHandleSignature == signature)
+  {
+    if (hoveredPitchToolHandle >=
+        static_cast<int>(pitchToolHandles->getHandles().size()))
+    {
+      hoveredPitchToolHandle = -1;
+      pitchToolHandles->setHoveredHandleIndex(-1);
+    }
+    return;
+  }
+
   pitchToolHandles->updateHandles(targetNotes, *coordMapper, false);
   if (!hoverNotes.empty())
     pitchToolHandles->updateHandles(hoverNotes, *coordMapper, true);
+  cachedPitchToolHandleSignature = signature;
+  pitchToolHandleCacheValid = true;
   if (hoveredPitchToolHandle >=
       static_cast<int>(pitchToolHandles->getHandles().size()))
   {
@@ -3386,24 +3556,51 @@ Note *PianoRollComponent::findNoteAt(float x, float y)
   if (!project)
     return nullptr;
 
-  for (auto &note : project->getNotes())
+  ensureNoteHitTestCache();
+  if (!noteHitTestCacheValid || noteHitTestBucketCount <= 0)
+    return nullptr;
+
+  const int targetFrame = std::max(
+      0, static_cast<int>(secondsToFrames(static_cast<float>(xToTime(x)))));
+  const int bucket = juce::jlimit(
+      0, noteHitTestBucketCount - 1,
+      targetFrame / noteHitTestBucketFrames);
+  const int baseRow = juce::jlimit(
+      0, noteHitTestRowCount - 1,
+      static_cast<int>(std::floor(yToMidi(y))) - noteHitTestRowMin);
+
+  Note *bestMatch = nullptr;
+  int bestOrder = std::numeric_limits<int>::max();
+  auto searchBucket = [&](int row)
   {
-    // Skip rest notes
-    if (note.isRest())
-      continue;
+    if (row < 0 || row >= noteHitTestRowCount)
+      return;
 
-    float noteX = framesToSeconds(note.getStartFrame()) * pixelsPerSecond;
-    float noteW = framesToSeconds(note.getDurationFrames()) * pixelsPerSecond;
-    float noteY = midiToY(note.getAdjustedMidiNote());
-    float noteH = pixelsPerSemitone;
-
-    if (x >= noteX && x < noteX + noteW && y >= noteY && y < noteY + noteH)
+    const auto &entries = noteHitTestBuckets[static_cast<size_t>(
+        row * noteHitTestBucketCount + bucket)];
+    for (const auto &entry : entries)
     {
-      return &note;
-    }
-  }
+      if (entry.order >= bestOrder)
+        continue;
 
-  return nullptr;
+      const float noteX =
+          framesToSeconds(entry.startFrame) * pixelsPerSecond;
+      const float noteW =
+          framesToSeconds(entry.endFrame - entry.startFrame) * pixelsPerSecond;
+      const float noteY = midiToY(entry.adjustedMidi);
+      const float noteH = pixelsPerSemitone;
+
+      if (x >= noteX && x < noteX + noteW && y >= noteY && y < noteY + noteH)
+      {
+        bestMatch = entry.note;
+        bestOrder = entry.order;
+      }
+    }
+  };
+
+  searchBucket(baseRow);
+  searchBucket(baseRow + 1);
+  return bestMatch;
 }
 
 void PianoRollComponent::updateScrollBars()

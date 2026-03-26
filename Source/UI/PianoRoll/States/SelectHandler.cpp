@@ -484,27 +484,7 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
 void SelectHandler::mouseMove(const juce::MouseEvent &e, float worldX,
                               float worldY)
 {
-  // Pitch tool handle hover
-  if (owner_.pitchToolHandles && !owner_.pitchToolHandles->isEmpty() &&
-      e.y >= PianoRollComponent::headerHeight &&
-      e.x >= PianoRollComponent::pianoKeysWidth)
-  {
-    int hitIndex = owner_.pitchToolHandles->hitTest(e.position.x,
-                                                    e.position.y);
-    if (hitIndex != owner_.hoveredPitchToolHandle)
-    {
-      owner_.hoveredPitchToolHandle = hitIndex;
-      owner_.pitchToolHandles->setHoveredHandleIndex(hitIndex);
-      owner_.repaint();
-    }
-  }
-  else if (owner_.hoveredPitchToolHandle != -1)
-  {
-    owner_.hoveredPitchToolHandle = -1;
-    if (owner_.pitchToolHandles)
-      owner_.pitchToolHandles->setHoveredHandleIndex(-1);
-    owner_.repaint();
-  }
+  juce::ignoreUnused(e, worldX, worldY);
 }
 
 void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,

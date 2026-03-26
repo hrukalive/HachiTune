@@ -7,6 +7,7 @@
 #include "../../../Utils/WarpMarkerProcessor.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -145,25 +146,25 @@ void StretchHandler::mouseMove(const juce::MouseEvent &e, float worldX,
                                float worldY)
 {
   juce::ignoreUnused(worldY);
+  int newHoveredIndex = -1;
   if (e.y >= PianoRollComponent::headerHeight &&
       e.x >= PianoRollComponent::pianoKeysWidth)
   {
-    float adjustedX =
-        e.x - PianoRollComponent::pianoKeysWidth +
-        static_cast<float>(owner_.scrollX);
-    hoveredStretchBoundaryIndex =
-        findStretchBoundaryIndex(adjustedX, stretchHandleHitPadding);
-    owner_.setMouseCursor(hoveredStretchBoundaryIndex >= 0
+    newHoveredIndex = findStretchBoundaryIndex(worldX, stretchHandleHitPadding);
+    owner_.setMouseCursor(newHoveredIndex >= 0
                               ? juce::MouseCursor::LeftRightResizeCursor
                               : juce::MouseCursor::NormalCursor);
   }
   else
   {
-    hoveredStretchBoundaryIndex = -1;
     owner_.setMouseCursor(juce::MouseCursor::NormalCursor);
   }
 
-  owner_.repaint();
+  if (newHoveredIndex != hoveredStretchBoundaryIndex)
+  {
+    hoveredStretchBoundaryIndex = newHoveredIndex;
+    owner_.repaint();
+  }
 }
 
 void StretchHandler::draw(juce::Graphics &g)
@@ -175,69 +176,114 @@ bool StretchHandler::isActive() const { return stretchDrag.active; }
 
 void StretchHandler::cancel() { cancelStretchDrag(); }
 
-std::vector<StretchHandler::StretchBoundary>
-StretchHandler::collectStretchBoundaries() const
+void StretchHandler::invalidateBoundaryCache()
 {
-  std::vector<StretchBoundary> result;
+  boundaryCacheDirty = true;
+}
+
+std::vector<StretchHandler::StretchBoundary>
+StretchHandler::collectStretchBoundaries()
+{
   auto *project = owner_.project;
   if (!project)
-    return result;
-
-  auto boundaries =
-      WarpMarkerProcessor::collectBoundaries(*const_cast<Project *>(project));
-  const int totalFrames = WarpMarkerProcessor::getSourceFrameLimit(*project);
-  result.reserve(boundaries.size());
-
-  for (const auto &boundary : boundaries)
   {
-    if (boundary.sourceFrame <= 0 || boundary.sourceFrame >= totalFrames)
-      continue;
-
-    StretchBoundary converted;
-    converted.left = boundary.left;
-    converted.right = boundary.right;
-    converted.frame = boundary.currentFrame;
-    converted.sourceFrame = boundary.sourceFrame;
-    converted.active = boundary.active;
-
-    if (stretchDrag.active &&
-        converted.sourceFrame == stretchDrag.boundary.sourceFrame)
-    {
-      converted.frame = stretchDrag.currentBoundary;
-      converted.active = true;
-    }
-
-    result.push_back(converted);
+    cachedBoundaries.clear();
+    boundaryCacheDirty = false;
+    return {};
   }
 
-  std::sort(result.begin(), result.end(),
-            [](const auto &a, const auto &b)
-            {
-              if (a.frame != b.frame)
-                return a.frame < b.frame;
-              return a.sourceFrame < b.sourceFrame;
-            });
+  if (boundaryCacheDirty)
+  {
+    cachedBoundaries.clear();
+    auto boundaries = WarpMarkerProcessor::collectBoundaries(*project);
+    const int totalFrames = WarpMarkerProcessor::getSourceFrameLimit(*project);
+    cachedBoundaries.reserve(boundaries.size());
+
+    for (const auto &boundary : boundaries)
+    {
+      if (boundary.sourceFrame <= 0 || boundary.sourceFrame >= totalFrames)
+        continue;
+
+      StretchBoundary converted;
+      converted.left = boundary.left;
+      converted.right = boundary.right;
+      converted.frame = boundary.currentFrame;
+      converted.sourceFrame = boundary.sourceFrame;
+      converted.active = boundary.active;
+      cachedBoundaries.push_back(converted);
+    }
+
+    std::sort(cachedBoundaries.begin(), cachedBoundaries.end(),
+              [](const auto &a, const auto &b)
+              {
+                if (a.frame != b.frame)
+                  return a.frame < b.frame;
+                return a.sourceFrame < b.sourceFrame;
+              });
+    boundaryCacheDirty = false;
+  }
+
+  auto result = cachedBoundaries;
+  if (stretchDrag.active)
+  {
+    for (auto &boundary : result)
+    {
+      if (boundary.sourceFrame == stretchDrag.boundary.sourceFrame)
+      {
+        boundary.frame = stretchDrag.currentBoundary;
+        boundary.active = true;
+        break;
+      }
+    }
+
+    std::sort(result.begin(), result.end(),
+              [](const auto &a, const auto &b)
+              {
+                if (a.frame != b.frame)
+                  return a.frame < b.frame;
+                return a.sourceFrame < b.sourceFrame;
+              });
+  }
+
   return result;
 }
 
 int StretchHandler::findStretchBoundaryIndex(float worldX,
-                                             float tolerancePx) const
+                                             float tolerancePx)
 {
-  auto boundaries = collectStretchBoundaries();
-  int bestIndex = -1;
-  float bestDist = tolerancePx;
+  const auto boundaries = collectStretchBoundaries();
+  if (boundaries.empty())
+    return -1;
 
-  for (size_t i = 0; i < boundaries.size(); ++i)
+  const int targetFrame =
+      static_cast<int>(secondsToFrames(static_cast<float>(owner_.xToTime(worldX))));
+  const auto it = std::lower_bound(
+      boundaries.begin(), boundaries.end(), targetFrame,
+      [](const StretchBoundary &boundary, int frame)
+      { return boundary.frame < frame; });
+
+  int bestIndex = -1;
+  float bestDistance = tolerancePx;
+  auto consider = [&](int index)
   {
+    if (index < 0 || index >= static_cast<int>(boundaries.size()))
+      return;
+
     const float boundaryX =
-        framesToSeconds(boundaries[i].frame) * owner_.pixelsPerSecond;
-    const float dist = std::abs(worldX - boundaryX);
-    if (dist <= bestDist)
+        framesToSeconds(boundaries[static_cast<size_t>(index)].frame) *
+        owner_.pixelsPerSecond;
+    const float distance = std::abs(worldX - boundaryX);
+    if (distance <= bestDistance)
     {
-      bestDist = dist;
-      bestIndex = static_cast<int>(i);
+      bestDistance = distance;
+      bestIndex = index;
     }
-  }
+  };
+
+  if (it != boundaries.end())
+    consider(static_cast<int>(std::distance(boundaries.begin(), it)));
+  if (it != boundaries.begin())
+    consider(static_cast<int>(std::distance(boundaries.begin(), it) - 1));
 
   return bestIndex;
 }
@@ -344,6 +390,7 @@ void StretchHandler::applyMarkers(const std::vector<Project::WarpMarker> &marker
 
   WarpMarkerProcessor::recomputeFromMarkers(*project, markers,
                                             updateProjectMarkers);
+  invalidateBoundaryCache();
   owner_.invalidateBasePitchCache();
   owner_.invalidateWaveformCache();
 
