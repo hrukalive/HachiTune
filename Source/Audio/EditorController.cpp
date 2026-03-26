@@ -1100,6 +1100,32 @@ void EditorController::segmentIntoNotes(Project &targetProject,
     }
   };
 
+  auto sliceSourceMelClips = [&]()
+  {
+    if (audioData.melSpectrogram.empty())
+      return;
+
+    const int totalMelFrames = static_cast<int>(audioData.melSpectrogram.size());
+    for (auto &note : notes)
+    {
+      const int melStart =
+          std::clamp(note.getSrcStartFrame(), 0, totalMelFrames);
+      const int melEnd =
+          std::clamp(note.getSrcEndFrame(), melStart, totalMelFrames);
+
+      if (melEnd <= melStart)
+      {
+        note.setClipMel({});
+        continue;
+      }
+
+      std::vector<std::vector<float>> melClip(
+          audioData.melSpectrogram.begin() + melStart,
+          audioData.melSpectrogram.begin() + melEnd);
+      note.setClipMel(std::move(melClip));
+    }
+  };
+
   if (!gameDetector || !gameDetector->isLoaded())
   {
     auto searchedPath = gameModelDir.getFullPathName();
@@ -1343,6 +1369,7 @@ void EditorController::segmentIntoNotes(Project &targetProject,
     juce::Thread::sleep(100);
 
     sliceSourceClips();
+    sliceSourceMelClips();
     sliceHNSepClips();
 
     if (!audioData.f0.empty())
@@ -1452,6 +1479,7 @@ void EditorController::segmentIntoNotes(Project &targetProject,
 
   // Slice harmonic/noise waveforms into per-note clips (fallback path)
   sliceSourceClips();
+  sliceSourceMelClips();
   sliceHNSepClips();
 
   if (!audioData.f0.empty())

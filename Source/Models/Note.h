@@ -126,16 +126,25 @@ public:
     const std::vector<float>& getVoicingCurve() const { return voicingCurve; }
     void setVoicingCurve(std::vector<float> curve) { voicingCurve = std::move(curve); }
     bool hasVoicingCurve() const { return !voicingCurve.empty(); }
+    const std::vector<float>& getSourceVoicingCurve() const { return sourceVoicingCurve; }
+    void setSourceVoicingCurve(std::vector<float> curve) { sourceVoicingCurve = std::move(curve); }
+    bool hasSourceVoicingCurve() const { return !sourceVoicingCurve.empty(); }
 
     // Breath curve (noise energy in %, note-local editable copy).
     const std::vector<float>& getBreathCurve() const { return breathCurve; }
     void setBreathCurve(std::vector<float> curve) { breathCurve = std::move(curve); }
     bool hasBreathCurve() const { return !breathCurve.empty(); }
+    const std::vector<float>& getSourceBreathCurve() const { return sourceBreathCurve; }
+    void setSourceBreathCurve(std::vector<float> curve) { sourceBreathCurve = std::move(curve); }
+    bool hasSourceBreathCurve() const { return !sourceBreathCurve.empty(); }
 
     // Tension curve (spectral tilt adjustment, note-local editable copy).
     const std::vector<float>& getTensionCurve() const { return tensionCurve; }
     void setTensionCurve(std::vector<float> curve) { tensionCurve = std::move(curve); }
     bool hasTensionCurve() const { return !tensionCurve.empty(); }
+    const std::vector<float>& getSourceTensionCurve() const { return sourceTensionCurve; }
+    void setSourceTensionCurve(std::vector<float> curve) { sourceTensionCurve = std::move(curve); }
+    bool hasSourceTensionCurve() const { return !sourceTensionCurve.empty(); }
 
     // Per-note harmonic clip waveform (sliced from global harmonicWaveform)
     const std::vector<float>& getClipHarmonicWaveform() const { return clipHarmonicWaveform; }
@@ -266,6 +275,9 @@ private:
     std::vector<float> voicingCurve;          // 0..maxVoicing (default 100 = unity)
     std::vector<float> breathCurve;           // 0..maxBreath  (default 100 = unity)
     std::vector<float> tensionCurve;          // -100..100     (default 0 = neutral)
+    std::vector<float> sourceVoicingCurve;    // Immutable warp source curve
+    std::vector<float> sourceBreathCurve;     // Immutable warp source curve
+    std::vector<float> sourceTensionCurve;    // Immutable warp source curve
     std::vector<float> clipHarmonicWaveform;  // Per-note harmonic component samples
     std::vector<float> clipNoiseWaveform;     // Per-note noise component samples
     bool selected = false;

@@ -603,8 +603,7 @@ void ToolbarComponent::setEditMode(EditMode mode)
     hnsepModeButton.setActive(mode == EditMode::Parameter);
 
 #if HACHITUNE_ENABLE_STRETCH
-    // Show ripple toggle only in Stretch mode
-    rippleToggleButton.setVisible(mode == EditMode::Stretch);
+    rippleToggleButton.setVisible(false);
 #endif
     resized();
 }

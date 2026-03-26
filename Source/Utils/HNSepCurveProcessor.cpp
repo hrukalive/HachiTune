@@ -110,6 +110,8 @@ namespace HNSepCurveProcessor
                         static_cast<size_t>(noteLength), kDefaultVoicing));
                 }
             }
+            if (!note.hasSourceVoicingCurve())
+                note.setSourceVoicingCurve(note.getVoicingCurve());
 
             if (!note.hasBreathCurve())
             {
@@ -127,6 +129,8 @@ namespace HNSepCurveProcessor
                         static_cast<size_t>(noteLength), kDefaultBreath));
                 }
             }
+            if (!note.hasSourceBreathCurve())
+                note.setSourceBreathCurve(note.getBreathCurve());
 
             if (!note.hasTensionCurve())
             {
@@ -144,6 +148,8 @@ namespace HNSepCurveProcessor
                         static_cast<size_t>(noteLength), kDefaultTension));
                 }
             }
+            if (!note.hasSourceTensionCurve())
+                note.setSourceTensionCurve(note.getTensionCurve());
         }
 
         rebuildCurvesFromNotes(project);
@@ -257,6 +263,9 @@ namespace HNSepCurveProcessor
             note.setTensionCurve(std::vector<float>(
                 audioData.tensionCurve.begin() + startFrame,
                 audioData.tensionCurve.begin() + endFrame));
+            note.setSourceVoicingCurve(note.getVoicingCurve());
+            note.setSourceBreathCurve(note.getBreathCurve());
+            note.setSourceTensionCurve(note.getTensionCurve());
         }
     }
 

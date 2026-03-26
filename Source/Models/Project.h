@@ -173,6 +173,12 @@ enum class TimelineGridDivision : int
 class Project
 {
 public:
+    struct WarpMarker
+    {
+        int sourceFrame = 0;
+        int outputFrame = 0;
+    };
+
     Project();
     ~Project() = default;
 
@@ -195,6 +201,9 @@ public:
     const std::vector<Note> &getNotes() const { return notes; }
     void addNote(Note note) { notes.push_back(std::move(note)); }
     void clearNotes() { notes.clear(); }
+    const std::vector<WarpMarker>& getWarpMarkers() const { return warpMarkers; }
+    void setWarpMarkers(std::vector<WarpMarker> markers) { warpMarkers = std::move(markers); }
+    void clearWarpMarkers() { warpMarkers.clear(); }
 
     Note *getNoteAtFrame(int frame);
     std::vector<Note *> getNotesInRange(int startFrame, int endFrame);
@@ -290,6 +299,7 @@ private:
 
     AudioData audioData;
     std::vector<Note> notes;
+    std::vector<WarpMarker> warpMarkers;
 
     float globalPitchOffset = 0.0f;
     float formantShift = 0.0f;

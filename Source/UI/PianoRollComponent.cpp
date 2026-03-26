@@ -1844,17 +1844,27 @@ void PianoRollComponent::drawStretchGuides(juce::Graphics &g)
   for (size_t i = 0; i < boundaries.size(); ++i)
   {
     int frame = boundaries[i].frame;
-    const bool isActive =
-        dragState.active && boundaries[i].left == dragState.boundary.left &&
-        boundaries[i].right == dragState.boundary.right;
-    if (isActive)
+    const bool isDraggingMarker =
+        dragState.active &&
+        boundaries[i].sourceFrame == dragState.boundary.sourceFrame;
+    if (isDraggingMarker)
       frame = dragState.currentBoundary;
 
     float x = framesToSeconds(frame) * pixelsPerSecond;
 
     const bool isHovered = static_cast<int>(i) == hoveredIdx;
-    float alpha = isHovered || isActive ? 0.8f : 0.35f;
-    float thickness = isHovered || isActive ? 2.0f : 1.0f;
+    const bool isPinned = boundaries[i].active;
+    float alpha = 0.18f;
+    if (isPinned)
+      alpha = 0.58f;
+    if (isHovered || isDraggingMarker)
+      alpha = 0.82f;
+
+    float thickness = 1.0f;
+    if (isPinned)
+      thickness = 2.0f;
+    if (isHovered || isDraggingMarker)
+      thickness = 2.5f;
 
     g.setColour(APP_COLOR_PRIMARY.withAlpha(alpha));
     g.drawLine(x, 0.0f, x, height, thickness);

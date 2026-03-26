@@ -2,6 +2,7 @@
 
 #include "UndoableAction.h"
 #include "../Models/Note.h"
+#include "../Models/Project.h"
 #include <vector>
 #include <functional>
 
@@ -266,4 +267,36 @@ private:
     std::vector<std::vector<float>> oldMel;
     std::vector<std::vector<float>> newMel;
     std::function<void(int, int)> onRangeChanged;
+};
+
+class WarpMarkerStateAction : public UndoableAction
+{
+public:
+    WarpMarkerStateAction(Project* project,
+                          std::vector<Project::WarpMarker> oldMarkers,
+                          std::vector<Project::WarpMarker> newMarkers,
+                          std::function<void(const std::vector<Project::WarpMarker>&)> onApply = nullptr)
+        : project(project),
+          oldMarkers(std::move(oldMarkers)),
+          newMarkers(std::move(newMarkers)),
+          onApply(std::move(onApply)) {}
+
+    void undo() override { apply(oldMarkers); }
+    void redo() override { apply(newMarkers); }
+    juce::String getName() const override { return "Edit Warp Markers"; }
+
+private:
+    void apply(const std::vector<Project::WarpMarker>& markers)
+    {
+        if (!project)
+            return;
+        project->setWarpMarkers(markers);
+        if (onApply)
+            onApply(markers);
+    }
+
+    Project* project = nullptr;
+    std::vector<Project::WarpMarker> oldMarkers;
+    std::vector<Project::WarpMarker> newMarkers;
+    std::function<void(const std::vector<Project::WarpMarker>&)> onApply;
 };

@@ -1,6 +1,10 @@
 #include "Project.h"
+#include "../Utils/CenteredMelSpectrogram.h"
 #include "../Utils/Constants.h"
+#include "../Utils/CurveResampler.h"
+#include "../Utils/HNSepCurveProcessor.h"
 #include "../Utils/PitchCurveProcessor.h"
+#include "../Utils/WarpMarkerProcessor.h"
 #include <algorithm>
 #include <cmath>
 
@@ -865,3 +869,607 @@ void Project::composeGlobalWaveform()
         }
     }
 }
+
+namespace
+{
+    std::vector<float> fitFloatCurve(const std::vector<float>& source,
+                                     int targetLength,
+                                     float defaultValue)
+    {
+        if (targetLength <= 0)
+            return {};
+        if (source.empty())
+        {
+            return std::vector<float>(static_cast<size_t>(targetLength),
+                                      defaultValue);
+        }
+        if (static_cast<int>(source.size()) == targetLength)
+            return source;
+        return CurveResampler::resampleLinear(source, targetLength);
+    }
+
+    std::vector<bool> fitBoolCurve(const std::vector<bool>& source,
+                                   int targetLength)
+    {
+        if (targetLength <= 0)
+            return {};
+        if (source.empty())
+            return std::vector<bool>(static_cast<size_t>(targetLength), false);
+        if (static_cast<int>(source.size()) == targetLength)
+            return source;
+        return CurveResampler::resampleNearest(source, targetLength);
+    }
+
+    std::vector<bool> buildSourceVoicedMask(const Note& note)
+    {
+        const auto& f0 = note.getF0Values();
+        if (f0.empty())
+            return {};
+
+        std::vector<bool> voiced(static_cast<size_t>(f0.size()), false);
+        for (size_t i = 0; i < f0.size(); ++i)
+            voiced[i] = f0[i] > 1.0f;
+        return voiced;
+    }
+
+    std::vector<std::vector<float>> computeSourceMelClip(const AudioData& audioData,
+                                                         const Note& note,
+                                                         int numMels)
+    {
+        const int sourceLength = std::max(0, note.getSrcDurationFrames());
+        if (sourceLength <= 0)
+            return {};
+
+        const auto& sourceWaveform =
+            audioData.originalWaveform.getNumSamples() > 0
+                ? audioData.originalWaveform
+                : audioData.waveform;
+        if (sourceWaveform.getNumChannels() > 0 && sourceWaveform.getNumSamples() > 0)
+        {
+            CenteredMelSpectrogram melComputer(audioData.sampleRate, N_FFT, WIN_SIZE,
+                                               numMels, FMIN, FMAX);
+            std::vector<std::vector<float>> sourceMel;
+            melComputer.computeTimeStretched(sourceWaveform.getReadPointer(0),
+                                             sourceWaveform.getNumSamples(),
+                                             note.getSrcStartFrame(),
+                                             note.getSrcEndFrame(),
+                                             sourceLength,
+                                             sourceMel);
+            if (!sourceMel.empty())
+                return sourceMel;
+        }
+
+        if (!audioData.melSpectrogram.empty())
+        {
+            const int melStart = std::clamp(note.getSrcStartFrame(), 0,
+                                            static_cast<int>(audioData.melSpectrogram.size()));
+            const int melEnd = std::clamp(note.getSrcEndFrame(), melStart,
+                                          static_cast<int>(audioData.melSpectrogram.size()));
+            if (melEnd > melStart)
+            {
+                return std::vector<std::vector<float>>(
+                    audioData.melSpectrogram.begin() + melStart,
+                    audioData.melSpectrogram.begin() + melEnd);
+            }
+        }
+
+        return std::vector<std::vector<float>>(
+            static_cast<size_t>(sourceLength),
+            std::vector<float>(static_cast<size_t>(numMels), 0.0f));
+    }
+
+    const std::vector<std::vector<float>>& ensureSourceMelClip(Note& note,
+                                                               const AudioData& audioData,
+                                                               int numMels)
+    {
+        if (!note.hasClipMel())
+            note.setClipMel(computeSourceMelClip(audioData, note, numMels));
+        return note.getClipMel();
+    }
+
+    std::vector<std::vector<float>> resampleMelHybrid(
+        Note& note,
+        const AudioData& audioData,
+        int targetLength,
+        int numMels)
+    {
+        if (targetLength <= 0)
+            return {};
+
+        const auto& sourceMel = ensureSourceMelClip(note, audioData, numMels);
+        if (sourceMel.empty())
+        {
+            return std::vector<std::vector<float>>(
+                static_cast<size_t>(targetLength),
+                std::vector<float>(static_cast<size_t>(numMels), 0.0f));
+        }
+
+        auto harmonic = CurveResampler::resampleLinear2D(sourceMel, targetLength);
+        auto noise = CurveResampler::resampleNearest2D(sourceMel, targetLength);
+        auto voiced = fitBoolCurve(buildSourceVoicedMask(note), targetLength);
+
+        if (harmonic.size() != static_cast<size_t>(targetLength))
+        {
+            harmonic.resize(static_cast<size_t>(targetLength),
+                            std::vector<float>(static_cast<size_t>(numMels),
+                                               0.0f));
+        }
+        if (noise.size() != static_cast<size_t>(targetLength))
+        {
+            noise.resize(static_cast<size_t>(targetLength),
+                         std::vector<float>(static_cast<size_t>(numMels),
+                                            0.0f));
+        }
+
+        for (auto& frame : harmonic)
+        {
+            if (frame.size() != static_cast<size_t>(numMels))
+                frame.resize(static_cast<size_t>(numMels), 0.0f);
+        }
+        for (auto& frame : noise)
+        {
+            if (frame.size() != static_cast<size_t>(numMels))
+                frame.resize(static_cast<size_t>(numMels), 0.0f);
+        }
+
+        if (voiced.empty())
+            return harmonic;
+
+        std::vector<std::vector<float>> blended = noise;
+        for (int i = 0; i < targetLength; ++i)
+        {
+            if (!voiced[static_cast<size_t>(i)])
+                continue;
+            blended[static_cast<size_t>(i)] = harmonic[static_cast<size_t>(i)];
+        }
+        return blended;
+    }
+
+    std::vector<Project::WarpMarker> sortedUniqueMarkers(
+        const std::vector<Project::WarpMarker>& markers)
+    {
+        std::vector<Project::WarpMarker> result = markers;
+        std::sort(result.begin(), result.end(),
+                  [](const auto& a, const auto& b)
+                  {
+                      if (a.sourceFrame != b.sourceFrame)
+                          return a.sourceFrame < b.sourceFrame;
+                      return a.outputFrame < b.outputFrame;
+                  });
+
+        result.erase(std::unique(result.begin(), result.end(),
+                                 [](const auto& a, const auto& b)
+                                 {
+                                     return a.sourceFrame == b.sourceFrame;
+                                 }),
+                     result.end());
+        return result;
+    }
+
+    std::vector<float> selectSourceCurve(const std::vector<float>& current,
+                                         const std::vector<float>& source)
+    {
+        if (!source.empty())
+            return source;
+        return current;
+    }
+
+    int getWaveformFrameCount(const juce::AudioBuffer<float>& buffer)
+    {
+        const int numSamples = buffer.getNumSamples();
+        if (numSamples <= 0)
+            return 0;
+        return numSamples / HOP_SIZE + 1;
+    }
+
+    int getProjectSourceFrameLimit(const Project& project)
+    {
+        const auto& audioData = project.getAudioData();
+        int limit = 0;
+        if (audioData.originalWaveform.getNumSamples() > 0)
+            limit = getWaveformFrameCount(audioData.originalWaveform);
+        else if (audioData.waveform.getNumSamples() > 0)
+            limit = getWaveformFrameCount(audioData.waveform);
+        else
+            limit = std::max(0, audioData.getNumFrames());
+
+        for (const auto& note : project.getNotes())
+            limit = std::max(limit, note.getSrcEndFrame());
+        return limit;
+    }
+
+    void rebuildVadMaskFromWaveform(AudioData& audioData)
+    {
+        constexpr float kVadThreshold = 0.008f;
+
+        const int numFrames = audioData.getNumFrames();
+        audioData.vadMask.assign(static_cast<size_t>(numFrames), false);
+        if (numFrames <= 0 || audioData.waveform.getNumSamples() <= 0)
+            return;
+
+        const float* samples = audioData.waveform.getReadPointer(0);
+        const int numSamples = audioData.waveform.getNumSamples();
+        for (int frame = 0; frame < numFrames; ++frame)
+        {
+            const int sampleStart = frame * HOP_SIZE;
+            const int sampleEnd = std::min(sampleStart + HOP_SIZE, numSamples);
+            if (sampleStart >= numSamples || sampleEnd <= sampleStart)
+                continue;
+
+            double sumSq = 0.0;
+            for (int sample = sampleStart; sample < sampleEnd; ++sample)
+            {
+                const double value = samples[sample];
+                sumSq += value * value;
+            }
+
+            const float rms = static_cast<float>(
+                std::sqrt(sumSq /
+                          static_cast<double>(sampleEnd - sampleStart)));
+            audioData.vadMask[static_cast<size_t>(frame)] =
+                rms > kVadThreshold;
+        }
+    }
+} // namespace
+
+namespace WarpMarkerProcessor
+{
+int getSourceFrameLimit(const Project& project)
+{
+    return getProjectSourceFrameLimit(project);
+}
+
+std::vector<Project::WarpMarker> normalizeMarkers(
+    const Project& project,
+    const std::vector<Project::WarpMarker>& markers)
+{
+    const int totalFrames = getSourceFrameLimit(project);
+    if (totalFrames <= 1)
+        return {};
+
+    auto result = sortedUniqueMarkers(markers);
+    result.erase(std::remove_if(result.begin(), result.end(),
+                                [totalFrames](const auto& marker)
+                                {
+                                    return marker.sourceFrame <= 0 ||
+                                           marker.sourceFrame >= totalFrames;
+                                }),
+                 result.end());
+
+    for (auto& marker : result)
+        marker.outputFrame = std::clamp(marker.outputFrame, 1, totalFrames - 1);
+
+    int prevOut = 0;
+    for (auto& marker : result)
+    {
+        marker.outputFrame = std::max(marker.outputFrame, prevOut + 1);
+        prevOut = marker.outputFrame;
+    }
+
+    int nextOut = totalFrames;
+    for (int i = static_cast<int>(result.size()) - 1; i >= 0; --i)
+    {
+        result[static_cast<size_t>(i)].outputFrame =
+            std::min(result[static_cast<size_t>(i)].outputFrame, nextOut - 1);
+        nextOut = result[static_cast<size_t>(i)].outputFrame;
+    }
+
+    return result;
+}
+
+bool hasMarkerAtSourceFrame(const std::vector<Project::WarpMarker>& markers,
+                            int sourceFrame)
+{
+    return std::any_of(markers.begin(), markers.end(),
+                       [sourceFrame](const auto& marker)
+                       {
+                           return marker.sourceFrame == sourceFrame;
+                       });
+}
+
+std::vector<Boundary> collectBoundaries(Project& project)
+{
+    std::vector<Boundary> boundaries;
+    std::vector<Note*> ordered;
+    ordered.reserve(project.getNotes().size());
+    for (auto& note : project.getNotes())
+    {
+        if (!note.isRest())
+            ordered.push_back(&note);
+    }
+
+    if (ordered.empty())
+        return boundaries;
+
+    std::sort(ordered.begin(), ordered.end(),
+              [](const Note* a, const Note* b)
+              {
+                  return a->getStartFrame() < b->getStartFrame();
+              });
+
+    constexpr int gapThreshold = 3;
+    const auto markers = normalizeMarkers(project, project.getWarpMarkers());
+
+    for (size_t i = 0; i < ordered.size(); ++i)
+    {
+        Note* current = ordered[i];
+        Note* prev = (i > 0) ? ordered[i - 1] : nullptr;
+        Note* next = (i + 1 < ordered.size()) ? ordered[i + 1] : nullptr;
+
+        bool hasGapBefore = true;
+        if (prev)
+        {
+            const int gap = current->getStartFrame() - prev->getEndFrame();
+            hasGapBefore = gap > gapThreshold;
+        }
+
+        bool hasGapAfter = true;
+        if (next)
+        {
+            const int gap = next->getStartFrame() - current->getEndFrame();
+            hasGapAfter = gap > gapThreshold;
+        }
+
+        if (hasGapBefore)
+        {
+            const int sourceFrame = current->getSrcStartFrame();
+            boundaries.push_back({nullptr, current, sourceFrame,
+                                  current->getStartFrame(),
+                                  hasMarkerAtSourceFrame(markers, sourceFrame)});
+        }
+
+        if (hasGapAfter)
+        {
+            const int sourceFrame = current->getSrcEndFrame();
+            boundaries.push_back({current, nullptr, sourceFrame,
+                                  current->getEndFrame(),
+                                  hasMarkerAtSourceFrame(markers, sourceFrame)});
+        }
+
+        if (next && !hasGapAfter)
+        {
+            const int sourceFrame = current->getSrcEndFrame();
+            boundaries.push_back({current, next, sourceFrame,
+                                  current->getEndFrame(),
+                                  hasMarkerAtSourceFrame(markers, sourceFrame)});
+        }
+    }
+
+    std::sort(boundaries.begin(), boundaries.end(),
+              [](const auto& a, const auto& b)
+              {
+                  if (a.currentFrame != b.currentFrame)
+                      return a.currentFrame < b.currentFrame;
+                  return a.sourceFrame < b.sourceFrame;
+              });
+    return boundaries;
+}
+
+int mapSourceFrame(const Project& project,
+                   int sourceFrame,
+                   const std::vector<Project::WarpMarker>& markers)
+{
+    const int totalFrames = getSourceFrameLimit(project);
+    if (totalFrames <= 0)
+        return 0;
+
+    sourceFrame = std::clamp(sourceFrame, 0, totalFrames);
+    const auto normalized = normalizeMarkers(project, markers);
+
+    int prevSource = 0;
+    int prevOutput = 0;
+    for (const auto& marker : normalized)
+    {
+        if (sourceFrame <= marker.sourceFrame)
+        {
+            const int srcSpan = std::max(1, marker.sourceFrame - prevSource);
+            const double ratio =
+                static_cast<double>(sourceFrame - prevSource) /
+                static_cast<double>(srcSpan);
+            return prevOutput +
+                   static_cast<int>(std::lround(
+                       ratio *
+                       static_cast<double>(marker.outputFrame - prevOutput)));
+        }
+
+        prevSource = marker.sourceFrame;
+        prevOutput = marker.outputFrame;
+    }
+
+    const int srcSpan = std::max(1, totalFrames - prevSource);
+    const double ratio =
+        static_cast<double>(sourceFrame - prevSource) /
+        static_cast<double>(srcSpan);
+    return prevOutput + static_cast<int>(std::lround(
+                            ratio *
+                            static_cast<double>(totalFrames - prevOutput)));
+}
+
+int computeSegmentMinimumOutputSpan(const Project& project,
+                                    int sourceStartFrame,
+                                    int sourceEndFrame,
+                                    int minNoteFrames)
+{
+    if (sourceEndFrame <= sourceStartFrame)
+        return 0;
+
+    const int sourceSpan = sourceEndFrame - sourceStartFrame;
+    int minimumSpan = 1;
+
+    for (const auto& note : project.getNotes())
+    {
+        if (note.isRest())
+            continue;
+        if (note.getSrcStartFrame() < sourceStartFrame ||
+            note.getSrcEndFrame() > sourceEndFrame)
+        {
+            continue;
+        }
+
+        const int srcDuration = note.getSrcDurationFrames();
+        if (srcDuration <= 0)
+            continue;
+
+        const double required =
+            static_cast<double>(minNoteFrames) *
+            static_cast<double>(sourceSpan) /
+            static_cast<double>(srcDuration);
+        minimumSpan = std::max(minimumSpan,
+                               static_cast<int>(std::ceil(required)));
+    }
+
+    return minimumSpan;
+}
+
+void syncSourceCurvesFromCurrent(Project& project,
+                                 int minNoteIndex,
+                                 int maxNoteIndex)
+{
+    auto& notes = project.getNotes();
+    if (notes.empty())
+        return;
+
+    minNoteIndex = std::max(0, minNoteIndex);
+    maxNoteIndex = std::min(maxNoteIndex, static_cast<int>(notes.size()) - 1);
+    if (minNoteIndex > maxNoteIndex)
+        return;
+
+    for (int i = minNoteIndex; i <= maxNoteIndex; ++i)
+    {
+        auto& note = notes[static_cast<size_t>(i)];
+        const int srcDuration = std::max(0, note.getSrcDurationFrames());
+        if (note.isRest() || srcDuration <= 0)
+            continue;
+
+        note.setSourceVoicingCurve(
+            fitFloatCurve(note.getVoicingCurve(), srcDuration,
+                          HNSepCurveProcessor::kDefaultVoicing));
+        note.setSourceBreathCurve(
+            fitFloatCurve(note.getBreathCurve(), srcDuration,
+                          HNSepCurveProcessor::kDefaultBreath));
+        note.setSourceTensionCurve(
+            fitFloatCurve(note.getTensionCurve(), srcDuration,
+                          HNSepCurveProcessor::kDefaultTension));
+    }
+}
+
+void recomputeFromMarkers(Project& project,
+                          const std::vector<Project::WarpMarker>& markers,
+                          bool updateProjectMarkers)
+{
+    const auto normalizedMarkers = normalizeMarkers(project, markers);
+    if (updateProjectMarkers)
+        project.setWarpMarkers(normalizedMarkers);
+
+    auto& audioData = project.getAudioData();
+    const int totalFrames = getSourceFrameLimit(project);
+    if (totalFrames <= 0)
+        return;
+
+    const int numMels =
+        (!audioData.melSpectrogram.empty() &&
+         !audioData.melSpectrogram.front().empty())
+            ? static_cast<int>(audioData.melSpectrogram.front().size())
+            : NUM_MELS;
+
+    std::vector<std::vector<float>> newMel(
+        static_cast<size_t>(totalFrames),
+        std::vector<float>(static_cast<size_t>(numMels), 0.0f));
+    std::vector<bool> newVoiced(static_cast<size_t>(totalFrames), false);
+
+    for (auto& note : project.getNotes())
+    {
+        if (note.isRest())
+            continue;
+
+        const int oldStart = note.getStartFrame();
+        const int oldEnd = note.getEndFrame();
+
+        int newStart =
+            mapSourceFrame(project, note.getSrcStartFrame(), normalizedMarkers);
+        int newEnd =
+            mapSourceFrame(project, note.getSrcEndFrame(), normalizedMarkers);
+        newStart = std::clamp(newStart, 0, totalFrames);
+        newEnd = std::clamp(newEnd, newStart + 1, totalFrames);
+
+        note.setStartFrame(newStart);
+        note.setEndFrame(newEnd);
+
+        const int durationFrames = note.getDurationFrames();
+        if (durationFrames <= 0)
+            continue;
+
+        if (oldStart != newStart || oldEnd != newEnd)
+        {
+            note.markDirty();
+            note.markSynthDirty();
+        }
+
+        const auto& sourceDelta = note.hasOriginalDeltaPitch()
+                                      ? note.getOriginalDeltaPitch()
+                                      : note.getDeltaPitch();
+        note.setDeltaPitch(fitFloatCurve(sourceDelta, durationFrames, 0.0f));
+
+        const auto sourceVoicing =
+            selectSourceCurve(note.getVoicingCurve(),
+                              note.getSourceVoicingCurve());
+        const auto sourceBreath =
+            selectSourceCurve(note.getBreathCurve(),
+                              note.getSourceBreathCurve());
+        const auto sourceTension =
+            selectSourceCurve(note.getTensionCurve(),
+                              note.getSourceTensionCurve());
+
+        note.setVoicingCurve(fitFloatCurve(sourceVoicing, durationFrames,
+                                           HNSepCurveProcessor::kDefaultVoicing));
+        note.setBreathCurve(fitFloatCurve(sourceBreath, durationFrames,
+                                          HNSepCurveProcessor::kDefaultBreath));
+        note.setTensionCurve(fitFloatCurve(sourceTension, durationFrames,
+                                           HNSepCurveProcessor::kDefaultTension));
+
+        if (!note.hasSourceVoicingCurve())
+            note.setSourceVoicingCurve(sourceVoicing);
+        if (!note.hasSourceBreathCurve())
+            note.setSourceBreathCurve(sourceBreath);
+        if (!note.hasSourceTensionCurve())
+            note.setSourceTensionCurve(sourceTension);
+
+        if (note.hasSrcClipWaveform())
+        {
+            note.setClipWaveform(CurveResampler::resampleLinear(
+                note.getSrcClipWaveform(), durationFrames * HOP_SIZE));
+        }
+        else
+        {
+            note.setClipWaveform({});
+        }
+
+        const auto voicedFrames =
+            fitBoolCurve(buildSourceVoicedMask(note), durationFrames);
+        for (int i = 0; i < durationFrames && (newStart + i) < totalFrames; ++i)
+        {
+            newVoiced[static_cast<size_t>(newStart + i)] =
+                voicedFrames.empty()
+                    ? true
+                    : voicedFrames[static_cast<size_t>(i)];
+        }
+
+        const auto noteMel =
+            resampleMelHybrid(note, audioData, durationFrames, numMels);
+        for (int i = 0; i < durationFrames && (newStart + i) < totalFrames; ++i)
+            newMel[static_cast<size_t>(newStart + i)] =
+                noteMel[static_cast<size_t>(i)];
+    }
+
+    audioData.voicedMask = std::move(newVoiced);
+    audioData.melSpectrogram = std::move(newMel);
+
+    PitchCurveProcessor::rebuildBaseFromNotes(project);
+    HNSepCurveProcessor::rebuildCurvesFromNotes(project);
+    project.composeGlobalWaveform();
+    rebuildVadMaskFromWaveform(audioData);
+
+    if (updateProjectMarkers)
+        project.setModified(true);
+}
+} // namespace WarpMarkerProcessor

@@ -218,6 +218,63 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
         }
     }
 
+    auto splitFloatCurve = [](const std::vector<float>& curve,
+                              double ratio,
+                              std::vector<float>& leftCurve,
+                              std::vector<float>& rightCurve)
+    {
+        const int splitOffset =
+            computeSplitIndex(ratio, static_cast<int>(curve.size()));
+        leftCurve.assign(curve.begin(), curve.begin() + splitOffset);
+        rightCurve.assign(curve.begin() + splitOffset, curve.end());
+    };
+
+    if (note->hasVoicingCurve()) {
+        std::vector<float> leftCurve, rightCurve;
+        splitFloatCurve(note->getVoicingCurve(), splitRatio, leftCurve, rightCurve);
+        note->setVoicingCurve(std::move(leftCurve));
+        secondNote.setVoicingCurve(std::move(rightCurve));
+    }
+    if (note->hasBreathCurve()) {
+        std::vector<float> leftCurve, rightCurve;
+        splitFloatCurve(note->getBreathCurve(), splitRatio, leftCurve, rightCurve);
+        note->setBreathCurve(std::move(leftCurve));
+        secondNote.setBreathCurve(std::move(rightCurve));
+    }
+    if (note->hasTensionCurve()) {
+        std::vector<float> leftCurve, rightCurve;
+        splitFloatCurve(note->getTensionCurve(), splitRatio, leftCurve, rightCurve);
+        note->setTensionCurve(std::move(leftCurve));
+        secondNote.setTensionCurve(std::move(rightCurve));
+    }
+    if (note->hasSourceVoicingCurve()) {
+        std::vector<float> leftCurve, rightCurve;
+        const double srcSplitRatio = computeSplitRatio(srcSplitFrame, srcStartFrame,
+                                                       srcEndFrame);
+        splitFloatCurve(note->getSourceVoicingCurve(), srcSplitRatio, leftCurve,
+                        rightCurve);
+        note->setSourceVoicingCurve(std::move(leftCurve));
+        secondNote.setSourceVoicingCurve(std::move(rightCurve));
+    }
+    if (note->hasSourceBreathCurve()) {
+        std::vector<float> leftCurve, rightCurve;
+        const double srcSplitRatio = computeSplitRatio(srcSplitFrame, srcStartFrame,
+                                                       srcEndFrame);
+        splitFloatCurve(note->getSourceBreathCurve(), srcSplitRatio, leftCurve,
+                        rightCurve);
+        note->setSourceBreathCurve(std::move(leftCurve));
+        secondNote.setSourceBreathCurve(std::move(rightCurve));
+    }
+    if (note->hasSourceTensionCurve()) {
+        std::vector<float> leftCurve, rightCurve;
+        const double srcSplitRatio = computeSplitRatio(srcSplitFrame, srcStartFrame,
+                                                       srcEndFrame);
+        splitFloatCurve(note->getSourceTensionCurve(), srcSplitRatio, leftCurve,
+                        rightCurve);
+        note->setSourceTensionCurve(std::move(leftCurve));
+        secondNote.setSourceTensionCurve(std::move(rightCurve));
+    }
+
     // Modify the first note (left part)
     note->setEndFrame(splitFrame);
     note->setSrcEndFrame(srcSplitFrame);

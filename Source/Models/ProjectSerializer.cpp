@@ -70,6 +70,15 @@ juce::var ProjectSerializer::toJson(const Project& project) {
     }
     obj->setProperty("notes", notesArray);
 
+    juce::Array<juce::var> warpMarkersArray;
+    for (const auto& marker : project.getWarpMarkers()) {
+        auto* markerObj = new juce::DynamicObject();
+        markerObj->setProperty("sourceFrame", marker.sourceFrame);
+        markerObj->setProperty("outputFrame", marker.outputFrame);
+        warpMarkersArray.add(juce::var(markerObj));
+    }
+    obj->setProperty("warpMarkers", warpMarkersArray);
+
     // Pitch data
     obj->setProperty("pitchData", pitchDataToJson(project.getAudioData()));
 
@@ -173,6 +182,26 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
         }
     }
 
+    project.clearWarpMarkers();
+    auto warpMarkersVar = json.getProperty("warpMarkers", juce::var());
+    if (warpMarkersVar.isArray()) {
+        std::vector<Project::WarpMarker> markers;
+        markers.reserve(static_cast<size_t>(warpMarkersVar.size()));
+        for (int i = 0; i < warpMarkersVar.size(); ++i) {
+            auto markerVar = warpMarkersVar[i];
+            if (!markerVar.isObject())
+                continue;
+            Project::WarpMarker marker;
+            marker.sourceFrame =
+                static_cast<int>(markerVar.getProperty("sourceFrame", 0));
+            marker.outputFrame =
+                static_cast<int>(markerVar.getProperty("outputFrame",
+                                                       marker.sourceFrame));
+            markers.push_back(marker);
+        }
+        project.setWarpMarkers(std::move(markers));
+    }
+
     // Pitch data
     auto pitchDataVar = json.getProperty("pitchData", juce::var());
     if (pitchDataVar.isObject()) {
@@ -224,13 +253,16 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
                                           {
                                               return note.hasVoicingCurve() ||
                                                      note.hasBreathCurve() ||
-                                                     note.hasTensionCurve();
+                                                     note.hasTensionCurve() ||
+                                                     note.hasSourceVoicingCurve() ||
+                                                     note.hasSourceBreathCurve() ||
+                                                     note.hasSourceTensionCurve();
                                           });
 
-    if (hasMasterHNSep)
-        HNSepCurveProcessor::extractNoteCurvesFromMaster(project);
-    else if (hasNoteHNSep)
+    if (hasNoteHNSep)
         HNSepCurveProcessor::rebuildCurvesFromNotes(project);
+    else if (hasMasterHNSep)
+        HNSepCurveProcessor::extractNoteCurvesFromMaster(project);
     else
         HNSepCurveProcessor::initializeCurves(project);
 
@@ -292,6 +324,15 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
         obj->setProperty("breathCurve", floatArrayToString(note.getBreathCurve(), 2));
     if (note.hasTensionCurve())
         obj->setProperty("tensionCurve", floatArrayToString(note.getTensionCurve(), 2));
+    if (note.hasSourceVoicingCurve())
+        obj->setProperty("sourceVoicingCurve",
+                         floatArrayToString(note.getSourceVoicingCurve(), 2));
+    if (note.hasSourceBreathCurve())
+        obj->setProperty("sourceBreathCurve",
+                         floatArrayToString(note.getSourceBreathCurve(), 2));
+    if (note.hasSourceTensionCurve())
+        obj->setProperty("sourceTensionCurve",
+                         floatArrayToString(note.getSourceTensionCurve(), 2));
 
     return juce::var(obj);
 }
@@ -362,6 +403,27 @@ bool ProjectSerializer::noteFromJson(Note& note, const juce::var& json) {
     auto tensionStr = json.getProperty("tensionCurve", juce::var());
     if (!tensionStr.isVoid() && tensionStr.toString().isNotEmpty())
         note.setTensionCurve(stringToFloatArray(tensionStr.toString()));
+
+    auto sourceVoicingStr = json.getProperty("sourceVoicingCurve", juce::var());
+    if (!sourceVoicingStr.isVoid() && sourceVoicingStr.toString().isNotEmpty())
+        note.setSourceVoicingCurve(
+            stringToFloatArray(sourceVoicingStr.toString()));
+    else if (note.hasVoicingCurve())
+        note.setSourceVoicingCurve(note.getVoicingCurve());
+
+    auto sourceBreathStr = json.getProperty("sourceBreathCurve", juce::var());
+    if (!sourceBreathStr.isVoid() && sourceBreathStr.toString().isNotEmpty())
+        note.setSourceBreathCurve(
+            stringToFloatArray(sourceBreathStr.toString()));
+    else if (note.hasBreathCurve())
+        note.setSourceBreathCurve(note.getBreathCurve());
+
+    auto sourceTensionStr = json.getProperty("sourceTensionCurve", juce::var());
+    if (!sourceTensionStr.isVoid() && sourceTensionStr.toString().isNotEmpty())
+        note.setSourceTensionCurve(
+            stringToFloatArray(sourceTensionStr.toString()));
+    else if (note.hasTensionCurve())
+        note.setSourceTensionCurve(note.getTensionCurve());
 
     return true;
 }
