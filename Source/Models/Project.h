@@ -242,6 +242,12 @@ public:
     // note's synthWaveform at its output position with edge crossfades.
     void composeGlobalWaveform();
 
+    // Render the current note/gap time mapping without synth overlays.
+    // This matches the base layer used by composeGlobalWaveform() and is used
+    // to build boundary-safe incremental resynthesis targets after warp.
+    std::vector<float> renderMappedBaseWaveformSegment(int startSample,
+                                                       int numSamples) const;
+
     // F0 direct edit dirty tracking (for Draw mode)
     void setF0DirtyRange(int startFrame, int endFrame);
     void clearF0DirtyRange();

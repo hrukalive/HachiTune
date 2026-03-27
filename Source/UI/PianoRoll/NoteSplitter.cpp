@@ -1,5 +1,8 @@
 #include "NoteSplitter.h"
 #include "../../Utils/Constants.h"
+#include "../../Utils/CurveResampler.h"
+#include "../../Utils/HNSepCurveProcessor.h"
+#include "../../Utils/PitchCurveProcessor.h"
 #include <algorithm>
 #include <cmath>
 
@@ -41,6 +44,45 @@ int computeMappedSplitFrame(double splitRatio, int startFrame, int endFrame)
         return std::clamp(mappedFrame, startFrame + 1, endFrame - 1);
 
     return std::clamp(mappedFrame, startFrame, endFrame);
+}
+
+template <typename T>
+void splitVectorAtRatio(const std::vector<T>& source,
+                        double ratio,
+                        std::vector<T>& left,
+                        std::vector<T>& right)
+{
+    const int splitOffset =
+        computeSplitIndex(ratio, static_cast<int>(source.size()));
+    left.assign(source.begin(), source.begin() + splitOffset);
+    right.assign(source.begin() + splitOffset, source.end());
+}
+
+void refreshProjectAfterSplit(Project* project,
+                              int dirtyStartFrame,
+                              int dirtyEndFrame)
+{
+    if (!project)
+        return;
+
+    PitchCurveProcessor::rebuildBaseFromNotes(*project);
+    HNSepCurveProcessor::rebuildCurvesFromNotes(*project);
+
+    if (dirtyEndFrame > dirtyStartFrame)
+    {
+        const int f0Size = static_cast<int>(project->getAudioData().f0.size());
+        if (f0Size > 0)
+        {
+            const int smoothStart = std::max(0, dirtyStartFrame - 60);
+            const int smoothEnd = std::min(f0Size, dirtyEndFrame + 60);
+            if (smoothEnd > smoothStart)
+                project->setF0DirtyRange(smoothStart, smoothEnd);
+        }
+
+        project->setParamDirtyRange(dirtyStartFrame, dirtyEndFrame);
+    }
+
+    project->setModified(true);
 }
 }
 
@@ -84,6 +126,8 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     const double splitRatio = computeSplitRatio(splitFrame, startFrame, endFrame);
     const int srcSplitFrame =
         computeMappedSplitFrame(splitRatio, srcStartFrame, srcEndFrame);
+    const double srcSplitRatio =
+        computeSplitRatio(srcSplitFrame, srcStartFrame, srcEndFrame);
 
     // Store original note data for undo
     Note originalNote = *note;
@@ -122,13 +166,46 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
         }
     }
 
+    // Ensure harmonic/noise source clips exist before splitting
+    if (!note->hasClipHarmonicWaveform()) {
+        auto& audioData = project->getAudioData();
+        if (audioData.harmonicWaveform.getNumSamples() > 0) {
+            int srcStart = note->getSrcStartFrame() * HOP_SIZE;
+            int srcEnd = note->getSrcEndFrame() * HOP_SIZE;
+            srcStart = std::max(0, std::min(srcStart, audioData.harmonicWaveform.getNumSamples()));
+            srcEnd = std::max(srcStart, std::min(srcEnd, audioData.harmonicWaveform.getNumSamples()));
+            std::vector<float> hClip;
+            hClip.reserve(static_cast<size_t>(srcEnd - srcStart));
+            const float* harmonicPtr = audioData.harmonicWaveform.getReadPointer(0);
+            for (int i = srcStart; i < srcEnd; ++i)
+                hClip.push_back(harmonicPtr[i]);
+            note->setClipHarmonicWaveform(std::move(hClip));
+        }
+    }
+
+    if (!note->hasClipNoiseWaveform()) {
+        auto& audioData = project->getAudioData();
+        if (audioData.noiseWaveform.getNumSamples() > 0) {
+            int srcStart = note->getSrcStartFrame() * HOP_SIZE;
+            int srcEnd = note->getSrcEndFrame() * HOP_SIZE;
+            srcStart = std::max(0, std::min(srcStart, audioData.noiseWaveform.getNumSamples()));
+            srcEnd = std::max(srcStart, std::min(srcEnd, audioData.noiseWaveform.getNumSamples()));
+            std::vector<float> nClip;
+            nClip.reserve(static_cast<size_t>(srcEnd - srcStart));
+            const float* noisePtr = audioData.noiseWaveform.getReadPointer(0);
+            for (int i = srcStart; i < srcEnd; ++i)
+                nClip.push_back(noisePtr[i]);
+            note->setClipNoiseWaveform(std::move(nClip));
+        }
+    }
+
     // Ensure clip mel exists before splitting
     if (!note->hasClipMel()) {
         auto& audioData = project->getAudioData();
         if (!audioData.melSpectrogram.empty()) {
             int melSize = static_cast<int>(audioData.melSpectrogram.size());
-            int melStart = std::max(0, std::min(startFrame, melSize));
-            int melEnd = std::max(melStart, std::min(endFrame, melSize));
+            int melStart = std::max(0, std::min(srcStartFrame, melSize));
+            int melEnd = std::max(melStart, std::min(srcEndFrame, melSize));
             if (melEnd > melStart) {
                 std::vector<std::vector<float>> melClip(
                     audioData.melSpectrogram.begin() + melStart,
@@ -139,22 +216,17 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     }
 
     // Create the second note (right part)
-    Note secondNote;
+    Note secondNote = originalNote;
     secondNote.setStartFrame(splitFrame);
     secondNote.setEndFrame(endFrame);
     secondNote.setSrcStartFrame(srcSplitFrame);
     secondNote.setSrcEndFrame(srcEndFrame);
-    secondNote.setMidiNote(note->getMidiNote());
-    secondNote.setLyric(note->getLyric());
-    secondNote.setPitchOffset(0.0f);
 
     // Split clip waveform if available
     if (note->hasClipWaveform()) {
         const auto& clip = note->getClipWaveform();
-        int splitOffset =
-            computeSplitIndex(splitRatio, static_cast<int>(clip.size()));
-        std::vector<float> leftClip(clip.begin(), clip.begin() + splitOffset);
-        std::vector<float> rightClip(clip.begin() + splitOffset, clip.end());
+        std::vector<float> leftClip, rightClip;
+        splitVectorAtRatio(clip, splitRatio, leftClip, rightClip);
         note->setClipWaveform(std::move(leftClip));
         secondNote.setClipWaveform(std::move(rightClip));
     }
@@ -162,10 +234,8 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     // Split source clip waveform if available
     if (note->hasSrcClipWaveform()) {
         const auto& srcClip = note->getSrcClipWaveform();
-        int splitOffset =
-            computeSplitIndex(splitRatio, static_cast<int>(srcClip.size()));
-        std::vector<float> leftSrcClip(srcClip.begin(), srcClip.begin() + splitOffset);
-        std::vector<float> rightSrcClip(srcClip.begin() + splitOffset, srcClip.end());
+        std::vector<float> leftSrcClip, rightSrcClip;
+        splitVectorAtRatio(srcClip, srcSplitRatio, leftSrcClip, rightSrcClip);
         note->setSrcClipWaveform(std::move(leftSrcClip));
         secondNote.setSrcClipWaveform(std::move(rightSrcClip));
     }
@@ -173,48 +243,61 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     // Split clip mel if available
     if (note->hasClipMel()) {
         const auto& mel = note->getClipMel();
-        int splitOffset =
-            computeSplitIndex(splitRatio, static_cast<int>(mel.size()));
-        std::vector<std::vector<float>> leftMel(mel.begin(), mel.begin() + splitOffset);
-        std::vector<std::vector<float>> rightMel(mel.begin() + splitOffset, mel.end());
+        std::vector<std::vector<float>> leftMel, rightMel;
+        splitVectorAtRatio(mel, srcSplitRatio, leftMel, rightMel);
         note->setClipMel(std::move(leftMel));
         secondNote.setClipMel(std::move(rightMel));
     }
 
-    // Split originalDeltaPitch if available (pristine curve for non-destructive stretch)
+    if (note->hasClipHarmonicWaveform()) {
+        const auto& harmonicClip = note->getClipHarmonicWaveform();
+        std::vector<float> leftClip, rightClip;
+        splitVectorAtRatio(harmonicClip, srcSplitRatio, leftClip, rightClip);
+        note->setClipHarmonicWaveform(std::move(leftClip));
+        secondNote.setClipHarmonicWaveform(std::move(rightClip));
+    }
+
+    if (note->hasClipNoiseWaveform()) {
+        const auto& noiseClip = note->getClipNoiseWaveform();
+        std::vector<float> leftClip, rightClip;
+        splitVectorAtRatio(noiseClip, srcSplitRatio, leftClip, rightClip);
+        note->setClipNoiseWaveform(std::move(leftClip));
+        secondNote.setClipNoiseWaveform(std::move(rightClip));
+    }
+
+    if (!note->getF0Values().empty()) {
+        const auto& f0Values = note->getF0Values();
+        std::vector<float> leftF0, rightF0;
+        splitVectorAtRatio(f0Values, srcSplitRatio, leftF0, rightF0);
+        note->setF0Values(std::move(leftF0));
+        secondNote.setF0Values(std::move(rightF0));
+    }
+
+    if (note->hasDeltaPitch()) {
+        const auto& delta = note->getDeltaPitch();
+        std::vector<float> leftDelta, rightDelta;
+        splitVectorAtRatio(delta, splitRatio, leftDelta, rightDelta);
+        note->setDeltaPitch(std::move(leftDelta));
+        secondNote.setDeltaPitch(std::move(rightDelta));
+    }
+
+    // Split originalDeltaPitch if available (pristine/source-domain curve)
     if (note->hasOriginalDeltaPitch()) {
         const auto& origDelta = note->getOriginalDeltaPitch();
-        int splitOffset =
-            computeSplitIndex(splitRatio, static_cast<int>(origDelta.size()));
-        std::vector<float> leftDelta(origDelta.begin(), origDelta.begin() + splitOffset);
-        std::vector<float> rightDelta(origDelta.begin() + splitOffset, origDelta.end());
+        std::vector<float> leftDelta, rightDelta;
+        splitVectorAtRatio(origDelta, srcSplitRatio, leftDelta, rightDelta);
         note->setOriginalDeltaPitch(std::move(leftDelta));
         secondNote.setOriginalDeltaPitch(std::move(rightDelta));
-    } else {
-        // Fallback: extract from global deltaPitch if originalDeltaPitch is missing
-        auto& audioData = project->getAudioData();
-        const int totalFrames = static_cast<int>(audioData.deltaPitch.size());
-        if (totalFrames > 0) {
-            int leftLen = splitFrame - startFrame;
-            int rightLen = endFrame - splitFrame;
-            if (leftLen > 0) {
-                std::vector<float> leftDelta(static_cast<size_t>(leftLen));
-                for (int i = 0; i < leftLen; ++i) {
-                    int gIdx = startFrame + i;
-                    if (gIdx >= 0 && gIdx < totalFrames)
-                        leftDelta[static_cast<size_t>(i)] = audioData.deltaPitch[static_cast<size_t>(gIdx)];
-                }
-                note->setOriginalDeltaPitch(std::move(leftDelta));
-            }
-            if (rightLen > 0) {
-                std::vector<float> rightDelta(static_cast<size_t>(rightLen));
-                for (int i = 0; i < rightLen; ++i) {
-                    int gIdx = splitFrame + i;
-                    if (gIdx >= 0 && gIdx < totalFrames)
-                        rightDelta[static_cast<size_t>(i)] = audioData.deltaPitch[static_cast<size_t>(gIdx)];
-                }
-                secondNote.setOriginalDeltaPitch(std::move(rightDelta));
-            }
+    } else if (originalNote.hasDeltaPitch()) {
+        const int srcDuration = std::max(0, note->getSrcDurationFrames());
+        if (srcDuration > 0) {
+            const auto sourceDelta =
+                CurveResampler::resampleLinear(originalNote.getDeltaPitch(),
+                                               srcDuration);
+            std::vector<float> leftDelta, rightDelta;
+            splitVectorAtRatio(sourceDelta, srcSplitRatio, leftDelta, rightDelta);
+            note->setOriginalDeltaPitch(std::move(leftDelta));
+            secondNote.setOriginalDeltaPitch(std::move(rightDelta));
         }
     }
 
@@ -223,10 +306,7 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
                               std::vector<float>& leftCurve,
                               std::vector<float>& rightCurve)
     {
-        const int splitOffset =
-            computeSplitIndex(ratio, static_cast<int>(curve.size()));
-        leftCurve.assign(curve.begin(), curve.begin() + splitOffset);
-        rightCurve.assign(curve.begin() + splitOffset, curve.end());
+        splitVectorAtRatio(curve, ratio, leftCurve, rightCurve);
     };
 
     if (note->hasVoicingCurve()) {
@@ -249,8 +329,6 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     }
     if (note->hasSourceVoicingCurve()) {
         std::vector<float> leftCurve, rightCurve;
-        const double srcSplitRatio = computeSplitRatio(srcSplitFrame, srcStartFrame,
-                                                       srcEndFrame);
         splitFloatCurve(note->getSourceVoicingCurve(), srcSplitRatio, leftCurve,
                         rightCurve);
         note->setSourceVoicingCurve(std::move(leftCurve));
@@ -258,8 +336,6 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     }
     if (note->hasSourceBreathCurve()) {
         std::vector<float> leftCurve, rightCurve;
-        const double srcSplitRatio = computeSplitRatio(srcSplitFrame, srcStartFrame,
-                                                       srcEndFrame);
         splitFloatCurve(note->getSourceBreathCurve(), srcSplitRatio, leftCurve,
                         rightCurve);
         note->setSourceBreathCurve(std::move(leftCurve));
@@ -267,8 +343,6 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     }
     if (note->hasSourceTensionCurve()) {
         std::vector<float> leftCurve, rightCurve;
-        const double srcSplitRatio = computeSplitRatio(srcSplitFrame, srcStartFrame,
-                                                       srcEndFrame);
         splitFloatCurve(note->getSourceTensionCurve(), srcSplitRatio, leftCurve,
                         rightCurve);
         note->setSourceTensionCurve(std::move(leftCurve));
@@ -289,11 +363,20 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     // Add the second note to project
     project->addNote(secondNote);
 
-    // Create undo action - don't pass callback to avoid lifetime issues
-    // UI refresh is handled by UndoManager's onUndoRedo callback
+    const int dirtyStartFrame = std::min(originalNote.getStartFrame(), firstNote.getStartFrame());
+    const int dirtyEndFrame = std::max(originalNote.getEndFrame(), secondNote.getEndFrame());
+    refreshProjectAfterSplit(project, dirtyStartFrame, dirtyEndFrame);
+
+    auto onSplitStateApplied = [project = project,
+                                dirtyStartFrame,
+                                dirtyEndFrame]() mutable
+    {
+        refreshProjectAfterSplit(project, dirtyStartFrame, dirtyEndFrame);
+    };
+
     if (undoManager) {
         auto action = std::make_unique<NoteSplitAction>(
-            project, originalNote, firstNote, secondNote, nullptr);
+            project, originalNote, firstNote, secondNote, onSplitStateApplied);
         undoManager->addAction(std::move(action));
     }
 

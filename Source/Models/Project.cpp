@@ -473,6 +473,159 @@ void Project::setTimelineSnapCycle(bool enabled)
 // This ensures that non-note regions (breaths, consonants, silence) shift
 // along with notes during ripple stretch, and the buffer grows as needed.
 // ---------------------------------------------------------------------------
+std::vector<float> Project::renderMappedBaseWaveformSegment(int startSample,
+                                                            int numSamples) const
+{
+    if (numSamples <= 0)
+        return {};
+
+    std::vector<float> segment(static_cast<size_t>(numSamples), 0.0f);
+    const auto &origWaveform =
+        audioData.originalWaveform.getNumSamples() > 0
+            ? audioData.originalWaveform
+            : audioData.waveform;
+    const int origSamples = origWaveform.getNumSamples();
+    if (origWaveform.getNumChannels() == 0 || origSamples <= 0)
+        return segment;
+
+    const float *src = origWaveform.getReadPointer(0);
+    const int segmentEnd = startSample + numSamples;
+
+    std::vector<const Note *> sortedNotes;
+    sortedNotes.reserve(notes.size());
+    for (const auto &note : notes)
+    {
+        if (!note.isRest())
+            sortedNotes.push_back(&note);
+    }
+    std::sort(sortedNotes.begin(), sortedNotes.end(),
+              [](const Note *a, const Note *b)
+              {
+                  return a->getStartFrame() < b->getStartFrame();
+              });
+
+    auto writeFromOrig = [&](int srcOff, int dstOff, int len)
+    {
+        if (len <= 0)
+            return;
+
+        int dstStart = std::max(dstOff, startSample);
+        int dstEnd = std::min(dstOff + len, segmentEnd);
+        if (dstEnd <= dstStart)
+            return;
+
+        int srcStart = srcOff + (dstStart - dstOff);
+        if (srcStart < 0)
+        {
+            dstStart -= srcStart;
+            srcStart = 0;
+        }
+
+        int copyLen = dstEnd - dstStart;
+        copyLen = std::min(copyLen, origSamples - srcStart);
+        if (copyLen <= 0)
+            return;
+
+        std::copy(src + srcStart, src + srcStart + copyLen,
+                  segment.begin() + (dstStart - startSample));
+    };
+
+    auto stretchFromOrig = [&](int srcOff, int dstOff, int srcLen, int dstLen)
+    {
+        if (srcLen <= 0 || dstLen <= 0)
+            return;
+
+        if (srcOff < 0)
+        {
+            srcLen += srcOff;
+            srcOff = 0;
+        }
+        srcLen = std::min(srcLen, origSamples - srcOff);
+        if (srcLen <= 0)
+            return;
+
+        const int dstStart = std::max(dstOff, startSample);
+        const int dstEnd = std::min(dstOff + dstLen, segmentEnd);
+        if (dstEnd <= dstStart)
+            return;
+
+        if (srcLen == dstLen)
+        {
+            const int srcStart = srcOff + (dstStart - dstOff);
+            const int copyLen =
+                std::min(dstEnd - dstStart, origSamples - srcStart);
+            if (copyLen > 0)
+            {
+                std::copy(src + srcStart, src + srcStart + copyLen,
+                          segment.begin() + (dstStart - startSample));
+            }
+            return;
+        }
+
+        const double ratio =
+            (srcLen <= 1 || dstLen <= 1)
+                ? 0.0
+                : static_cast<double>(srcLen - 1) /
+                      static_cast<double>(dstLen - 1);
+        for (int globalDst = dstStart; globalDst < dstEnd; ++globalDst)
+        {
+            const int localDst = globalDst - dstOff;
+            const double srcPos = static_cast<double>(localDst) * ratio;
+            const int idx = static_cast<int>(srcPos);
+            const float frac = static_cast<float>(srcPos - idx);
+            const int s0 = srcOff + std::min(idx, srcLen - 1);
+            const int s1 = srcOff + std::min(idx + 1, srcLen - 1);
+            segment[static_cast<size_t>(globalDst - startSample)] =
+                src[s0] + frac * (src[s1] - src[s0]);
+        }
+    };
+
+    if (sortedNotes.empty())
+    {
+        writeFromOrig(0, 0, origSamples);
+        return segment;
+    }
+
+    {
+        const int srcLen = sortedNotes.front()->getSrcStartFrame() * HOP_SIZE;
+        const int dstLen = sortedNotes.front()->getStartFrame() * HOP_SIZE;
+        stretchFromOrig(0, 0, srcLen, dstLen);
+    }
+
+    for (size_t i = 0; i < sortedNotes.size(); ++i)
+    {
+        const auto *note = sortedNotes[i];
+        const int srcStart = note->getSrcStartFrame() * HOP_SIZE;
+        const int srcLen =
+            (note->getSrcEndFrame() - note->getSrcStartFrame()) * HOP_SIZE;
+        const int dstStart = note->getStartFrame() * HOP_SIZE;
+        const int dstLen =
+            (note->getEndFrame() - note->getStartFrame()) * HOP_SIZE;
+        stretchFromOrig(srcStart, dstStart, srcLen, dstLen);
+
+        const int gapSrcStart = note->getSrcEndFrame() * HOP_SIZE;
+        const int gapDstStart = note->getEndFrame() * HOP_SIZE;
+        int gapSrcEnd = origSamples;
+        int gapDstEnd = gapDstStart;
+        if (i + 1 < sortedNotes.size())
+        {
+            gapSrcEnd = sortedNotes[i + 1]->getSrcStartFrame() * HOP_SIZE;
+            gapDstEnd = sortedNotes[i + 1]->getStartFrame() * HOP_SIZE;
+        }
+        else
+        {
+            gapDstEnd = gapDstStart + std::max(0, gapSrcEnd - gapSrcStart);
+        }
+
+        const int gapSrcLen = gapSrcEnd - gapSrcStart;
+        const int gapDstLen = gapDstEnd - gapDstStart;
+        if (gapSrcLen > 0 && gapDstLen > 0)
+            stretchFromOrig(gapSrcStart, gapDstStart, gapSrcLen, gapDstLen);
+    }
+
+    return segment;
+}
+
 void Project::composeGlobalWaveform()
 {
     auto &waveform = audioData.waveform;

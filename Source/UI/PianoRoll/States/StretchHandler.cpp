@@ -11,6 +11,8 @@
 
 namespace
 {
+constexpr float kMarkerDeactivateZoneFraction = 0.20f;
+
 bool markersEqual(const std::vector<Project::WarpMarker>& a,
                   const std::vector<Project::WarpMarker>& b)
 {
@@ -78,7 +80,17 @@ bool StretchHandler::mouseDown(const juce::MouseEvent &e, float worldX,
     if (boundaryIndex < static_cast<int>(boundaries.size()))
     {
       const auto &boundary = boundaries[static_cast<size_t>(boundaryIndex)];
-      if (e.mods.isShiftDown() && boundary.active)
+      const float contentBottom =
+          static_cast<float>(PianoRollComponent::headerHeight +
+                             owner_.getVisibleContentHeight());
+      const float deactivateZoneTop =
+          contentBottom * (1.0f - kMarkerDeactivateZoneFraction) +
+          static_cast<float>(PianoRollComponent::headerHeight) *
+              kMarkerDeactivateZoneFraction;
+      const bool clickedDeactivateZone =
+          e.y >= deactivateZoneTop && e.y < contentBottom;
+      if (boundary.active &&
+          (e.mods.isShiftDown() || clickedDeactivateZone))
         return deactivateMarker(boundary);
 
       startStretchDrag(boundary);

@@ -16,6 +16,33 @@ void IncrementalSynthesizer::cancel() {
     cancelFlag->store(true);
 }
 
+namespace {
+void expandDirtyRangeToWholeNotes(const Project *project, int &startFrame,
+                                  int &endFrame) {
+  if (!project || startFrame >= endFrame)
+    return;
+
+  bool expanded = false;
+  do {
+    expanded = false;
+    for (const auto &note : project->getNotes()) {
+      if (note.isRest())
+        continue;
+      if (note.getEndFrame() <= startFrame || note.getStartFrame() >= endFrame)
+        continue;
+
+      const int expandedStart = std::min(startFrame, note.getStartFrame());
+      const int expandedEnd = std::max(endFrame, note.getEndFrame());
+      if (expandedStart != startFrame || expandedEnd != endFrame) {
+        startFrame = expandedStart;
+        endFrame = expandedEnd;
+        expanded = true;
+      }
+    }
+  } while (expanded);
+}
+} // namespace
+
 // ---------------------------------------------------------------------------
 // computeSynthesisRange: find voiced segments overlapping dirty range,
 // expand to include complete segments + padding.
@@ -32,6 +59,9 @@ IncrementalSynthesizer::computeSynthesisRange(int dirtyStart, int dirtyEnd) {
   if (totalFrames == 0)
     return {dirtyStart, dirtyEnd};
 
+  dirtyStart = std::max(0, dirtyStart);
+  dirtyEnd = std::min(totalFrames, dirtyEnd);
+  expandDirtyRangeToWholeNotes(project, dirtyStart, dirtyEnd);
   dirtyStart = std::max(0, dirtyStart);
   dirtyEnd = std::min(totalFrames, dirtyEnd);
 
@@ -276,23 +306,12 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
     return;
   }
 
-  // Copy original waveform segment for blending
-  const auto &origWaveform = audioData.originalWaveform.getNumSamples() > 0
-                                 ? audioData.originalWaveform
-                                 : audioData.waveform;
   int startSample = startFrame * hopSize;
   int numSynthSamples = (endFrame - startFrame) * hopSize;
-  int totalOrigSamples = origWaveform.getNumSamples();
-
-  std::vector<float> originalSegment(numSynthSamples, 0.0f);
-  {
-    const float *origPtr = origWaveform.getReadPointer(0);
-    int copyLen = std::min(numSynthSamples,
-                           std::max(0, totalOrigSamples - startSample));
-    if (copyLen > 0 && startSample >= 0)
-      std::copy(origPtr + startSample, origPtr + startSample + copyLen,
-                originalSegment.begin());
-  }
+  std::vector<float> originalSegment =
+      project->renderMappedBaseWaveformSegment(startSample, numSynthSamples);
+  if (static_cast<int>(originalSegment.size()) != numSynthSamples)
+    originalSegment.resize(static_cast<size_t>(numSynthSamples), 0.0f);
 
   HNSepCurveProcessor::rebuildCurvesForRange(*project, startFrame, endFrame);
 
@@ -621,13 +640,43 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
                 extLocalSrc + totalSynthLen);
             const int dstOffset = copyStart - extLocalSrc;
 
+            const int copiedSamples = copyEnd - copyStart;
+            const int copyDstStart = dstOffset;
+            const int copyDstEnd = copyDstStart + copiedSamples;
+            const int regionSpliceSamples = std::max(256, hopSize * 2);
+            const int leftSplice = std::max(
+                0, std::min({regionSpliceSamples, copiedSamples, copyDstStart}));
+            const int rightSplice = std::max(
+                0, std::min({regionSpliceSamples, copiedSamples,
+                             totalSynthLen - copyDstEnd}));
+
             for (int i = copyStart; i < copyEnd; ++i) {
-              const int dstIdx = dstOffset + (i - copyStart);
-              if (dstIdx >= 0 && dstIdx < totalSynthLen) {
-                noteSynth[static_cast<size_t>(dstIdx)] =
-                    targetSegment[static_cast<size_t>(i)];
-                noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
+              const int localCopyIdx = i - copyStart;
+              const int dstIdx = copyDstStart + localCopyIdx;
+              if (dstIdx < 0 || dstIdx >= totalSynthLen)
+                continue;
+
+              float blend = 1.0f;
+              if (leftSplice > 1 && localCopyIdx < leftSplice) {
+                const float t = static_cast<float>(localCopyIdx) /
+                                static_cast<float>(leftSplice);
+                const float ramp = t * t * (3.0f - 2.0f * t);
+                blend = std::min(blend, ramp);
               }
+              if (rightSplice > 1 &&
+                  copiedSamples - 1 - localCopyIdx < rightSplice) {
+                const int fromEnd = copiedSamples - 1 - localCopyIdx;
+                const float t = static_cast<float>(fromEnd) /
+                                static_cast<float>(rightSplice);
+                const float ramp = t * t * (3.0f - 2.0f * t);
+                blend = std::min(blend, ramp);
+              }
+
+              const float existing = noteSynth[static_cast<size_t>(dstIdx)];
+              const float target = targetSegment[static_cast<size_t>(i)];
+              noteSynth[static_cast<size_t>(dstIdx)] =
+                  existing + blend * (target - existing);
+              noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
             }
 
             // Fill any still-uncovered samples from immutable source audio.

@@ -433,7 +433,9 @@ PianoRollComponent::PianoRollComponent()
   // Setup noteSplitter callbacks
   noteSplitter->onNoteSplit = [this]()
   {
+    invalidateInteractionCaches();
     invalidateBasePitchCache();
+    updatePitchToolHandlesFromSelection();
     if (onPitchEdited)
       onPitchEdited();
     if (onPitchEditFinished)
@@ -1895,7 +1897,12 @@ void PianoRollComponent::drawStretchGuides(juce::Graphics &g)
   const auto &dragState = stretchHandler_->getDragState();
   const float height =
       (MAX_MIDI_NOTE - MIN_MIDI_NOTE + 1) * pixelsPerSemitone;
+  const float visibleBottom =
+      std::min(height, static_cast<float>(scrollY + getVisibleContentHeight()));
+  const float deactivateZoneTop =
+      std::max(0.0f, visibleBottom - getVisibleContentHeight() * 0.20f);
   const int hoveredIdx = stretchHandler_->getHoveredBoundaryIndex();
+  const auto activeOuterColour = juce::Colour(0xFFFF9A24u);
 
   for (size_t i = 0; i < boundaries.size(); ++i)
   {
@@ -1920,8 +1927,9 @@ void PianoRollComponent::drawStretchGuides(juce::Graphics &g)
     const bool isEmphasized = isHovered || isDraggingMarker;
     const float outerThickness = isEmphasized ? 3.6f : 2.8f;
     const float innerThickness = isEmphasized ? 1.8f : 1.2f;
-    const auto outerColour = APP_COLOR_PRIMARY.withAlpha(isEmphasized ? 0.98f
-                                                                      : 0.90f);
+    const auto outerColour =
+        (isPinned && !isEmphasized ? activeOuterColour : APP_COLOR_PRIMARY)
+            .withAlpha(isEmphasized ? 0.98f : 0.92f);
     const auto innerColour =
         juce::Colours::white.withAlpha(isEmphasized ? 0.96f : 0.88f);
 
@@ -1929,6 +1937,16 @@ void PianoRollComponent::drawStretchGuides(juce::Graphics &g)
     g.drawLine(x, 0.0f, x, height, outerThickness);
     g.setColour(innerColour);
     g.drawLine(x, 0.0f, x, height, innerThickness);
+
+    if (isPinned && visibleBottom > deactivateZoneTop)
+    {
+      g.setColour(outerColour.withAlpha(isEmphasized ? 0.92f : 1.0f));
+      g.drawLine(x, deactivateZoneTop, x, visibleBottom,
+                 isEmphasized ? 4.4f : 5.0f);
+      g.setColour(innerColour.withAlpha(isEmphasized ? 0.94f : 0.90f));
+      g.drawLine(x, deactivateZoneTop, x, visibleBottom,
+                 isEmphasized ? 2.0f : 1.6f);
+    }
   }
 }
 #endif
