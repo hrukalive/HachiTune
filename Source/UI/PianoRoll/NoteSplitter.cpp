@@ -5,6 +5,7 @@
 #include "../../Utils/PitchCurveProcessor.h"
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 
 namespace
 {
@@ -83,6 +84,42 @@ void refreshProjectAfterSplit(Project* project,
     }
 
     project->setModified(true);
+}
+
+void recenterNotePitchToAverageActualF0(Note& note)
+{
+    if (note.isRest())
+        return;
+
+    const auto& sourceCurve =
+        note.hasOriginalDeltaPitch() ? note.getOriginalDeltaPitch()
+                                     : note.getDeltaPitch();
+    if (sourceCurve.empty())
+        return;
+
+    const float meanDelta =
+        std::accumulate(sourceCurve.begin(), sourceCurve.end(), 0.0f) /
+        static_cast<float>(sourceCurve.size());
+    if (std::abs(meanDelta) <= 1.0e-5f)
+        return;
+
+    note.setMidiNote(note.getMidiNote() + meanDelta);
+
+    if (note.hasOriginalDeltaPitch())
+    {
+        auto recentered = note.getOriginalDeltaPitch();
+        for (auto& value : recentered)
+            value -= meanDelta;
+        note.setOriginalDeltaPitch(std::move(recentered));
+    }
+
+    if (note.hasDeltaPitch())
+    {
+        auto recentered = note.getDeltaPitch();
+        for (auto& value : recentered)
+            value -= meanDelta;
+        note.setDeltaPitch(std::move(recentered));
+    }
 }
 }
 
@@ -348,6 +385,9 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
         note->setSourceTensionCurve(std::move(leftCurve));
         secondNote.setSourceTensionCurve(std::move(rightCurve));
     }
+
+    recenterNotePitchToAverageActualF0(*note);
+    recenterNotePitchToAverageActualF0(secondNote);
 
     // Modify the first note (left part)
     note->setEndFrame(splitFrame);
