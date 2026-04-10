@@ -725,26 +725,43 @@ namespace PitchCurveProcessor
             audioData.deltaPitch[static_cast<size_t>(i)] = midi - base;
         }
 
-        // Initialize originalDeltaPitch in each note from computed deltaPitch
-        // This preserves the pristine pitch curve for non-destructive transformations
+        // Initialize originalDeltaPitch in each note from computed deltaPitch.
+        // This preserves the pristine pitch curve for non-destructive transformations.
+        //
+        // The dense deltaPitch is indexed by the notes' output frame positions.
+        // originalDeltaPitch must be sized to the *source* duration so that
+        // recomputeFromMarkers() can resample it to any output duration.
+        // When the note is not stretched (src == dst), both are identical.
         for (auto& note : project.getNotes())
         {
             if (note.isRest()) continue;
 
             const int startFrame = note.getStartFrame();
             const int endFrame = note.getEndFrame();
-            const int numFrames = endFrame - startFrame;
+            const int outFrames = endFrame - startFrame;
 
-            if (numFrames <= 0) continue;
+            if (outFrames <= 0) continue;
 
-            std::vector<float> origDelta(static_cast<size_t>(numFrames));
-            for (int i = 0; i < numFrames; ++i)
+            // Extract from the dense array at the note's output position
+            std::vector<float> outDelta(static_cast<size_t>(outFrames));
+            for (int i = 0; i < outFrames; ++i)
             {
                 const int globalIdx = startFrame + i;
                 if (globalIdx >= 0 && globalIdx < totalFrames)
-                    origDelta[static_cast<size_t>(i)] = audioData.deltaPitch[static_cast<size_t>(globalIdx)];
+                    outDelta[static_cast<size_t>(i)] = audioData.deltaPitch[static_cast<size_t>(globalIdx)];
             }
-            note.setOriginalDeltaPitch(std::move(origDelta));
+
+            // Resample to source duration if the note is stretched
+            const int srcFrames = note.getSrcDurationFrames();
+            if (srcFrames > 0 && srcFrames != outFrames)
+            {
+                note.setOriginalDeltaPitch(
+                    CurveResampler::resampleLinear(outDelta, srcFrames));
+            }
+            else
+            {
+                note.setOriginalDeltaPitch(std::move(outDelta));
+            }
         }
 
         // Cache base F0 (Hz) for backwards compatibility

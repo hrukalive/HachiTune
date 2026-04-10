@@ -423,14 +423,15 @@ void PianoRollRenderer::drawPitchCurves(juce::Graphics &g,
         std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
 
     for (int i = startFrame; i < endFrame; ++i) {
+      // basePitch already includes pitchOffset (baked in by
+      // applyDragBasePreview / rebuildBaseFromNotesForDrag during drag,
+      // or by rebuildBaseFromNotes after commit).  Do NOT add it again.
       float baseMidi =
           (i < static_cast<int>(audioData.basePitch.size()))
-              ? audioData.basePitch[static_cast<size_t>(i)] +
-                    note.getPitchOffset()
+              ? audioData.basePitch[static_cast<size_t>(i)]
               : ((i < static_cast<int>(audioData.f0.size()) &&
                   audioData.f0[static_cast<size_t>(i)] > 0.0f)
-                     ? freqToMidi(audioData.f0[static_cast<size_t>(i)]) +
-                           note.getPitchOffset()
+                     ? freqToMidi(audioData.f0[static_cast<size_t>(i)])
                      : 0.0f);
 
       float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))

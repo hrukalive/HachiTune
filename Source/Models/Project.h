@@ -248,6 +248,15 @@ public:
     std::vector<float> renderMappedBaseWaveformSegment(int startSample,
                                                        int numSamples) const;
 
+    // Render a segment from an arbitrary source buffer using the same
+    // note/gap time-mapping as renderMappedBaseWaveformSegment.
+    // This allows harmonic/noise HNSep buffers (which are source-aligned)
+    // to be resampled into the output timeline.
+    std::vector<float> renderMappedSourceSegment(const float *sourceBuffer,
+                                                  int sourceNumSamples,
+                                                  int startSample,
+                                                  int numSamples) const;
+
     // F0 direct edit dirty tracking (for Draw mode)
     void setF0DirtyRange(int startFrame, int endFrame);
     void clearF0DirtyRange();

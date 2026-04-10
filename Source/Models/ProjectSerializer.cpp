@@ -1,4 +1,5 @@
 #include "ProjectSerializer.h"
+#include "../Utils/CurveResampler.h"
 #include "../Utils/HNSepCurveProcessor.h"
 #include "../Utils/PitchCurveProcessor.h"
 
@@ -219,6 +220,12 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
     // were already loaded from the file.  Extract from global deltaPitch
     // so that rebuildBaseFromNotes() (called during stretch/undo) can
     // resample correctly instead of producing zero delta.
+    //
+    // originalDeltaPitch must be sized to the *source* duration so that
+    // recomputeFromMarkers() can resample it to any output duration.
+    // The dense deltaPitch array is indexed by output frame, so we
+    // extract from the note's output region then resample back to the
+    // source length when the note is stretched.
     {
         const int totalFrames = static_cast<int>(audioData.deltaPitch.size());
         for (auto& note : project.getNotes())
@@ -226,20 +233,34 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
             if (note.isRest() || note.hasOriginalDeltaPitch())
                 continue;
 
-            const int startFrame = note.getStartFrame();
-            const int endFrame = note.getEndFrame();
-            const int numFrames = endFrame - startFrame;
-            if (numFrames <= 0)
+            const int outStart = note.getStartFrame();
+            const int outEnd = note.getEndFrame();
+            const int outFrames = outEnd - outStart;
+            if (outFrames <= 0)
                 continue;
 
-            std::vector<float> origDelta(static_cast<size_t>(numFrames));
-            for (int i = 0; i < numFrames; ++i)
+            // Extract the delta slice at the note's output position
+            // (that is where the dense array stores the data).
+            std::vector<float> outDelta(static_cast<size_t>(outFrames));
+            for (int i = 0; i < outFrames; ++i)
             {
-                const int globalIdx = startFrame + i;
+                const int globalIdx = outStart + i;
                 if (globalIdx >= 0 && globalIdx < totalFrames)
-                    origDelta[static_cast<size_t>(i)] = audioData.deltaPitch[static_cast<size_t>(globalIdx)];
+                    outDelta[static_cast<size_t>(i)] = audioData.deltaPitch[static_cast<size_t>(globalIdx)];
             }
-            note.setOriginalDeltaPitch(std::move(origDelta));
+
+            // originalDeltaPitch should represent the source-length curve.
+            // If the note is stretched, resample back to the source duration.
+            const int srcFrames = note.getSrcDurationFrames();
+            if (srcFrames > 0 && srcFrames != outFrames)
+            {
+                note.setOriginalDeltaPitch(
+                    CurveResampler::resampleLinear(outDelta, srcFrames));
+            }
+            else
+            {
+                note.setOriginalDeltaPitch(std::move(outDelta));
+            }
         }
     }
 
@@ -302,6 +323,10 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
     obj->setProperty("varianceScale", note.getVarianceScale());
     obj->setProperty("smoothLeftFrames", note.getSmoothLeftFrames());
     obj->setProperty("smoothRightFrames", note.getSmoothRightFrames());
+
+    // Per-note original F0 values (source-aligned, for voiced mask reconstruction)
+    if (!note.getF0Values().empty())
+        obj->setProperty("f0Values", floatArrayToString(note.getF0Values(), 2));
 
     // Per-note original delta pitch (pristine curve from analysis)
     if (note.hasOriginalDeltaPitch())
@@ -377,6 +402,11 @@ bool ProjectSerializer::noteFromJson(Note& note, const juce::var& json) {
     note.setVarianceScale(static_cast<float>(json.getProperty("varianceScale", 1.0)));
     note.setSmoothLeftFrames(json.getProperty("smoothLeftFrames", 0));
     note.setSmoothRightFrames(json.getProperty("smoothRightFrames", 0));
+
+    // Per-note original F0 values (source-aligned, for voiced mask reconstruction)
+    auto f0ValuesStr = json.getProperty("f0Values", juce::var());
+    if (!f0ValuesStr.isVoid() && f0ValuesStr.toString().isNotEmpty())
+        note.setF0Values(stringToFloatArray(f0ValuesStr.toString()));
 
     // Per-note original delta pitch (pristine curve from analysis)
     auto origDeltaStr = json.getProperty("originalDeltaPitch", juce::var());

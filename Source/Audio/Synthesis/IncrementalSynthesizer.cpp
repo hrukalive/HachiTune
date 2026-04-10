@@ -1,5 +1,6 @@
 #include "IncrementalSynthesizer.h"
 #include "../TensionProcessor.h"
+#include "../../Utils/CurveResampler.h"
 #include "../../Utils/HNSepCurveProcessor.h"
 #include "../../Utils/Localization.h"
 #include "../../Utils/MelSpectrogram.h"
@@ -339,45 +340,170 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
         endFrame - startFrame);
 
     if (hasAnyHNSepCurves) {
-      std::vector<float> harmonicSegment(static_cast<size_t>(numSynthSamples), 0.0f);
-      std::vector<float> noiseSegment(static_cast<size_t>(numSynthSamples), 0.0f);
+      // -----------------------------------------------------------------------
+      // Per-note formant-preserving HNSep mel override.
+      //
+      // We must NOT resample the raw harmonic/noise waveform to the output
+      // timeline — that would change the spectral content (formants shift with
+      // time-domain resampling).  Instead, for each note that overlaps the
+      // synthesis range:
+      //   1. Process harmonic/noise at SOURCE rate with source-duration curves
+      //   2. Compute mel from the processed audio at source rate
+      //   3. Resample the mel from source frames → output frames (hybrid:
+      //      linear for voiced, nearest for unvoiced — matching resampleMelHybrid)
+      //   4. Place the output-duration mel into the melRange at the note's
+      //      output position
+      //
+      // Gaps and notes without per-note HNSep clips fall through to the
+      // baseline mel from audioData.melSpectrogram.
+      // -----------------------------------------------------------------------
+      const int numMels = !audioData.melSpectrogram.empty()
+                              ? static_cast<int>(audioData.melSpectrogram.front().size())
+                              : 128;
+      const int rangeFrames = endFrame - startFrame;
 
-      const float *harmonicPtr = audioData.harmonicWaveform.getReadPointer(0);
-      const float *noisePtr = audioData.noiseWaveform.getReadPointer(0);
-      const int totalHarmonicSamples = audioData.harmonicWaveform.getNumSamples();
-      const int totalNoiseSamples = audioData.noiseWaveform.getNumSamples();
-      const int harmonicCopyLen =
-          std::min(numSynthSamples, std::max(0, totalHarmonicSamples - startSample));
-      const int noiseCopyLen =
-          std::min(numSynthSamples, std::max(0, totalNoiseSamples - startSample));
+      // Start with the baseline (already time-stretched) mel
+      melRange.assign(audioData.melSpectrogram.begin() + startFrame,
+                      audioData.melSpectrogram.begin() + endFrame);
 
-      if (harmonicCopyLen > 0 && startSample >= 0)
-        std::copy(harmonicPtr + startSample,
-                  harmonicPtr + startSample + harmonicCopyLen,
-                  harmonicSegment.begin());
-      if (noiseCopyLen > 0 && startSample >= 0)
-        std::copy(noisePtr + startSample,
-                  noisePtr + startSample + noiseCopyLen,
-                  noiseSegment.begin());
-
-      originalSegment = tensionProc.processSegment(
-          harmonicSegment.data(), noiseSegment.data(), numSynthSamples,
-          audioData.voicingCurve.data() + startFrame,
-          audioData.breathCurve.data() + startFrame,
-          audioData.tensionCurve.data() + startFrame, endFrame - startFrame);
-
+      TensionProcessor noteProc;
       MelSpectrogram melComputer(audioData.sampleRate);
-      melRange = melComputer.compute(originalSegment.data(), numSynthSamples);
 
-      const int expectedFrames = endFrame - startFrame;
-      if (static_cast<int>(melRange.size()) > expectedFrames) {
-        melRange.resize(static_cast<size_t>(expectedFrames));
-      } else {
-        const int numMels = !audioData.melSpectrogram.empty()
-                                ? static_cast<int>(audioData.melSpectrogram.front().size())
-                                : 128;
-        while (static_cast<int>(melRange.size()) < expectedFrames)
-          melRange.emplace_back(static_cast<size_t>(numMels), 0.0f);
+      for (const auto &note : project->getNotes()) {
+        if (note.isRest())
+          continue;
+
+        // Skip notes that don't overlap the synthesis range
+        const int noteOutStart = note.getStartFrame();
+        const int noteOutEnd = note.getEndFrame();
+        if (noteOutEnd <= startFrame || noteOutStart >= endFrame)
+          continue;
+
+        // Need per-note harmonic/noise clips (source-aligned)
+        if (!note.hasClipHarmonicWaveform() || !note.hasClipNoiseWaveform())
+          continue;
+
+        const auto &clipH = note.getClipHarmonicWaveform();
+        const auto &clipN = note.getClipNoiseWaveform();
+        const int srcDurationFrames = note.getSrcDurationFrames();
+        const int outDurationFrames = note.getDurationFrames();
+        if (srcDurationFrames <= 0 || outDurationFrames <= 0)
+          continue;
+        const int srcSamples = static_cast<int>(clipH.size());
+        if (srcSamples <= 0)
+          continue;
+
+        // Get source-duration HNSep curves for this note.
+        // Prefer the immutable source curves; fall back to fitting the output
+        // curves to source duration.
+        std::vector<float> srcVoicing, srcBreath, srcTension;
+        if (note.hasSourceVoicingCurve()) {
+          srcVoicing = note.getSourceVoicingCurve();
+        } else if (note.hasVoicingCurve()) {
+          srcVoicing = CurveResampler::resampleLinear(
+              note.getVoicingCurve(), srcDurationFrames);
+        } else {
+          srcVoicing.assign(static_cast<size_t>(srcDurationFrames),
+                            HNSepCurveProcessor::kDefaultVoicing);
+        }
+        if (note.hasSourceBreathCurve()) {
+          srcBreath = note.getSourceBreathCurve();
+        } else if (note.hasBreathCurve()) {
+          srcBreath = CurveResampler::resampleLinear(
+              note.getBreathCurve(), srcDurationFrames);
+        } else {
+          srcBreath.assign(static_cast<size_t>(srcDurationFrames),
+                           HNSepCurveProcessor::kDefaultBreath);
+        }
+        if (note.hasSourceTensionCurve()) {
+          srcTension = note.getSourceTensionCurve();
+        } else if (note.hasTensionCurve()) {
+          srcTension = CurveResampler::resampleLinear(
+              note.getTensionCurve(), srcDurationFrames);
+        } else {
+          srcTension.assign(static_cast<size_t>(srcDurationFrames),
+                            HNSepCurveProcessor::kDefaultTension);
+        }
+
+        // Check if this note actually has active edits
+        if (!noteProc.hasActiveEdits(
+                srcVoicing.data(), srcBreath.data(), srcTension.data(),
+                srcDurationFrames))
+          continue;
+
+        // Ensure curves are sized to source duration
+        srcVoicing.resize(static_cast<size_t>(srcDurationFrames),
+                          HNSepCurveProcessor::kDefaultVoicing);
+        srcBreath.resize(static_cast<size_t>(srcDurationFrames),
+                         HNSepCurveProcessor::kDefaultBreath);
+        srcTension.resize(static_cast<size_t>(srcDurationFrames),
+                          HNSepCurveProcessor::kDefaultTension);
+
+        // 1. Process harmonic/noise at SOURCE rate
+        const int noiseSamples = static_cast<int>(clipN.size());
+        std::vector<float> processedSrc = noteProc.processSegment(
+            clipH.data(), clipN.data(),
+            std::min(srcSamples, noiseSamples),
+            srcVoicing.data(), srcBreath.data(), srcTension.data(),
+            srcDurationFrames);
+
+        // 2. Compute mel at source rate
+        auto srcMel = melComputer.compute(
+            processedSrc.data(), static_cast<int>(processedSrc.size()));
+
+        if (srcMel.empty())
+          continue;
+
+        // 3. Resample mel from source frames → output frames (hybrid approach)
+        std::vector<std::vector<float>> outMel;
+        if (srcDurationFrames == outDurationFrames) {
+          // No stretch — use source mel directly
+          outMel = std::move(srcMel);
+        } else {
+          // Hybrid resampling: linear for voiced, nearest for unvoiced
+          auto melLinear =
+              CurveResampler::resampleLinear2D(srcMel, outDurationFrames);
+          // auto melNearest =
+          //     CurveResampler::resampleNearest2D(srcMel, outDurationFrames);
+
+          // Build voiced mask from note's f0 values
+          const auto &f0Vals = note.getF0Values();
+          std::vector<bool> voicedMask;
+          if (!f0Vals.empty()) {
+            std::vector<bool> srcVoiced(f0Vals.size());
+            for (size_t fi = 0; fi < f0Vals.size(); ++fi)
+              srcVoiced[fi] = f0Vals[fi] > 1.0f;
+            voicedMask = CurveResampler::resampleNearest(
+                srcVoiced, outDurationFrames);
+          }
+
+          outMel = std::move(melLinear);
+          if (!voicedMask.empty()) {
+            for (int fi = 0; fi < outDurationFrames; ++fi) {
+              if (voicedMask[static_cast<size_t>(fi)])
+                outMel[static_cast<size_t>(fi)] =
+                    melLinear[static_cast<size_t>(fi)];
+            }
+          } else {
+            // If no voiced info, use linear everywhere
+            // outMel = std::move(melLinear);
+          }
+        }
+
+        // Ensure correct size
+        outMel.resize(static_cast<size_t>(outDurationFrames),
+                      std::vector<float>(static_cast<size_t>(numMels), 0.0f));
+
+        // 4. Place into melRange at the note's output position
+        const int localStart = std::max(0, noteOutStart - startFrame);
+        const int localEnd = std::min(rangeFrames, noteOutEnd - startFrame);
+        const int noteLocalOffset = std::max(0, startFrame - noteOutStart);
+        for (int fi = localStart; fi < localEnd; ++fi) {
+          const int noteIdx = noteLocalOffset + (fi - localStart);
+          if (noteIdx >= 0 && noteIdx < static_cast<int>(outMel.size()))
+            melRange[static_cast<size_t>(fi)] =
+                outMel[static_cast<size_t>(noteIdx)];
+        }
       }
 
     }

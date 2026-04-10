@@ -103,6 +103,13 @@ public:
       const std::function<void(Project &)> &onProjectReady,
       const std::function<void()> &onNotesChanged);
 
+  /**
+   * Run harmonic-noise separation on the project's waveform if the model is
+   * loaded. Populates audioData.harmonicWaveform / noiseWaveform.
+   * Returns true if separation was performed (or buffers already present).
+   */
+  bool runHNSepSeparation(Project &project);
+
 private:
   GPUProvider getProviderFromDevice(const juce::String &device) const;
 

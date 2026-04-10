@@ -2040,21 +2040,10 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
     }
     else
     {
-      const bool useLiveBasePreview =
-          (selectHandler_->isSingleNoteDragging() || pitchEditor->isDraggingMultiNotes());
-      const auto &draggedNotes = pitchEditor->getDraggedNotes();
-
       for (const auto &note : project->getNotes())
       {
         if (note.isRest())
           continue;
-
-        const bool isDraggedNote =
-            (selectHandler_->isSingleNoteDragging() && selectHandler_->getDraggedNote() == &note) ||
-            (pitchEditor->isDraggingMultiNotes() &&
-             std::find(draggedNotes.begin(), draggedNotes.end(), &note) !=
-                 draggedNotes.end());
-        const bool applyNoteOffset = !(useLiveBasePreview && isDraggedNote);
 
         juce::Path path;
         bool pathStarted = false;
@@ -2065,6 +2054,9 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
 
         for (int i = startFrame; i < endFrame; ++i)
         {
+          // basePitch already includes pitchOffset (baked in by
+          // applyDragBasePreview / rebuildBaseFromNotesForDrag during drag,
+          // or by rebuildBaseFromNotes after commit).  Do NOT add it again.
           float baseMidi =
               (i < static_cast<int>(audioData.basePitch.size()))
                   ? audioData.basePitch[static_cast<size_t>(i)]
@@ -2072,8 +2064,6 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
                       audioData.f0[static_cast<size_t>(i)] > 0.0f)
                          ? freqToMidi(audioData.f0[static_cast<size_t>(i)])
                          : 0.0f);
-          if (applyNoteOffset)
-            baseMidi += note.getPitchOffset();
 
           float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))
                                 ? audioData.deltaPitch[static_cast<size_t>(i)]

@@ -63,6 +63,59 @@ void EditorController::setProject(std::unique_ptr<Project> newProject)
   project = std::move(newProject);
 }
 
+bool EditorController::runHNSepSeparation(Project &proj)
+{
+  auto &audioData = proj.getAudioData();
+
+  // Already populated — nothing to do.
+  if (audioData.harmonicWaveform.getNumSamples() > 0 &&
+      audioData.noiseWaveform.getNumSamples() > 0)
+    return true;
+
+  if (!hnsepModel || !hnsepModel->isLoaded())
+  {
+    LOG("runHNSepSeparation: hnsep model not loaded — skipping");
+    return false;
+  }
+
+  if (audioData.waveform.getNumChannels() == 0 ||
+      audioData.waveform.getNumSamples() == 0)
+  {
+    LOG("runHNSepSeparation: no waveform data — skipping");
+    return false;
+  }
+
+  const float *samples = audioData.waveform.getReadPointer(0);
+  const int numSamples = audioData.waveform.getNumSamples();
+
+  std::vector<float> harmonicVec;
+  std::vector<float> noiseVec;
+
+  bool ok = hnsepModel->separateWithProgress(
+      samples, numSamples, harmonicVec, noiseVec,
+      [](double) {});
+
+  if (ok)
+  {
+    audioData.harmonicWaveform.setSize(1, numSamples);
+    juce::FloatVectorOperations::copy(
+        audioData.harmonicWaveform.getWritePointer(0),
+        harmonicVec.data(), numSamples);
+
+    audioData.noiseWaveform.setSize(1, numSamples);
+    juce::FloatVectorOperations::copy(
+        audioData.noiseWaveform.getWritePointer(0),
+        noiseVec.data(), numSamples);
+
+    LOG("runHNSepSeparation: separation complete (" +
+        juce::String(numSamples) + " samples)");
+    return true;
+  }
+
+  LOG("runHNSepSeparation: separation failed");
+  return false;
+}
+
 GPUProvider EditorController::getProviderFromDevice(
     const juce::String &deviceName) const
 {

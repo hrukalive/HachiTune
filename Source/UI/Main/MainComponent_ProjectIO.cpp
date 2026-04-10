@@ -12,6 +12,8 @@
 #include "../../Utils/PitchCurveProcessor.h"
 #include "../../Utils/PlatformPaths.h"
 #include "../../Utils/SHA256Utils.h"
+#include "../../Utils/HNSepCurveProcessor.h"
+#include "../../Utils/WarpMarkerProcessor.h"
 
 void MainComponent::openProjectFile(const juce::File &file) {
   if (isLoadingAudio.load())
@@ -114,6 +116,16 @@ void MainComponent::openProjectFile(const juce::File &file) {
                                                         /*applyUvMask=*/false);
                 }
 
+                // If the project has warp markers, mel was just recomputed
+                // from the raw audio (source-aligned) but pitch curves were
+                // loaded in output-aligned coordinates.  Reconcile everything
+                // by replaying the warp mapping so mel, voiced mask, and
+                // per-note curves all end up in correct output coordinates.
+                const auto& loadedMarkers = projectToUse->getWarpMarkers();
+                if (!loadedMarkers.empty())
+                  WarpMarkerProcessor::recomputeFromMarkers(
+                      *projectToUse, loadedMarkers, /*updateProjectMarkers=*/false);
+
                 if (safeThis->undoManager)
                   safeThis->undoManager->clear();
 
@@ -174,6 +186,20 @@ void MainComponent::openProjectFile(const juce::File &file) {
                             "\n\nPlease install the required model files and try again.");
                     safeThis->isLoadingAudio = false;
                     return;
+                  }
+                }
+
+                // Re-run harmonic-noise separation when the project
+                // has voicing/breath/tension edits but H/N waveforms
+                // were not embedded in the save file.
+                {
+                  auto &ad = project->getAudioData();
+                  const int tf = ad.getNumFrames();
+                  if (tf > 0 &&
+                      ad.harmonicWaveform.getNumSamples() == 0 &&
+                      HNSepCurveProcessor::hasActiveEdits(*project, 0, tf))
+                  {
+                    safeThis->editorController->runHNSepSeparation(*project);
                   }
                 }
 
