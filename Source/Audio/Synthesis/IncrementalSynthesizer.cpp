@@ -477,17 +477,11 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
                 srcVoiced, outDurationFrames);
           }
 
+          // Use linear-resampled mel for all frames.
+          // (The nearest-neighbor path for unvoiced frames is currently
+          //  disabled; when re-enabled, compose outMel from both
+          //  melLinear and melNearest here instead of moving.)
           outMel = std::move(melLinear);
-          if (!voicedMask.empty()) {
-            for (int fi = 0; fi < outDurationFrames; ++fi) {
-              if (voicedMask[static_cast<size_t>(fi)])
-                outMel[static_cast<size_t>(fi)] =
-                    melLinear[static_cast<size_t>(fi)];
-            }
-          } else {
-            // If no voiced info, use linear everywhere
-            // outMel = std::move(melLinear);
-          }
         }
 
         // Ensure correct size

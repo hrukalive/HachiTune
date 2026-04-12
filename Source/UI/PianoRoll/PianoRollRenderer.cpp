@@ -411,6 +411,10 @@ void PianoRollRenderer::drawPitchCurves(juce::Graphics &g,
 
   g.setColour(APP_COLOR_PITCH_CURVE);
 
+  const auto &voicedMask = audioData.voicedMask;
+  const auto &vadMask = audioData.vadMask;
+  const juce::PathStrokeType stroke(2.0f);
+
   for (const auto &note : project->getNotes()) {
     if (note.isRest())
       continue;
@@ -423,19 +427,34 @@ void PianoRollRenderer::drawPitchCurves(juce::Graphics &g,
         std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
 
     for (int i = startFrame; i < endFrame; ++i) {
+      auto idx = static_cast<size_t>(i);
+
+      // Skip unvoiced frames and frames outside VAD to break the curve
+      // at voicing / silence gaps.
+      bool isVoiced = voicedMask.empty() || (idx < voicedMask.size() && voicedMask[idx]);
+      bool hasEnergy = vadMask.empty() || (idx < vadMask.size() && vadMask[idx]);
+      if (!isVoiced || !hasEnergy) {
+        if (pathStarted) {
+          g.strokePath(path, stroke);
+          path.clear();
+          pathStarted = false;
+        }
+        continue;
+      }
+
       // basePitch already includes pitchOffset (baked in by
       // applyDragBasePreview / rebuildBaseFromNotesForDrag during drag,
       // or by rebuildBaseFromNotes after commit).  Do NOT add it again.
       float baseMidi =
           (i < static_cast<int>(audioData.basePitch.size()))
-              ? audioData.basePitch[static_cast<size_t>(i)]
+              ? audioData.basePitch[idx]
               : ((i < static_cast<int>(audioData.f0.size()) &&
-                  audioData.f0[static_cast<size_t>(i)] > 0.0f)
-                     ? freqToMidi(audioData.f0[static_cast<size_t>(i)])
+                  audioData.f0[idx] > 0.0f)
+                     ? freqToMidi(audioData.f0[idx])
                      : 0.0f);
 
       float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))
-                            ? audioData.deltaPitch[static_cast<size_t>(i)]
+                            ? audioData.deltaPitch[idx]
                             : 0.0f;
 
       float finalMidi = baseMidi + deltaMidi + globalPitchOffset;
@@ -455,7 +474,7 @@ void PianoRollRenderer::drawPitchCurves(juce::Graphics &g,
     }
 
     if (pathStarted) {
-      g.strokePath(path, juce::PathStrokeType(2.0f));
+      g.strokePath(path, stroke);
     }
   }
 }
