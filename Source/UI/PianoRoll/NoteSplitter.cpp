@@ -59,6 +59,18 @@ void splitVectorAtRatio(const std::vector<T>& source,
     right.assign(source.begin() + splitOffset, source.end());
 }
 
+template <typename T>
+void splitVectorAtIndex(const std::vector<T>& source,
+                        int splitIndex,
+                        std::vector<T>& left,
+                        std::vector<T>& right)
+{
+    const int clamped =
+        std::clamp(splitIndex, 0, static_cast<int>(source.size()));
+    left.assign(source.begin(), source.begin() + clamped);
+    right.assign(source.begin() + clamped, source.end());
+}
+
 void refreshProjectAfterSplit(Project* project,
                               int dirtyStartFrame,
                               int dirtyEndFrame)
@@ -163,8 +175,9 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     const double splitRatio = computeSplitRatio(splitFrame, startFrame, endFrame);
     const int srcSplitFrame =
         computeMappedSplitFrame(splitRatio, srcStartFrame, srcEndFrame);
-    const double srcSplitRatio =
-        computeSplitRatio(srcSplitFrame, srcStartFrame, srcEndFrame);
+    // Deterministic integer index for source-domain array splitting,
+    // avoiding the double-rounding bug of ratio → lround → ratio → lround.
+    const int srcSplitIndex = srcSplitFrame - srcStartFrame;
 
     // Store original note data for undo
     Note originalNote = *note;
@@ -268,44 +281,48 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
         secondNote.setClipWaveform(std::move(rightClip));
     }
 
-    // Split source clip waveform if available
+    // Split source clip waveform if available (source-domain: use integer index)
     if (note->hasSrcClipWaveform()) {
         const auto& srcClip = note->getSrcClipWaveform();
+        const int srcSampleIndex = srcSplitIndex * HOP_SIZE;
         std::vector<float> leftSrcClip, rightSrcClip;
-        splitVectorAtRatio(srcClip, srcSplitRatio, leftSrcClip, rightSrcClip);
+        splitVectorAtIndex(srcClip, srcSampleIndex, leftSrcClip, rightSrcClip);
         note->setSrcClipWaveform(std::move(leftSrcClip));
         secondNote.setSrcClipWaveform(std::move(rightSrcClip));
     }
 
-    // Split clip mel if available
+    // Split clip mel if available (source-domain: use integer index)
     if (note->hasClipMel()) {
         const auto& mel = note->getClipMel();
         std::vector<std::vector<float>> leftMel, rightMel;
-        splitVectorAtRatio(mel, srcSplitRatio, leftMel, rightMel);
+        splitVectorAtIndex(mel, srcSplitIndex, leftMel, rightMel);
         note->setClipMel(std::move(leftMel));
         secondNote.setClipMel(std::move(rightMel));
     }
 
     if (note->hasClipHarmonicWaveform()) {
         const auto& harmonicClip = note->getClipHarmonicWaveform();
+        const int srcSampleIndex = srcSplitIndex * HOP_SIZE;
         std::vector<float> leftClip, rightClip;
-        splitVectorAtRatio(harmonicClip, srcSplitRatio, leftClip, rightClip);
+        splitVectorAtIndex(harmonicClip, srcSampleIndex, leftClip, rightClip);
         note->setClipHarmonicWaveform(std::move(leftClip));
         secondNote.setClipHarmonicWaveform(std::move(rightClip));
     }
 
     if (note->hasClipNoiseWaveform()) {
         const auto& noiseClip = note->getClipNoiseWaveform();
+        const int srcSampleIndex = srcSplitIndex * HOP_SIZE;
         std::vector<float> leftClip, rightClip;
-        splitVectorAtRatio(noiseClip, srcSplitRatio, leftClip, rightClip);
+        splitVectorAtIndex(noiseClip, srcSampleIndex, leftClip, rightClip);
         note->setClipNoiseWaveform(std::move(leftClip));
         secondNote.setClipNoiseWaveform(std::move(rightClip));
     }
 
+    // f0Values is source-domain: use integer index
     if (!note->getF0Values().empty()) {
         const auto& f0Values = note->getF0Values();
         std::vector<float> leftF0, rightF0;
-        splitVectorAtRatio(f0Values, srcSplitRatio, leftF0, rightF0);
+        splitVectorAtIndex(f0Values, srcSplitIndex, leftF0, rightF0);
         note->setF0Values(std::move(leftF0));
         secondNote.setF0Values(std::move(rightF0));
     }
@@ -318,11 +335,11 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
         secondNote.setDeltaPitch(std::move(rightDelta));
     }
 
-    // Split originalDeltaPitch if available (pristine/source-domain curve)
+    // Split originalDeltaPitch if available (pristine/source-domain curve: use integer index)
     if (note->hasOriginalDeltaPitch()) {
         const auto& origDelta = note->getOriginalDeltaPitch();
         std::vector<float> leftDelta, rightDelta;
-        splitVectorAtRatio(origDelta, srcSplitRatio, leftDelta, rightDelta);
+        splitVectorAtIndex(origDelta, srcSplitIndex, leftDelta, rightDelta);
         note->setOriginalDeltaPitch(std::move(leftDelta));
         secondNote.setOriginalDeltaPitch(std::move(rightDelta));
     } else if (originalNote.hasDeltaPitch()) {
@@ -332,7 +349,7 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
                 CurveResampler::resampleLinear(originalNote.getDeltaPitch(),
                                                srcDuration);
             std::vector<float> leftDelta, rightDelta;
-            splitVectorAtRatio(sourceDelta, srcSplitRatio, leftDelta, rightDelta);
+            splitVectorAtIndex(sourceDelta, srcSplitIndex, leftDelta, rightDelta);
             note->setOriginalDeltaPitch(std::move(leftDelta));
             secondNote.setOriginalDeltaPitch(std::move(rightDelta));
         }
@@ -366,28 +383,32 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     }
     if (note->hasSourceVoicingCurve()) {
         std::vector<float> leftCurve, rightCurve;
-        splitFloatCurve(note->getSourceVoicingCurve(), srcSplitRatio, leftCurve,
-                        rightCurve);
+        splitVectorAtIndex(note->getSourceVoicingCurve(), srcSplitIndex,
+                           leftCurve, rightCurve);
         note->setSourceVoicingCurve(std::move(leftCurve));
         secondNote.setSourceVoicingCurve(std::move(rightCurve));
     }
     if (note->hasSourceBreathCurve()) {
         std::vector<float> leftCurve, rightCurve;
-        splitFloatCurve(note->getSourceBreathCurve(), srcSplitRatio, leftCurve,
-                        rightCurve);
+        splitVectorAtIndex(note->getSourceBreathCurve(), srcSplitIndex,
+                           leftCurve, rightCurve);
         note->setSourceBreathCurve(std::move(leftCurve));
         secondNote.setSourceBreathCurve(std::move(rightCurve));
     }
     if (note->hasSourceTensionCurve()) {
         std::vector<float> leftCurve, rightCurve;
-        splitFloatCurve(note->getSourceTensionCurve(), srcSplitRatio, leftCurve,
-                        rightCurve);
+        splitVectorAtIndex(note->getSourceTensionCurve(), srcSplitIndex,
+                           leftCurve, rightCurve);
         note->setSourceTensionCurve(std::move(leftCurve));
         secondNote.setSourceTensionCurve(std::move(rightCurve));
     }
 
-    recenterNotePitchToAverageActualF0(*note);
-    recenterNotePitchToAverageActualF0(secondNote);
+    // NOTE: Do NOT recenter notes after split.  recenterNotePitchToAverageActualF0
+    // would assign different midiNote values to each half, and the basePitch
+    // cosine-smoothing in BasePitchCurve::generateForNotes would create a
+    // pitch transition at the split boundary that did not exist before,
+    // producing audible crackle.  Keeping the same midiNote ensures the
+    // effective f0 (basePitch + deltaPitch) is unchanged by the split.
 
     // Modify the first note (left part)
     note->setEndFrame(splitFrame);

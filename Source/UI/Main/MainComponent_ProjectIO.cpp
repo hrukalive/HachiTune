@@ -200,6 +200,10 @@ void MainComponent::openProjectFile(const juce::File &file) {
                       HNSepCurveProcessor::hasActiveEdits(*project, 0, tf))
                   {
                     safeThis->editorController->runHNSepSeparation(*project);
+                    // Populate per-note H/N clips from the freshly
+                    // separated global waveforms so that the synthesis
+                    // path can apply tension/voicing/breath per note.
+                    HNSepCurveProcessor::ensureNoteHNClips(*project);
                   }
                 }
 

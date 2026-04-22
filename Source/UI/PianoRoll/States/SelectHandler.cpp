@@ -99,6 +99,12 @@ bool SelectHandler::mouseDown(const juce::MouseEvent &e, float worldX,
   if (!project)
     return false;
 
+  // Right-click: show context menu for note reset
+  if (e.mods.isRightButtonDown()) {
+    showNoteResetMenu(worldX, worldY);
+    return true;
+  }
+
   // Pitch tool controller interaction
   if (owner_.pitchToolController && owner_.pitchToolHandles)
   {
@@ -1108,6 +1114,57 @@ void SelectHandler::rebuildAndNotify()
   if (owner_.onPitchEditFinished)
     owner_.onPitchEditFinished();
   owner_.repaint();
+}
+
+void SelectHandler::showNoteResetMenu(float worldX, float worldY)
+{
+  if (!owner_.project)
+    return;
+
+  Note *note = owner_.findNoteAt(worldX, worldY);
+  if (!note || note->isRest())
+    return;
+
+  juce::PopupMenu menu;
+  menu.addItem(1, "Reset Note to Original");
+
+  menu.showMenuAsync(juce::PopupMenu::Options(),
+                     [this, note](int result) {
+                       if (result == 1)
+                         resetNoteToOriginal(*note);
+                     });
+}
+
+void SelectHandler::resetNoteToOriginal(Note &note)
+{
+  if (!owner_.project)
+    return;
+
+  // Reset tool params
+  note.resetToolParams();
+
+  // Clear working deltaPitch so rebuild picks up from originalDeltaPitch
+  note.setDeltaPitch({});
+
+  // Clear f0EditedMask for this note's frame range
+  auto &audioData = owner_.project->getAudioData();
+  const int startFrame = note.getStartFrame();
+  const int endFrame = note.getEndFrame();
+  if (!audioData.f0EditedMask.empty()) {
+    for (int i = startFrame;
+         i < endFrame &&
+         i < static_cast<int>(audioData.f0EditedMask.size());
+         ++i) {
+      if (i >= 0)
+        audioData.f0EditedMask[static_cast<size_t>(i)] = false;
+    }
+  }
+
+  // Update pitch tool handles to reflect the reset
+  owner_.updatePitchToolHandlesFromSelection();
+
+  // Rebuild and notify
+  rebuildAndNotify();
 }
 
 void SelectHandler::prepareDragBasePreview()

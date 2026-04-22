@@ -412,7 +412,6 @@ void PianoRollRenderer::drawPitchCurves(juce::Graphics &g,
   g.setColour(APP_COLOR_PITCH_CURVE);
 
   const auto &voicedMask = audioData.voicedMask;
-  const auto &vadMask = audioData.vadMask;
   const juce::PathStrokeType stroke(2.0f);
 
   for (const auto &note : project->getNotes()) {
@@ -429,11 +428,12 @@ void PianoRollRenderer::drawPitchCurves(juce::Graphics &g,
     for (int i = startFrame; i < endFrame; ++i) {
       auto idx = static_cast<size_t>(i);
 
-      // Skip unvoiced frames and frames outside VAD to break the curve
-      // at voicing / silence gaps.
+      // Skip unvoiced frames to break the curve at voicing gaps.
+      // vadMask is intentionally NOT checked here — at time-stretch
+      // boundaries the RMS-based vadMask can drop out, hiding the
+      // pitch curve even though the frame is voiced.
       bool isVoiced = voicedMask.empty() || (idx < voicedMask.size() && voicedMask[idx]);
-      bool hasEnergy = vadMask.empty() || (idx < vadMask.size() && vadMask[idx]);
-      if (!isVoiced || !hasEnergy) {
+      if (!isVoiced) {
         if (pathStarted) {
           g.strokePath(path, stroke);
           path.clear();

@@ -39,4 +39,13 @@ namespace HNSepCurveProcessor
      * from the neutral defaults and therefore requires waveform/mel regeneration.
      */
     bool hasActiveEdits(const Project& project, int startFrame, int endFrame);
+
+    /**
+     * For each non-rest note that lacks per-note harmonic/noise clip waveforms,
+     * slice them from the global AudioData::harmonicWaveform / noiseWaveform
+     * using the note's source frame range.  This is needed after HNSep
+     * separation runs (e.g. on project reload) so that the per-note mel
+     * override path in IncrementalSynthesizer can apply tension/voicing/breath.
+     */
+    void ensureNoteHNClips(Project& project);
 } // namespace HNSepCurveProcessor

@@ -437,44 +437,70 @@ namespace
             return;
         }
 
+        // Preserve hand-drawn delta values before overwriting.
+        // Frames with f0EditedMask==true were drawn by the user and must
+        // not be overwritten by the note-tool rebuild pipeline.
+        const bool hasEditedFrames =
+            !audioData.f0EditedMask.empty() &&
+            static_cast<int>(audioData.f0EditedMask.size()) >= totalFrames;
+        std::vector<float> savedDrawnDelta;
+        if (hasEditedFrames)
+        {
+            savedDrawnDelta = audioData.deltaPitch;
+        }
+
         audioData.deltaPitch = rawDelta;
 
         const auto segments = buildBoundarySmoothingSegments(
             project, audioData.basePitch);
-        if (segments.empty())
-            return;
-
-        std::vector<float> idealDeltaSum(static_cast<size_t>(totalFrames), 0.0f);
-        std::vector<float> weightSum(static_cast<size_t>(totalFrames), 0.0f);
-
-        for (const auto& segment : segments)
+        if (!segments.empty())
         {
-            for (size_t i = 0; i < segment.frames.size(); ++i)
+            std::vector<float> idealDeltaSum(static_cast<size_t>(totalFrames), 0.0f);
+            std::vector<float> weightSum(static_cast<size_t>(totalFrames), 0.0f);
+
+            for (const auto& segment : segments)
             {
-                const int frame = segment.frames[i];
+                for (size_t i = 0; i < segment.frames.size(); ++i)
+                {
+                    const int frame = segment.frames[i];
+                    const float idealDelta =
+                        segment.idealMidiValues[i] -
+                        audioData.basePitch[static_cast<size_t>(frame)];
+                    const float weight = segment.weights[i];
+                    idealDeltaSum[static_cast<size_t>(frame)] +=
+                        idealDelta * weight;
+                    weightSum[static_cast<size_t>(frame)] += weight;
+                }
+            }
+
+            for (int frame = 0; frame < totalFrames; ++frame)
+            {
+                const float weight = weightSum[static_cast<size_t>(frame)];
+                if (weight <= 0.0f)
+                    continue;
+
                 const float idealDelta =
-                    segment.idealMidiValues[i] -
-                    audioData.basePitch[static_cast<size_t>(frame)];
-                const float weight = segment.weights[i];
-                idealDeltaSum[static_cast<size_t>(frame)] +=
-                    idealDelta * weight;
-                weightSum[static_cast<size_t>(frame)] += weight;
+                    idealDeltaSum[static_cast<size_t>(frame)] / weight;
+                const float blend = std::min(weight, 1.0f);
+                audioData.deltaPitch[static_cast<size_t>(frame)] =
+                    lerp(rawDelta[static_cast<size_t>(frame)],
+                         idealDelta,
+                         blend);
             }
         }
 
-        for (int frame = 0; frame < totalFrames; ++frame)
+        // Restore hand-drawn frames so they survive the rebuild.
+        if (hasEditedFrames &&
+            static_cast<int>(savedDrawnDelta.size()) >= totalFrames)
         {
-            const float weight = weightSum[static_cast<size_t>(frame)];
-            if (weight <= 0.0f)
-                continue;
-
-            const float idealDelta =
-                idealDeltaSum[static_cast<size_t>(frame)] / weight;
-            const float blend = std::min(weight, 1.0f);
-            audioData.deltaPitch[static_cast<size_t>(frame)] =
-                lerp(rawDelta[static_cast<size_t>(frame)],
-                     idealDelta,
-                     blend);
+            for (int frame = 0; frame < totalFrames; ++frame)
+            {
+                if (audioData.f0EditedMask[static_cast<size_t>(frame)])
+                {
+                    audioData.deltaPitch[static_cast<size_t>(frame)] =
+                        savedDrawnDelta[static_cast<size_t>(frame)];
+                }
+            }
         }
     }
 

@@ -229,6 +229,34 @@ public:
     // Check if frame is within note
     bool containsFrame(int frame) const;
 
+    // Check if any pitch tool parameter has been changed from its default value
+    bool hasNonDefaultToolParams() const
+    {
+        return std::abs(tiltLeft) > 0.001f ||
+               std::abs(tiltRight) > 0.001f ||
+               std::abs(varianceScale - 1.0f) > 0.001f ||
+               std::abs(deltaScale - 1.0f) > 0.0001f ||
+               std::abs(deltaOffset) > 0.0001f ||
+               std::abs(highPassFilterStrength) > 0.0001f ||
+               std::abs(lowPassFilterStrength) > 0.0001f ||
+               smoothLeftFrames > 0 ||
+               smoothRightFrames > 0;
+    }
+
+    // Reset all pitch tool parameters to their default values
+    void resetToolParams()
+    {
+        tiltLeft = 0.0f;
+        tiltRight = 0.0f;
+        varianceScale = 1.0f;
+        smoothLeftFrames = 0;
+        smoothRightFrames = 0;
+        deltaScale = 1.0f;
+        deltaOffset = 0.0f;
+        highPassFilterStrength = 0.0f;
+        lowPassFilterStrength = 0.0f;
+    }
+
 private:
     // Source position (in original waveform, fixed after detection)
     int srcStartFrame = 0;

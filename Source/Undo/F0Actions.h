@@ -15,10 +15,11 @@ public:
     F0EditAction(std::vector<float>* f0Array,
                  std::vector<float>* deltaPitchArray,
                  std::vector<bool>* voicedMask,
+                 std::vector<bool>* f0EditedMask,
                  std::vector<F0FrameEdit> edits,
                  std::function<void(int, int)> onF0Changed = nullptr)
         : f0Array(f0Array), deltaPitchArray(deltaPitchArray), voicedMask(voicedMask),
-          edits(std::move(edits)), onF0Changed(onF0Changed) {}
+          f0EditedMask(f0EditedMask), edits(std::move(edits)), onF0Changed(onF0Changed) {}
 
     void undo() override
     {
@@ -36,6 +37,8 @@ public:
                 (*deltaPitchArray)[e.idx] = e.oldDelta;
             if (voicedMask && e.idx >= 0 && e.idx < static_cast<int>(voicedMask->size()))
                 (*voicedMask)[e.idx] = e.oldVoiced;
+            if (f0EditedMask && e.idx >= 0 && e.idx < static_cast<int>(f0EditedMask->size()))
+                (*f0EditedMask)[e.idx] = e.oldEdited;
         }
         if (onF0Changed && minIdx <= maxIdx)
             onF0Changed(minIdx, maxIdx);
@@ -57,6 +60,8 @@ public:
                 (*deltaPitchArray)[e.idx] = e.newDelta;
             if (voicedMask && e.idx >= 0 && e.idx < static_cast<int>(voicedMask->size()))
                 (*voicedMask)[e.idx] = e.newVoiced;
+            if (f0EditedMask && e.idx >= 0 && e.idx < static_cast<int>(f0EditedMask->size()))
+                (*f0EditedMask)[e.idx] = e.newEdited;
         }
         if (onF0Changed && minIdx <= maxIdx)
             onF0Changed(minIdx, maxIdx);
@@ -68,6 +73,7 @@ private:
     std::vector<float>* f0Array;
     std::vector<float>* deltaPitchArray;
     std::vector<bool>* voicedMask;
+    std::vector<bool>* f0EditedMask;
     std::vector<F0FrameEdit> edits;
     std::function<void(int, int)> onF0Changed;
 };

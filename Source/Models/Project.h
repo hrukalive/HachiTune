@@ -90,6 +90,7 @@ struct AudioData
     std::vector<float> tensionCurve;                     // [T] hnsep spectral tilt control (dense)
     std::vector<bool> voicedMask;                        // [T] uv mask (true = voiced, F0-based)
     std::vector<bool> vadMask;                           // [T] energy-based VAD (true = has audio energy, captures consonants)
+    std::vector<bool> f0EditedMask;                      // [T] true = frame was hand-drawn (preserved during rebuild)
     std::vector<std::pair<int, int>> segmentChunkRanges; // [N] GAME slicer chunks in frame range [start, end)
     std::vector<SegmentDebugChunk> segmentDebugChunks;   // raw GAME outputs for debug visualization
     IncrementalSynthesisDebugInfo incrementalDebug;

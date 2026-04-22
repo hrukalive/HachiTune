@@ -7,7 +7,10 @@
 #include <deque>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+
+class Note;
 
 /**
  * Handles pitch curve drawing interactions in Draw edit mode.
@@ -37,6 +40,9 @@ private:
   void commitPitchDrawing();
   void applyPitchPoint(int frameIndex, int midiCents);
   void startNewPitchCurve(int frameIndex, int midiCents);
+  void bakeNoteToolParams(Note &note);
+  void showNoteResetMenu(float worldX, float worldY);
+  void resetNoteToOriginal(Note &note);
 
   bool isDrawing = false;
   bool isPendingDraw = false;
@@ -44,6 +50,7 @@ private:
   float pendingDrawStartY = 0.0f;
   std::vector<F0FrameEdit> drawingEdits;
   std::unordered_map<int, size_t> drawingEditIndexByFrame;
+  std::unordered_set<Note *> bakedNotes; // Notes already baked in this session
   int lastDrawFrame = -1;
   int lastDrawValueCents = 0;
   DrawCurve *activeDrawCurve = nullptr;

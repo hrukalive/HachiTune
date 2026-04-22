@@ -13,4 +13,6 @@ struct F0FrameEdit
     float newDelta = 0.0f;
     bool oldVoiced = false;
     bool newVoiced = false;
+    bool oldEdited = false;
+    bool newEdited = true;
 };

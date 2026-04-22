@@ -322,6 +322,7 @@ void PitchEditor::endDrawing()
     auto &audioData = project->getAudioData();
     auto action = std::make_unique<F0EditAction>(
         &audioData.f0, &audioData.deltaPitch, &audioData.voicedMask,
+        &audioData.f0EditedMask,
         drawingEdits, [this](int minFrame, int maxFrame)
         {
           if (project) {

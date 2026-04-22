@@ -1,5 +1,6 @@
 #include "HNSepCurveProcessor.h"
 #include "CurveResampler.h"
+#include "Constants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -278,5 +279,50 @@ namespace HNSepCurveProcessor
                                 kDefaultBreath) ||
                curveDiffersFrom(audioData.tensionCurve, startFrame, endFrame,
                                 kDefaultTension);
+    }
+
+    void ensureNoteHNClips(Project& project)
+    {
+        const auto& audioData = project.getAudioData();
+        const int hSamples = audioData.harmonicWaveform.getNumSamples();
+        const int nSamples = audioData.noiseWaveform.getNumSamples();
+        if (hSamples == 0 && nSamples == 0)
+            return;
+
+        const float* harmonicPtr = hSamples > 0
+            ? audioData.harmonicWaveform.getReadPointer(0) : nullptr;
+        const float* noisePtr = nSamples > 0
+            ? audioData.noiseWaveform.getReadPointer(0) : nullptr;
+
+        for (auto& note : project.getNotes())
+        {
+            if (note.isRest())
+                continue;
+
+            const int srcStart = note.getSrcStartFrame() * HOP_SIZE;
+            const int srcEnd = note.getSrcEndFrame() * HOP_SIZE;
+
+            if (!note.hasClipHarmonicWaveform() && harmonicPtr != nullptr)
+            {
+                const int s = std::max(0, std::min(srcStart, hSamples));
+                const int e = std::max(s, std::min(srcEnd, hSamples));
+                if (e > s)
+                {
+                    note.setClipHarmonicWaveform(
+                        std::vector<float>(harmonicPtr + s, harmonicPtr + e));
+                }
+            }
+
+            if (!note.hasClipNoiseWaveform() && noisePtr != nullptr)
+            {
+                const int s = std::max(0, std::min(srcStart, nSamples));
+                const int e = std::max(s, std::min(srcEnd, nSamples));
+                if (e > s)
+                {
+                    note.setClipNoiseWaveform(
+                        std::vector<float>(noisePtr + s, noisePtr + e));
+                }
+            }
+        }
     }
 } // namespace HNSepCurveProcessor

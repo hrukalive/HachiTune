@@ -33,6 +33,8 @@ public:
 private:
   /** Rebuild base pitch, fire edited/finished callbacks, and repaint. */
   void rebuildAndNotify();
+  void showNoteResetMenu(float worldX, float worldY);
+  void resetNoteToOriginal(Note &note);
 
   void prepareDragBasePreview();
   void applyDragBasePreview(float pitchOffsetSemitones);

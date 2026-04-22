@@ -49,7 +49,7 @@ namespace CurveResampler {
       const float t = tMax * static_cast<float>(i) /
                       static_cast<float>(targetLength - 1);
       const int idx =
-          std::clamp(static_cast<int>(std::floor(t)), 0,
+          std::clamp(static_cast<int>(std::round(t)), 0,
                      static_cast<int>(points.size() - 1));
       out[static_cast<size_t>(i)] = points[static_cast<size_t>(idx)];
     }
