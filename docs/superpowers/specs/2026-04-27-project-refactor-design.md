@@ -109,7 +109,7 @@ struct WarpMarker {
 - Tail: `{lastSourceFrame, lastOutputFrame}`
 - No stretching when `sourceFrame == outputFrame` for all markers
 
-### Project Serialization Format
+### Project Serialization Format (Example)
 
 ```json
 {
