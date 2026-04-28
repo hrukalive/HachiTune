@@ -99,15 +99,6 @@ std::vector<float> applyNoteLocalTransformations(
                                         note.getTiltRight(),
                                         note.getVarianceScale());
 
-  const float dScale = note.getDeltaScale();
-  const float dOffset = note.getDeltaOffset();
-  if (std::abs(dScale - 1.0f) > 0.0001f ||
-      std::abs(dOffset) > 0.0001f) {
-    for (auto& value : result) {
-      value = value * dScale + dOffset;
-    }
-  }
-
   return result;
 }
 

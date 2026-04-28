@@ -99,11 +99,6 @@ public:
     int getSmoothRightFrames() const { return smoothRightFrames; }
     void setSmoothRightFrames(int frames) { smoothRightFrames = frames; }
 
-    // Delta scale/offset (post-transformation, from delta control handles)
-    float getDeltaScale() const { return deltaScale; }
-    void setDeltaScale(float scale) { deltaScale = scale; }
-    float getDeltaOffset() const { return deltaOffset; }
-    void setDeltaOffset(float offset) { deltaOffset = offset; }
     float getHighPassFilterStrength() const { return highPassFilterStrength; }
     void setHighPassFilterStrength(float strength) { highPassFilterStrength = strength; }
     float getLowPassFilterStrength() const { return lowPassFilterStrength; }
@@ -236,8 +231,6 @@ public:
         return std::abs(tiltLeft) > 0.001f ||
                std::abs(tiltRight) > 0.001f ||
                std::abs(varianceScale - 1.0f) > 0.001f ||
-               std::abs(deltaScale - 1.0f) > 0.0001f ||
-               std::abs(deltaOffset) > 0.0001f ||
                std::abs(highPassFilterStrength) > 0.0001f ||
                std::abs(lowPassFilterStrength) > 0.0001f ||
                smoothLeftFrames > 0 ||
@@ -252,8 +245,6 @@ public:
         varianceScale = 1.0f;
         smoothLeftFrames = 0;
         smoothRightFrames = 0;
-        deltaScale = 1.0f;
-        deltaOffset = 0.0f;
         highPassFilterStrength = 0.0f;
         lowPassFilterStrength = 0.0f;
     }
@@ -283,9 +274,6 @@ private:
     int smoothLeftFrames = 0;        // Smoothing transition length at left boundary
     int smoothRightFrames = 0;       // Smoothing transition length at right boundary
 
-    // Post-transformation scale/offset from delta control handles
-    float deltaScale = 1.0f;        // Applied after all other transformations (1.0=unchanged)
-    float deltaOffset = 0.0f;       // Added after scale (0.0=unchanged)
     float highPassFilterStrength = 0.0f;  // 0..1, applied non-destructively to note-local delta
     float lowPassFilterStrength = 0.0f;   // 0..1, applied non-destructively to note-local delta
 

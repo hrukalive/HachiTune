@@ -363,10 +363,6 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
         obj->setProperty("originalDeltaPitch", floatArrayToString(note.getOriginalDeltaPitch(), 4));
 
     // Per-note delta scale/offset
-    if (std::abs(note.getDeltaScale() - 1.0f) > 0.0001f)
-        obj->setProperty("deltaScale", note.getDeltaScale());
-    if (std::abs(note.getDeltaOffset()) > 0.0001f)
-        obj->setProperty("deltaOffset", note.getDeltaOffset());
     if (std::abs(note.getHighPassFilterStrength()) > 0.0001f)
         obj->setProperty("highPassFilterStrength", note.getHighPassFilterStrength());
     if (std::abs(note.getLowPassFilterStrength()) > 0.0001f)
@@ -445,9 +441,9 @@ bool ProjectSerializer::noteFromJson(Note& note, const juce::var& json) {
     if (!origDeltaStr.isVoid() && origDeltaStr.toString().isNotEmpty())
         note.setOriginalDeltaPitch(stringToFloatArray(origDeltaStr.toString()));
 
-    // Per-note delta scale/offset
-    note.setDeltaScale(static_cast<float>(json.getProperty("deltaScale", 1.0)));
-    note.setDeltaOffset(static_cast<float>(json.getProperty("deltaOffset", 0.0)));
+    // Per-note delta scale/offset (read for backward compat, discarded)
+    // note.setDeltaScale(static_cast<float>(json.getProperty("deltaScale", 1.0)));
+    // note.setDeltaOffset(static_cast<float>(json.getProperty("deltaOffset", 0.0)));
     note.setHighPassFilterStrength(
         static_cast<float>(json.getProperty("highPassFilterStrength", 0.0)));
     note.setLowPassFilterStrength(
