@@ -1768,6 +1768,7 @@ void recomputeFromMarkers(Project& project,
     HNSepCurveProcessor::rebuildCurvesFromNotes(project);
     project.composeGlobalWaveform();
     rebuildVadMaskFromWaveform(audioData);
+    project.refreshNoteCaches();
 
     if (updateProjectMarkers)
         project.setModified(true);
