@@ -122,8 +122,6 @@ namespace HNSepCurveProcessor
                         static_cast<size_t>(noteLength), kDefaultVoicing));
                 }
             }
-            if (!note.hasSourceVoicingCurve())
-                note.setSourceVoicingCurve(note.getVoicingCurve());
 
             if (!note.hasBreathCurve())
             {
@@ -141,8 +139,6 @@ namespace HNSepCurveProcessor
                         static_cast<size_t>(noteLength), kDefaultBreath));
                 }
             }
-            if (!note.hasSourceBreathCurve())
-                note.setSourceBreathCurve(note.getBreathCurve());
 
             if (!note.hasTensionCurve())
             {
@@ -160,8 +156,6 @@ namespace HNSepCurveProcessor
                         static_cast<size_t>(noteLength), kDefaultTension));
                 }
             }
-            if (!note.hasSourceTensionCurve())
-                note.setSourceTensionCurve(note.getTensionCurve());
         }
 
         rebuildCurvesFromNotes(project);
@@ -280,9 +274,6 @@ namespace HNSepCurveProcessor
             note.setTensionCurve(std::vector<float>(
                 audioData.tensionCurve.begin() + startFrame,
                 audioData.tensionCurve.begin() + endFrame));
-            note.setSourceVoicingCurve(note.getVoicingCurve());
-            note.setSourceBreathCurve(note.getBreathCurve());
-            note.setSourceTensionCurve(note.getTensionCurve());
         }
 
         syncHNSepToEditedData(project);
@@ -391,27 +382,21 @@ namespace HNSepCurveProcessor
                 continue;
 
             std::vector<float> srcVoicing, srcBreath, srcTension;
-            if (note.hasSourceVoicingCurve())
-                srcVoicing = note.getSourceVoicingCurve();
-            else if (note.hasVoicingCurve())
+            if (note.hasVoicingCurve())
                 srcVoicing = CurveResampler::resampleLinear(
                     note.getVoicingCurve(), srcDurationFrames);
             else
                 srcVoicing.assign(static_cast<size_t>(srcDurationFrames),
                                   kDefaultVoicing);
 
-            if (note.hasSourceBreathCurve())
-                srcBreath = note.getSourceBreathCurve();
-            else if (note.hasBreathCurve())
+            if (note.hasBreathCurve())
                 srcBreath = CurveResampler::resampleLinear(
                     note.getBreathCurve(), srcDurationFrames);
             else
                 srcBreath.assign(static_cast<size_t>(srcDurationFrames),
                                  kDefaultBreath);
 
-            if (note.hasSourceTensionCurve())
-                srcTension = note.getSourceTensionCurve();
-            else if (note.hasTensionCurve())
+            if (note.hasTensionCurve())
                 srcTension = CurveResampler::resampleLinear(
                     note.getTensionCurve(), srcDurationFrames);
             else

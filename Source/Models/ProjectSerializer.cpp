@@ -305,10 +305,7 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
                                           {
                                               return note.hasVoicingCurve() ||
                                                      note.hasBreathCurve() ||
-                                                     note.hasTensionCurve() ||
-                                                     note.hasSourceVoicingCurve() ||
-                                                     note.hasSourceBreathCurve() ||
-                                                     note.hasSourceTensionCurve();
+                                                     note.hasTensionCurve();
                                           });
 
     if (hasNoteHNSep)
@@ -375,15 +372,6 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
         obj->setProperty("breathCurve", floatArrayToString(note.getBreathCurve(), 2));
     if (note.hasTensionCurve())
         obj->setProperty("tensionCurve", floatArrayToString(note.getTensionCurve(), 2));
-    if (note.hasSourceVoicingCurve())
-        obj->setProperty("sourceVoicingCurve",
-                         floatArrayToString(note.getSourceVoicingCurve(), 2));
-    if (note.hasSourceBreathCurve())
-        obj->setProperty("sourceBreathCurve",
-                         floatArrayToString(note.getSourceBreathCurve(), 2));
-    if (note.hasSourceTensionCurve())
-        obj->setProperty("sourceTensionCurve",
-                         floatArrayToString(note.getSourceTensionCurve(), 2));
 
     return juce::var(obj);
 }
@@ -463,25 +451,16 @@ bool ProjectSerializer::noteFromJson(Note& note, const juce::var& json) {
         note.setTensionCurve(stringToFloatArray(tensionStr.toString()));
 
     auto sourceVoicingStr = json.getProperty("sourceVoicingCurve", juce::var());
-    if (!sourceVoicingStr.isVoid() && sourceVoicingStr.toString().isNotEmpty())
-        note.setSourceVoicingCurve(
-            stringToFloatArray(sourceVoicingStr.toString()));
-    else if (note.hasVoicingCurve())
-        note.setSourceVoicingCurve(note.getVoicingCurve());
+    // Read for backward compatibility, discard (source curves removed).
+    (void)sourceVoicingStr;
 
     auto sourceBreathStr = json.getProperty("sourceBreathCurve", juce::var());
-    if (!sourceBreathStr.isVoid() && sourceBreathStr.toString().isNotEmpty())
-        note.setSourceBreathCurve(
-            stringToFloatArray(sourceBreathStr.toString()));
-    else if (note.hasBreathCurve())
-        note.setSourceBreathCurve(note.getBreathCurve());
+    // Read for backward compatibility, discard.
+    (void)sourceBreathStr;
 
     auto sourceTensionStr = json.getProperty("sourceTensionCurve", juce::var());
-    if (!sourceTensionStr.isVoid() && sourceTensionStr.toString().isNotEmpty())
-        note.setSourceTensionCurve(
-            stringToFloatArray(sourceTensionStr.toString()));
-    else if (note.hasTensionCurve())
-        note.setSourceTensionCurve(note.getTensionCurve());
+    // Read for backward compatibility, discard.
+    (void)sourceTensionStr;
 
     return true;
 }

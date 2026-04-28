@@ -1367,14 +1367,6 @@ namespace
         return result;
     }
 
-    std::vector<float> selectSourceCurve(const std::vector<float>& current,
-                                         const std::vector<float>& source)
-    {
-        if (!source.empty())
-            return source;
-        return current;
-    }
-
     int getWaveformFrameCount(const juce::AudioBuffer<float>& buffer)
     {
         const int numSamples = buffer.getNumSamples();
@@ -1642,38 +1634,6 @@ int computeSegmentMinimumOutputSpan(const Project& project,
     return minimumSpan;
 }
 
-void syncSourceCurvesFromCurrent(Project& project,
-                                 int minNoteIndex,
-                                 int maxNoteIndex)
-{
-    auto& notes = project.getNotes();
-    if (notes.empty())
-        return;
-
-    minNoteIndex = std::max(0, minNoteIndex);
-    maxNoteIndex = std::min(maxNoteIndex, static_cast<int>(notes.size()) - 1);
-    if (minNoteIndex > maxNoteIndex)
-        return;
-
-    for (int i = minNoteIndex; i <= maxNoteIndex; ++i)
-    {
-        auto& note = notes[static_cast<size_t>(i)];
-        const int srcDuration = std::max(0, note.getSrcDurationFrames());
-        if (note.isRest() || srcDuration <= 0)
-            continue;
-
-        note.setSourceVoicingCurve(
-            fitFloatCurve(note.getVoicingCurve(), srcDuration,
-                          HNSepCurveProcessor::kDefaultVoicing));
-        note.setSourceBreathCurve(
-            fitFloatCurve(note.getBreathCurve(), srcDuration,
-                          HNSepCurveProcessor::kDefaultBreath));
-        note.setSourceTensionCurve(
-            fitFloatCurve(note.getTensionCurve(), srcDuration,
-                          HNSepCurveProcessor::kDefaultTension));
-    }
-}
-
 void recomputeFromMarkers(Project& project,
                           const std::vector<Project::WarpMarker>& markers,
                           bool updateProjectMarkers)
@@ -1722,29 +1682,12 @@ void recomputeFromMarkers(Project& project,
                                       : note.getDeltaPitch();
         note.setDeltaPitch(fitFloatCurve(sourceDelta, durationFrames, 0.0f));
 
-        const auto sourceVoicing =
-            selectSourceCurve(note.getVoicingCurve(),
-                              note.getSourceVoicingCurve());
-        const auto sourceBreath =
-            selectSourceCurve(note.getBreathCurve(),
-                              note.getSourceBreathCurve());
-        const auto sourceTension =
-            selectSourceCurve(note.getTensionCurve(),
-                              note.getSourceTensionCurve());
-
-        note.setVoicingCurve(fitFloatCurve(sourceVoicing, durationFrames,
+        note.setVoicingCurve(fitFloatCurve(note.getVoicingCurve(), durationFrames,
                                            HNSepCurveProcessor::kDefaultVoicing));
-        note.setBreathCurve(fitFloatCurve(sourceBreath, durationFrames,
+        note.setBreathCurve(fitFloatCurve(note.getBreathCurve(), durationFrames,
                                           HNSepCurveProcessor::kDefaultBreath));
-        note.setTensionCurve(fitFloatCurve(sourceTension, durationFrames,
+        note.setTensionCurve(fitFloatCurve(note.getTensionCurve(), durationFrames,
                                            HNSepCurveProcessor::kDefaultTension));
-
-        if (!note.hasSourceVoicingCurve())
-            note.setSourceVoicingCurve(sourceVoicing);
-        if (!note.hasSourceBreathCurve())
-            note.setSourceBreathCurve(sourceBreath);
-        if (!note.hasSourceTensionCurve())
-            note.setSourceTensionCurve(sourceTension);
 
         const auto voicedFrames =
             fitBoolCurve(

@@ -32,7 +32,4 @@ int computeSegmentMinimumOutputSpan(const Project& project,
 void recomputeFromMarkers(Project& project,
                           const std::vector<Project::WarpMarker>& markers,
                           bool updateProjectMarkers = true);
-void syncSourceCurvesFromCurrent(Project& project,
-                                 int minNoteIndex,
-                                 int maxNoteIndex);
 } // namespace WarpMarkerProcessor

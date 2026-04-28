@@ -1,7 +1,6 @@
 #include "HNSepLaneComponent.h"
 #include "../Undo/PitchUndoManager.h"
 #include "../Utils/HNSepCurveProcessor.h"
-#include "../Utils/WarpMarkerProcessor.h"
 
 #include <cmath>
 
@@ -953,7 +952,6 @@ void HNSepLaneComponent::commitEdits() {
 
   auto markDirtyAndNotify = [this](int minN, int maxN) {
     if (project) {
-      WarpMarkerProcessor::syncSourceCurvesFromCurrent(*project, minN, maxN);
       auto& notes = project->getNotes();
       int minFrame = std::numeric_limits<int>::max();
       int maxFrame = std::numeric_limits<int>::min();

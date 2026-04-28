@@ -319,27 +319,6 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
         note->setTensionCurve(std::move(leftCurve));
         secondNote.setTensionCurve(std::move(rightCurve));
     }
-    if (note->hasSourceVoicingCurve()) {
-        std::vector<float> leftCurve, rightCurve;
-        splitVectorAtIndex(note->getSourceVoicingCurve(), srcSplitIndex,
-                           leftCurve, rightCurve);
-        note->setSourceVoicingCurve(std::move(leftCurve));
-        secondNote.setSourceVoicingCurve(std::move(rightCurve));
-    }
-    if (note->hasSourceBreathCurve()) {
-        std::vector<float> leftCurve, rightCurve;
-        splitVectorAtIndex(note->getSourceBreathCurve(), srcSplitIndex,
-                           leftCurve, rightCurve);
-        note->setSourceBreathCurve(std::move(leftCurve));
-        secondNote.setSourceBreathCurve(std::move(rightCurve));
-    }
-    if (note->hasSourceTensionCurve()) {
-        std::vector<float> leftCurve, rightCurve;
-        splitVectorAtIndex(note->getSourceTensionCurve(), srcSplitIndex,
-                           leftCurve, rightCurve);
-        note->setSourceTensionCurve(std::move(leftCurve));
-        secondNote.setSourceTensionCurve(std::move(rightCurve));
-    }
 
     // NOTE: Do NOT recenter notes after split.  recenterNotePitchToAverageActualF0
     // would assign different midiNote values to each half, and the basePitch
