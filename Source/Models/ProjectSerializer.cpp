@@ -324,8 +324,6 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
 
     obj->setProperty("startFrame", note.getStartFrame());
     obj->setProperty("endFrame", note.getEndFrame());
-    obj->setProperty("srcStartFrame", note.getSrcStartFrame());
-    obj->setProperty("srcEndFrame", note.getSrcEndFrame());
     obj->setProperty("midiNote", note.getMidiNote());
     obj->setProperty("pitchOffset", note.getPitchOffset());
     obj->setProperty("volumeDb", note.getVolumeDb());
