@@ -174,15 +174,6 @@ public:
     // Get F0 values based on current midiNote + deltaPitch
     std::vector<float> computeF0FromDelta() const;
 
-    // Waveform clip (original samples for this note)
-    const std::vector<float>& getClipWaveform() const { return clipWaveform; }
-    void setClipWaveform(std::vector<float> samples) { clipWaveform = std::move(samples); }
-    bool hasClipWaveform() const { return !clipWaveform.empty(); }
-
-    // Source clip waveform (immutable original audio from originalWaveform, set once during segmentation)
-    const std::vector<float>& getSrcClipWaveform() const { return srcClipWaveform; }
-    void setSrcClipWaveform(std::vector<float> samples) { srcClipWaveform = std::move(samples); }
-    bool hasSrcClipWaveform() const { return !srcClipWaveform.empty(); }
 
     // Synthesized waveform (vocoder output for this note, regenerated when synthDirty)
     // When synthPreroll > 0, the waveform contains extra leading samples before
@@ -306,8 +297,6 @@ private:
     float vibratoFadeInMs = 0.0f;       // Fade-in duration in ms
     float vibratoFadeOutMs = 0.0f;      // Fade-out duration in ms
 
-    std::vector<float> clipWaveform;
-    std::vector<float> srcClipWaveform;  // Immutable original audio (from originalWaveform)
     std::vector<float> synthWaveform;    // Vocoder output (regenerated when synthDirty)
     int synthPreroll = 0;                // Margin samples prepended before noteStart in synthWaveform
     std::uint64_t synthPassId = 0;       // Incremental synthesis pass that produced synthWaveform

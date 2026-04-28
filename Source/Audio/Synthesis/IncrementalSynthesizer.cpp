@@ -643,11 +643,9 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
             // This covers first-time partial updates where no prior synth cache
             // exists, including short preroll/postroll margins around the note.
             if (origWavePtr != nullptr) {
-              const auto &srcClip = note.getSrcClipWaveform();
               const int srcFrames =
                   note.getSrcEndFrame() - note.getSrcStartFrame();
               const int dstFrames = note.getEndFrame() - note.getStartFrame();
-              const int srcClipSamples = static_cast<int>(srcClip.size());
               const int srcBodySamples =
                   std::max(0, srcEndSample - srcStartSample);
 
@@ -676,25 +674,6 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
                 const int bodyIdx = dstIdx - leftMargin;
                 int srcIdx = -1;
-                if (srcClipSamples > 0) {
-                  if (dstFrames > 0 && srcFrames > 0) {
-                    const float srcPos =
-                        static_cast<float>(bodyIdx) *
-                        static_cast<float>(srcClipSamples) /
-                        static_cast<float>(noteSamples);
-                    srcIdx = static_cast<int>(srcPos);
-                  } else {
-                    srcIdx = bodyIdx;
-                  }
-
-                  if (srcIdx >= 0 && srcIdx < srcClipSamples) {
-                    noteSynth[static_cast<size_t>(dstIdx)] =
-                        srcClip[static_cast<size_t>(srcIdx)];
-                    noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
-                    continue;
-                  }
-                }
-
                 if (srcBodySamples > 0) {
                   if (dstFrames > 0 && srcFrames > 0) {
                     const float srcPos =
@@ -709,39 +688,6 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
                 if (srcIdx >= 0 && srcIdx < origSamples) {
                   noteSynth[static_cast<size_t>(dstIdx)] = origWavePtr[srcIdx];
-                  noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
-                }
-              }
-            }
-
-            // For parts of the note body still uncovered, fall back to the
-            // immutable source clip. Existing synth content already filled
-            // uncovered regions above when available.
-            if (note.hasSrcClipWaveform()) {
-              const auto &srcClip = note.getSrcClipWaveform();
-              const int srcFrames = note.getSrcEndFrame() - note.getSrcStartFrame();
-              const int dstFrames = note.getEndFrame() - note.getStartFrame();
-              const int srcSamples = static_cast<int>(srcClip.size());
-
-              for (int i = 0; i < noteSamples; ++i) {
-                const int dstIdx = leftMargin + i;
-                if (dstIdx < 0 || dstIdx >= totalSynthLen)
-                  continue;
-                if (noteSynthFilled[static_cast<size_t>(dstIdx)])
-                  continue;
-
-                // Map destination sample to source sample (handle stretch)
-                float srcPos;
-                if (dstFrames > 0 && srcFrames > 0) {
-                  srcPos = static_cast<float>(i) * static_cast<float>(srcSamples) /
-                           static_cast<float>(noteSamples);
-                } else {
-                  srcPos = static_cast<float>(i);
-                }
-                int srcIdx = static_cast<int>(srcPos);
-                if (srcIdx >= 0 && srcIdx < srcSamples) {
-                  noteSynth[static_cast<size_t>(dstIdx)] =
-                      srcClip[static_cast<size_t>(srcIdx)];
                   noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
                 }
               }

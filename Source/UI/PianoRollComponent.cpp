@@ -1630,20 +1630,10 @@ void PianoRollComponent::drawNotes(juce::Graphics &g, NoteRenderPass pass)
       int totalSamples = globalTotalSamples;
       int startSample = 0;
       int endSample = 0;
-      const auto &clipWaveform = note.getClipWaveform();
-      if (!clipWaveform.empty())
+      if (samples && totalSamples > 0)
       {
-        samples = clipWaveform.data();
-        totalSamples = static_cast<int>(clipWaveform.size());
-        startSample = 0;
-        endSample = totalSamples;
-      }
-      else if (samples && totalSamples > 0)
-      {
-        startSample = static_cast<int>(framesToSeconds(note.getStartFrame()) *
-                                       audioData.sampleRate);
-        endSample = static_cast<int>(framesToSeconds(note.getEndFrame()) *
-                                     audioData.sampleRate);
+        startSample = note.getStartFrame() * HOP_SIZE;
+        endSample = std::min(note.getEndFrame() * HOP_SIZE, totalSamples);
         startSample = std::max(0, std::min(startSample, totalSamples - 1));
         endSample = std::max(startSample + 1, std::min(endSample, totalSamples));
       }

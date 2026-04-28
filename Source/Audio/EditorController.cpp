@@ -1218,31 +1218,6 @@ void EditorController::segmentIntoNotes(Project &targetProject,
     }
   };
 
-  auto sliceSourceClips = [&]()
-  {
-    if (sourceSamples <= 0 || sourceWaveform.getNumChannels() <= 0)
-      return;
-
-    const float *sourcePtr = sourceWaveform.getReadPointer(0);
-    for (auto &note : notes)
-    {
-      const int sampleStart = note.getSrcStartFrame() * HOP_SIZE;
-      const int sampleEnd = note.getSrcEndFrame() * HOP_SIZE;
-      const int clampedStart = std::max(0, std::min(sampleStart, sourceSamples));
-      const int clampedEnd = std::max(clampedStart, std::min(sampleEnd, sourceSamples));
-
-      if (clampedEnd <= clampedStart)
-      {
-        note.setSrcClipWaveform({});
-        continue;
-      }
-
-      std::vector<float> srcClip(sourcePtr + clampedStart,
-                                 sourcePtr + clampedEnd);
-      note.setSrcClipWaveform(std::move(srcClip));
-    }
-  };
-
   auto sliceSourceMelClips = [&]()
   {
     if (audioData.melSpectrogram.empty())
@@ -1505,7 +1480,6 @@ void EditorController::segmentIntoNotes(Project &targetProject,
 
     juce::Thread::sleep(100);
 
-    sliceSourceClips();
     sliceSourceMelClips();
     sliceHNSepClips();
 
@@ -1612,7 +1586,6 @@ void EditorController::segmentIntoNotes(Project &targetProject,
   }
 
   // Slice harmonic/noise waveforms into per-note clips (fallback path)
-  sliceSourceClips();
   sliceSourceMelClips();
   sliceHNSepClips();
 

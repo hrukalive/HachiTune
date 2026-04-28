@@ -1746,16 +1746,6 @@ void recomputeFromMarkers(Project& project,
         if (!note.hasSourceTensionCurve())
             note.setSourceTensionCurve(sourceTension);
 
-        if (note.hasSrcClipWaveform())
-        {
-            note.setClipWaveform(CurveResampler::resampleLinear(
-                note.getSrcClipWaveform(), durationFrames * HOP_SIZE));
-        }
-        else
-        {
-            note.setClipWaveform({});
-        }
-
         const auto voicedFrames =
             fitBoolCurve(
                 buildSourceVoicedMask(project.getAnalysisData().originalF0,
