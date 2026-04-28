@@ -48,4 +48,17 @@ namespace HNSepCurveProcessor
      * override path in IncrementalSynthesizer can apply tension/voicing/breath.
      */
     void ensureNoteHNClips(Project& project);
+
+    /**
+     * For each non-rest note overlapping [startFrame, endFrame), run the
+     * TensionProcessor at source rate using per-note harmonic/noise clips and
+     * source-duration HNSep curves, recompute mel from the processed audio, and
+     * write the resampled output-duration mel directly into
+     * AudioData::melSpectrogram at the note's output position.
+     *
+     * Call this after rebuildCurvesForRange() when hasActiveEdits() is true to
+     * keep the global mel in sync with current voicing/breath/tension edits.
+     * Calls syncHNSepToEditedData() on completion.
+     */
+    void recomputeMelForRange(Project& project, int startFrame, int endFrame);
 } // namespace HNSepCurveProcessor

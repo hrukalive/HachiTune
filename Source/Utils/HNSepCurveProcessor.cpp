@@ -1,6 +1,8 @@
 #include "HNSepCurveProcessor.h"
 #include "CurveResampler.h"
+#include "MelSpectrogram.h"
 #include "Constants.h"
+#include "../Audio/TensionProcessor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -340,5 +342,130 @@ namespace HNSepCurveProcessor
                 }
             }
         }
+    }
+
+    void recomputeMelForRange(Project& project, int startFrame, int endFrame)
+    {
+        auto& audioData = project.getAudioData();
+        if (audioData.melSpectrogram.empty())
+            return;
+
+        const bool hasGlobalHNSep =
+            audioData.harmonicWaveform.getNumSamples() > 0 &&
+            audioData.noiseWaveform.getNumSamples() > 0;
+        if (!hasGlobalHNSep)
+            return;
+        if (audioData.voicingCurve.empty() || audioData.breathCurve.empty() ||
+            audioData.tensionCurve.empty())
+            return;
+        if (!hasActiveEdits(project, startFrame, endFrame))
+            return;
+
+        const int numMels =
+            static_cast<int>(audioData.melSpectrogram.front().size());
+
+        TensionProcessor tensionProc;
+        MelSpectrogram melComputer(audioData.sampleRate);
+
+        for (const auto& note : project.getNotes())
+        {
+            if (note.isRest())
+                continue;
+
+            const int noteOutStart = note.getStartFrame();
+            const int noteOutEnd = note.getEndFrame();
+            if (noteOutEnd <= startFrame || noteOutStart >= endFrame)
+                continue;
+
+            if (!note.hasClipHarmonicWaveform() || !note.hasClipNoiseWaveform())
+                continue;
+
+            const auto& clipH = note.getClipHarmonicWaveform();
+            const auto& clipN = note.getClipNoiseWaveform();
+            const int srcDurationFrames = note.getSrcDurationFrames();
+            const int outDurationFrames = note.getDurationFrames();
+            if (srcDurationFrames <= 0 || outDurationFrames <= 0)
+                continue;
+            const int srcSamples = static_cast<int>(clipH.size());
+            if (srcSamples <= 0)
+                continue;
+
+            std::vector<float> srcVoicing, srcBreath, srcTension;
+            if (note.hasSourceVoicingCurve())
+                srcVoicing = note.getSourceVoicingCurve();
+            else if (note.hasVoicingCurve())
+                srcVoicing = CurveResampler::resampleLinear(
+                    note.getVoicingCurve(), srcDurationFrames);
+            else
+                srcVoicing.assign(static_cast<size_t>(srcDurationFrames),
+                                  kDefaultVoicing);
+
+            if (note.hasSourceBreathCurve())
+                srcBreath = note.getSourceBreathCurve();
+            else if (note.hasBreathCurve())
+                srcBreath = CurveResampler::resampleLinear(
+                    note.getBreathCurve(), srcDurationFrames);
+            else
+                srcBreath.assign(static_cast<size_t>(srcDurationFrames),
+                                 kDefaultBreath);
+
+            if (note.hasSourceTensionCurve())
+                srcTension = note.getSourceTensionCurve();
+            else if (note.hasTensionCurve())
+                srcTension = CurveResampler::resampleLinear(
+                    note.getTensionCurve(), srcDurationFrames);
+            else
+                srcTension.assign(static_cast<size_t>(srcDurationFrames),
+                                  kDefaultTension);
+
+            if (!tensionProc.hasActiveEdits(
+                    srcVoicing.data(), srcBreath.data(), srcTension.data(),
+                    srcDurationFrames))
+                continue;
+
+            srcVoicing.resize(static_cast<size_t>(srcDurationFrames),
+                              kDefaultVoicing);
+            srcBreath.resize(static_cast<size_t>(srcDurationFrames),
+                             kDefaultBreath);
+            srcTension.resize(static_cast<size_t>(srcDurationFrames),
+                              kDefaultTension);
+
+            const int noiseSamples = static_cast<int>(clipN.size());
+            auto processedSrc = tensionProc.processSegment(
+                clipH.data(), clipN.data(),
+                std::min(srcSamples, noiseSamples),
+                srcVoicing.data(), srcBreath.data(), srcTension.data(),
+                srcDurationFrames);
+
+            auto srcMel = melComputer.compute(
+                processedSrc.data(), static_cast<int>(processedSrc.size()));
+            if (srcMel.empty())
+                continue;
+
+            std::vector<std::vector<float>> outMel;
+            if (srcDurationFrames == outDurationFrames)
+                outMel = std::move(srcMel);
+            else
+                outMel = CurveResampler::resampleLinear2D(srcMel, outDurationFrames);
+
+            outMel.resize(static_cast<size_t>(outDurationFrames),
+                          std::vector<float>(static_cast<size_t>(numMels), 0.0f));
+
+            const int writeStart = std::max(startFrame, noteOutStart);
+            const int writeEnd = std::min(endFrame, noteOutEnd);
+            for (int f = writeStart; f < writeEnd; ++f)
+            {
+                const int noteLocal = f - noteOutStart;
+                if (noteLocal >= 0 &&
+                    noteLocal < static_cast<int>(outMel.size()) &&
+                    f < static_cast<int>(audioData.melSpectrogram.size()))
+                {
+                    audioData.melSpectrogram[static_cast<size_t>(f)] =
+                        outMel[static_cast<size_t>(noteLocal)];
+                }
+            }
+        }
+
+        syncHNSepToEditedData(project);
     }
 } // namespace HNSepCurveProcessor
