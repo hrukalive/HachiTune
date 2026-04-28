@@ -1,4 +1,5 @@
 #include "EditorController.h"
+#include "TensionProcessor.h"
 #include "../Utils/SHA256Utils.h"
 #include "../Utils/Constants.h"
 #include "../Utils/F0Smoother.h"
@@ -109,6 +110,61 @@ bool EditorController::runHNSepSeparation(Project &proj)
 
     LOG("runHNSepSeparation: separation complete (" +
         juce::String(numSamples) + " samples)");
+
+    // Cache STFT of harmonic and noise for TensionProcessor
+    {
+      TensionProcessor tempProc;
+      const int hopSize = 512;
+      const int fftSize = 2048;
+      const int fftBin = fftSize / 2 + 1;
+
+      auto computeSTFT = [&](const juce::AudioBuffer<float>& buffer) -> std::vector<float> {
+        if (buffer.getNumSamples() == 0)
+          return {};
+        const float* data = buffer.getReadPointer(0);
+        const int nSamples = buffer.getNumSamples();
+        const int numSTFTFrames = (nSamples + hopSize - 1) / hopSize;
+        // Hann window
+        std::vector<float> hannWin(static_cast<size_t>(fftSize));
+        const double twoPi = 2.0 * 3.14159265358979323846;
+        for (int n = 0; n < fftSize; ++n)
+          hannWin[static_cast<size_t>(n)] =
+              static_cast<float>(0.5 * (1.0 - std::cos(twoPi * n / fftSize)));
+
+        std::vector<float> stft(static_cast<size_t>(numSTFTFrames * fftBin * 2), 0.0f);
+        std::vector<float> frame(static_cast<size_t>(fftSize), 0.0f);
+        std::vector<float> fftReal(static_cast<size_t>(fftBin));
+        std::vector<float> fftImag(static_cast<size_t>(fftBin));
+
+        for (int f = 0; f < numSTFTFrames; ++f)
+        {
+          const int center = f * hopSize;
+          const int frameStart = center - fftSize / 2;
+          for (int n = 0; n < fftSize; ++n)
+          {
+            const int idx = frameStart + n;
+            float sample = (idx >= 0 && idx < nSamples) ? data[idx] : 0.0f;
+            frame[static_cast<size_t>(n)] = sample * hannWin[static_cast<size_t>(n)];
+          }
+
+          tempProc.forwardFFT(frame.data(), fftReal.data(), fftImag.data());
+
+          const int offset = f * fftBin * 2;
+          for (int k = 0; k < fftBin; ++k)
+          {
+            stft[static_cast<size_t>(offset + k * 2)] = fftReal[static_cast<size_t>(k)];
+            stft[static_cast<size_t>(offset + k * 2 + 1)] = fftImag[static_cast<size_t>(k)];
+          }
+        }
+        return stft;
+      };
+
+      proj.getHarmonicSTFT() = computeSTFT(audioData.harmonicWaveform);
+      proj.getNoiseSTFT() = computeSTFT(audioData.noiseWaveform);
+
+      LOG("runHNSepSeparation: STFT cache computed");
+    }
+
     return true;
   }
 

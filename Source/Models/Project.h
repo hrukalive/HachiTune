@@ -6,7 +6,6 @@
 #include "Note.h"
 #include "ProjectListener.h"
 #include <algorithm>
-#include <complex>
 #include <vector>
 #include <memory>
 #include <utility>
@@ -222,11 +221,11 @@ public:
     const juce::AudioBuffer<float>& getAuditionBuffer() const { return auditionBuffer; }
     void initAuditionBufferFromOriginal();
 
-    // --- STFT cache ---
-    std::vector<std::complex<float>>& getHarmonicSTFT() { return harmonicSTFT; }
-    const std::vector<std::complex<float>>& getHarmonicSTFT() const { return harmonicSTFT; }
-    std::vector<std::complex<float>>& getNoiseSTFT() { return noiseSTFT; }
-    const std::vector<std::complex<float>>& getNoiseSTFT() const { return noiseSTFT; }
+    // --- STFT cache (interleaved real/imag, kFFTBin*2 floats per frame) ---
+    std::vector<float>& getHarmonicSTFT() { return harmonicSTFT; }
+    const std::vector<float>& getHarmonicSTFT() const { return harmonicSTFT; }
+    std::vector<float>& getNoiseSTFT() { return noiseSTFT; }
+    const std::vector<float>& getNoiseSTFT() const { return noiseSTFT; }
 
     // --- Listener system ---
     void addListener(ProjectListener* listener);
@@ -354,8 +353,8 @@ private:
     AnalysisData analysisData;
     EditedData editedData;
     juce::AudioBuffer<float> auditionBuffer;
-    std::vector<std::complex<float>> harmonicSTFT;
-    std::vector<std::complex<float>> noiseSTFT;
+    std::vector<float> harmonicSTFT;
+    std::vector<float> noiseSTFT;
     std::vector<ProjectListener*> listeners;
 
     float globalPitchOffset = 0.0f;

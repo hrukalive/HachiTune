@@ -54,12 +54,58 @@ public:
                                     int numFrames) const;
 
   /**
+   * Result of STFT-based tension processing.
+   */
+  struct TensionResult
+  {
+    std::vector<float> mixedWaveform;
+    std::vector<std::vector<float>> mel; // [T, NUM_MELS]
+  };
+
+  /**
+   * Process [startFrame, endFrame) using precomputed STFT cache.
+   * Skips forward FFT — reads directly from cached frequency-domain data.
+   * Applies voicing/breath scaling and tension spectral tilt, then ISTFT.
+   *
+   * The STFT cache stores interleaved [real, imag] pairs for each bin,
+   * laid out as: harmonicSTFT[stftFrame * kFFTBin * 2 + bin * 2 + 0] = real
+   *              harmonicSTFT[stftFrame * kFFTBin * 2 + bin * 2 + 1] = imag
+   *
+   * @param harmonicSTFT  Global precomputed harmonic STFT (interleaved complex)
+   * @param noiseSTFT     Global precomputed noise STFT (interleaved complex)
+   * @param totalSTFTFrames  Total number of STFT frames in the cache
+   * @param startFrame    Start of processing range (hop-aligned frame index)
+   * @param endFrame      End of processing range (exclusive)
+   * @param voicingCurve  Global voicing curve (indexed by frame)
+   * @param breathCurve   Global breath curve
+   * @param tensionCurve  Global tension curve
+   * @return              TensionResult with mixed waveform and mel for the range
+   */
+  TensionResult processSegmentFromSTFT(
+      const std::vector<float>& harmonicSTFT,
+      const std::vector<float>& noiseSTFT,
+      int totalSTFTFrames,
+      int startFrame, int endFrame,
+      const std::vector<float>& voicingCurve,
+      const std::vector<float>& breathCurve,
+      const std::vector<float>& tensionCurve) const;
+
+  /**
    * True when any frame in the control block departs from the neutral defaults.
    */
   bool hasActiveEdits(const float *voicingCurve,
                       const float *breathCurve,
                       const float *tensionCurve,
                       int numFrames) const;
+
+  /**
+   * Compute forward FFT of a real-valued windowed frame.
+   * @param frame     Input frame (kFFTSize samples)
+   * @param outReal   Real part of FFT (kFFTBin values)
+   * @param outImag   Imaginary part of FFT (kFFTBin values)
+   */
+  void forwardFFT(const float *frame,
+                  float *outReal, float *outImag) const;
 
 private:
   // STFT parameters
@@ -76,15 +122,6 @@ private:
       const std::vector<float> &scaledHarmonic,
       const float *tensionCurve,
       int numFrames) const;
-
-  /**
-   * Compute forward FFT of a real-valued windowed frame.
-   * @param frame     Input frame (kFFTSize samples)
-   * @param outReal   Real part of FFT (kFFTBin values)
-   * @param outImag   Imaginary part of FFT (kFFTBin values)
-   */
-  void forwardFFT(const float *frame,
-                  float *outReal, float *outImag) const;
 
   /**
    * Compute inverse FFT from complex spectrum back to real signal.
