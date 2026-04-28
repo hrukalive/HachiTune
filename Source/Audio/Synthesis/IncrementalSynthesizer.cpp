@@ -206,88 +206,24 @@ std::vector<float>
 IncrementalSynthesizer::generateBlendMask(int startFrame, int endFrame,
                                           int hopSize,
                                           std::vector<float> *frameMaskOut) {
-  auto &voicedMask = project->getAudioData().voicedMask;
-  auto &vadMask = project->getAudioData().vadMask;
-  const int totalFrames = static_cast<int>(voicedMask.size());
-  const int totalVadFrames = static_cast<int>(vadMask.size());
   const int numFrames = endFrame - startFrame;
   const int numSamples = numFrames * hopSize;
 
-  // Step 1: stability-first frame mask.
-  // Default to synthesized audio in the whole region to avoid internal
-  // orig/synth combing artifacts at note junctions.
-  std::vector<float> frameMask(numFrames, 1.0f);
-
-  // Keep original audio for:
-  //   1) long unvoiced runs, and
-  //   2) short UV runs that still carry energy (vadMask = true), such as
-  //      consonant heads/tails that were attached to nearby notes.
-  //
-  // Those energetic UV frames are the ones that can turn into local silence if
-  // we force them through the vocoder during a pitch edit.
-  constexpr int kKeepOriginalUnvoicedFrames = 24;
-  if (numFrames > 0 && totalFrames > 0) {
-    int i = 0;
-    while (i < numFrames) {
-      const int gf = startFrame + i;
-      const bool voiced =
-          gf >= 0 && gf < totalFrames && static_cast<bool>(voicedMask[gf]);
-      if (voiced) {
-        ++i;
-        continue;
-      }
-
-      const int runStart = i;
-      bool hasVadEnergy = false;
-      while (i < numFrames) {
-        const int g = startFrame + i;
-        const bool v =
-            g >= 0 && g < totalFrames && static_cast<bool>(voicedMask[g]);
-        if (v)
-          break;
-        if (g >= 0 && g < totalVadFrames && static_cast<bool>(vadMask[g]))
-          hasVadEnergy = true;
-        ++i;
-      }
-      const int runEnd = i;
-      const int runLen = runEnd - runStart;
-      if (hasVadEnergy || runLen >= kKeepOriginalUnvoicedFrames) {
-        for (int k = runStart; k < runEnd; ++k)
-          frameMask[k] = 0.0f;
-      }
-    }
-  }
-
   if (frameMaskOut != nullptr)
-    *frameMaskOut = frameMask;
-
-  // Step 2: expand to per-sample (sample-and-hold)
-  std::vector<float> mask(numSamples, 0.0f);
-  for (int i = 0; i < numFrames; ++i) {
-    int ss = i * hopSize;
-    int se = std::min(ss + hopSize, numSamples);
-    for (int s = ss; s < se; ++s)
-      mask[s] = frameMask[i];
+  {
+    *frameMaskOut = std::vector<float>(static_cast<size_t>(numFrames), 1.0f);
   }
 
-  // Step 3: smooth transitions with linear ramp at frame boundaries
-  constexpr int kMinRampSamples = 512;
-  const int kRampSamples = std::max(kMinRampSamples, hopSize * 2);
-  for (int i = 0; i < numFrames - 1; ++i) {
-    if (frameMask[i] == frameMask[i + 1])
-      continue;
-    // Transition at frame boundary
-    int center = (i + 1) * hopSize;
-    int rampStart = std::max(0, center - kRampSamples / 2);
-    int rampEnd = std::min(numSamples, center + kRampSamples / 2);
-    float fromVal = frameMask[i];
-    float toVal = frameMask[i + 1];
-    for (int s = rampStart; s < rampEnd; ++s) {
-      float t = static_cast<float>(s - rampStart) /
-                static_cast<float>(rampEnd - rampStart);
-      mask[s] = fromVal + (toVal - fromVal) * t;
-    }
-  }
+  std::vector<float> mask(static_cast<size_t>(numSamples), 1.0f);
+
+  const int fadeLen = std::min(hopSize, numSamples);
+  for (int s = 0; s < fadeLen; ++s)
+    mask[static_cast<size_t>(s)] =
+        static_cast<float>(s) / static_cast<float>(fadeLen);
+
+  for (int s = 0; s < fadeLen; ++s)
+    mask[static_cast<size_t>(numSamples - 1 - s)] =
+        static_cast<float>(s) / static_cast<float>(fadeLen);
 
   return mask;
 }

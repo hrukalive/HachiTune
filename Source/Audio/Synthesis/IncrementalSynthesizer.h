@@ -55,8 +55,9 @@ private:
   /// expand to include complete segments + padding frames.
   std::pair<int, int> computeSynthesisRange(int dirtyStart, int dirtyEnd);
 
-  /// Generate per-sample blend mask from voicedMask.
-  /// 1.0 = use synthesized, 0.0 = use original, smooth ramps at transitions.
+  /// Generate per-sample blend mask: 1.0 throughout with hop_size-sample
+  /// linear fade-in at start and fade-out at end. Since ResynthRange
+  /// extends to VAD=0 boundaries, crossfade occurs at silence.
   std::vector<float> generateBlendMask(int startFrame, int endFrame,
                                        int hopSize,
                                        std::vector<float> *frameMaskOut = nullptr);
