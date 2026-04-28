@@ -1,5 +1,6 @@
 #include "SelectHandler.h"
 #include "../../PianoRollComponent.h"
+#include "../../../Utils/NoteEditUtils.h"
 #include "../../../Utils/PitchCurveProcessor.h"
 #include "../../../Utils/ScaleUtils.h"
 #include "../../../Utils/BasePitchPreview.h"
@@ -1140,31 +1141,15 @@ void SelectHandler::resetNoteToOriginal(Note &note)
   if (!owner_.project)
     return;
 
-  // Reset tool params
-  note.resetToolParams();
+  NoteEditUtils::resetNoteToOriginal(*owner_.project, note);
 
-  // Clear working deltaPitch so rebuild picks up from originalDeltaPitch
-  note.setDeltaPitch({});
-
-  // Clear f0EditedMask for this note's frame range
-  auto &audioData = owner_.project->getAudioData();
-  const int startFrame = note.getStartFrame();
-  const int endFrame = note.getEndFrame();
-  if (!audioData.f0EditedMask.empty()) {
-    for (int i = startFrame;
-         i < endFrame &&
-         i < static_cast<int>(audioData.f0EditedMask.size());
-         ++i) {
-      if (i >= 0)
-        audioData.f0EditedMask[static_cast<size_t>(i)] = false;
-    }
-  }
-
-  // Update pitch tool handles to reflect the reset
   owner_.updatePitchToolHandlesFromSelection();
 
-  // Rebuild and notify
-  rebuildAndNotify();
+  if (owner_.onPitchEdited)
+    owner_.onPitchEdited();
+  if (owner_.onPitchEditFinished)
+    owner_.onPitchEditFinished();
+  owner_.repaint();
 }
 
 void SelectHandler::prepareDragBasePreview()
