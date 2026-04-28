@@ -893,5 +893,11 @@ namespace PitchCurveProcessor
         auto composed = composeF0(project, applyUvMask, globalPitchOffset);
         auto& audioData = project.getAudioData();
         audioData.f0 = std::move(composed);
+
+        // Sync pitch data to EditedData
+        auto& ed = project.getEditedData();
+        ed.basePitch = audioData.basePitch;
+        ed.deltaPitch = audioData.deltaPitch;
+        ed.f0 = audioData.f0;
     }
 } // namespace PitchCurveProcessor
