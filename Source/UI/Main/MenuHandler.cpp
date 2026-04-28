@@ -33,6 +33,8 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
             if (commandManager) {
                 menu.addCommandItem(commandManager, CommandIDs::showDeltaPitch);
                 menu.addCommandItem(commandManager, CommandIDs::showBasePitch);
+                menu.addSeparator();
+                menu.addCommandItem(commandManager, CommandIDs::showProjectMonitor);
             }
         } else if (menuIndex == 2) {
             // Settings menu
@@ -81,6 +83,8 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
             if (commandManager) {
                 menu.addCommandItem(commandManager, CommandIDs::showDeltaPitch);
                 menu.addCommandItem(commandManager, CommandIDs::showBasePitch);
+                menu.addSeparator();
+                menu.addCommandItem(commandManager, CommandIDs::showProjectMonitor);
             }
         } else if (menuIndex == 3) {
             // Settings menu

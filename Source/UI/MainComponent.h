@@ -23,6 +23,7 @@
 #include <cstdint>
 
 class PitchFilterDebugWindow;
+class TreeValueMonitor;
 
 class MainComponent : public juce::Component,
                       public juce::Timer,
@@ -192,6 +193,7 @@ private:
 
   std::unique_ptr<SettingsOverlay> settingsOverlay;
   std::unique_ptr<PitchFilterDebugWindow> pitchFilterDebugWindow;
+  std::unique_ptr<TreeValueMonitor> treeValueMonitor;
 
   std::unique_ptr<juce::FileChooser> fileChooser;
   juce::StringArray recentFiles;

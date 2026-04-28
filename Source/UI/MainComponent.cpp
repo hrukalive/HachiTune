@@ -1,4 +1,5 @@
 ﻿#include "MainComponent.h"
+#include "Debug/TreeValueMonitor.h"
 #include "Dialogs/PitchFilterDebugWindow.h"
 #include "Main/ExportHelper.h"
 #include "../Audio/RealtimePitchProcessor.h"
@@ -2029,6 +2030,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID> &commands)
       CommandIDs::showSettings,
       CommandIDs::showDeltaPitch,
       CommandIDs::showBasePitch,
+      CommandIDs::showProjectMonitor,
 
       // Transport commands
       CommandIDs::playPause,
@@ -2123,6 +2125,12 @@ void MainComponent::getCommandInfo(juce::CommandID commandID,
     result.setInfo(TR("command.show_base_pitch"), TR("command.show_base_pitch.desp"), "View", 0);
     result.addDefaultKeypress('b', primaryModifier | juce::ModifierKeys::shiftModifier);
     result.setTicked(settingsManager->getShowBasePitch());
+    break;
+
+  case CommandIDs::showProjectMonitor:
+    result.setInfo("Project Monitor", "Show debug project state monitor", "View", 0);
+    result.addDefaultKeypress('m', primaryModifier | juce::ModifierKeys::shiftModifier);
+    result.setActive(getProject() != nullptr);
     break;
 
   // Transport commands
@@ -2246,6 +2254,19 @@ bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo &info
     settingsManager->setShowBasePitch(newState);
     settingsManager->saveConfig();
     commandManager->commandStatusChanged();
+    return true;
+  }
+
+  case CommandIDs::showProjectMonitor:
+  {
+    auto* project = getProject();
+    if (project)
+    {
+      if (!treeValueMonitor)
+        treeValueMonitor = std::make_unique<TreeValueMonitor>(project);
+      treeValueMonitor->setVisible(true);
+      treeValueMonitor->toFront(true);
+    }
     return true;
   }
 
