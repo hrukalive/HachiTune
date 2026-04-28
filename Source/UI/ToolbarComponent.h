@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../JuceHeader.h"
 #include "../Utils/Constants.h"
@@ -74,9 +74,7 @@ public:
     void setZoom(float pixelsPerSecond); // Update zoom slider without triggering callback
     void setLoopEnabled(bool enabled);
     void setParametersVisible(bool visible);
-#if HACHITUNE_ENABLE_STRETCH
     void setRippleMode(bool ripple); // Update ripple toggle visual
-#endif
     bool isFollowPlayback() const { return followPlayback; }
     bool isLoopEnabled() const { return loopEnabled; }
 
@@ -101,9 +99,7 @@ public:
     std::function<void(float)> onZoomChanged;
     std::function<void(EditMode)> onEditModeChanged;
     std::function<void(bool)> onLoopToggled;
-#if HACHITUNE_ENABLE_STRETCH
     std::function<void(bool)> onRippleModeToggled; // Called with true = Ripple, false = Absorb
-#endif
 
     // Plugin mode callbacks
     std::function<void()> onReanalyze;
@@ -120,10 +116,8 @@ private:
     juce::DrawableButton goToEndButton{"End", juce::DrawableButton::ImageFitted};
     std::unique_ptr<juce::Drawable> playDrawable;
     std::unique_ptr<juce::Drawable> pauseDrawable;
-#if HACHITUNE_ENABLE_STRETCH
     std::unique_ptr<juce::Drawable> absorbDrawable;
     std::unique_ptr<juce::Drawable> rippleDrawable;
-#endif
 
     // Plugin mode buttons
     juce::TextButton reanalyzeButton{"Re-analyze"};
@@ -134,15 +128,11 @@ private:
 
     // Edit mode buttons
     ToolButton selectModeButton{"Select"};
-#if HACHITUNE_ENABLE_STRETCH
     ToolButton stretchModeButton{"Stretch"};
-#endif
     ToolButton drawModeButton{"Draw"};
     ToolButton splitModeButton{"Split"};
     ToolButton hnsepModeButton{"HNSep"}; // Harmonic-noise parameter editing mode
-#if HACHITUNE_ENABLE_STRETCH
     ToolButton rippleToggleButton{"RippleToggle"}; // Absorb/Ripple stretch sub-mode toggle
-#endif
     ToolButton followButton{"Follow"};
     ToolButton loopButton{"Loop"};
     ToolButton parametersButton{"Parameters"};
@@ -172,9 +162,7 @@ private:
     bool isPlaying = false;
     bool followPlayback = true;
     bool loopEnabled = false;
-#if HACHITUNE_ENABLE_STRETCH
     bool isRippleStretchMode = false;
-#endif
     int currentEditModeInt = 0; // 0 = Select, 1 = Stretch, 2 = Draw, 3 = Split, 4 = Parameter
 
 #if JUCE_MAC
