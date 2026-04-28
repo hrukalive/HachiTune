@@ -413,6 +413,9 @@ void EditorController::loadAudioFileAsync(
     // Store pristine original waveform in AudioData for blend-based synthesis
     audioData.originalWaveform.makeCopyOf(audioData.waveform);
 
+    // Initialize audition buffer from original waveform
+    newProject->initAuditionBufferFromOriginal();
+
     juce::AudioBuffer<float> originalWaveform;
     originalWaveform.makeCopyOf(audioData.waveform);
 
@@ -506,6 +509,9 @@ void EditorController::setHostAudioAsync(
 
     // Store pristine original waveform in AudioData for blend-based synthesis
     projectCopy->getAudioData().originalWaveform.makeCopyOf(projectCopy->getAudioData().waveform);
+
+    // Initialize audition buffer from original waveform
+    projectCopy->initAuditionBufferFromOriginal();
 
     juce::AudioBuffer<float> originalWaveform;
     originalWaveform.makeCopyOf(projectCopy->getAudioData().waveform);
@@ -984,6 +990,28 @@ void EditorController::analyzeAudio(
 
   PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
   HNSepCurveProcessor::initializeCurves(targetProject);
+
+  // Populate AnalysisData (immutable copy of initial analysis)
+  auto& analysis = targetProject.getAnalysisData();
+  analysis.originalF0 = audioData.f0;
+  analysis.originalPitch = audioData.basePitch;
+  analysis.originalDeltaPitch = audioData.deltaPitch;
+  analysis.originalVoicedMask = audioData.voicedMask;
+  analysis.originalVADMask = audioData.vadMask;
+
+  // Initialize EditedData as copy of analysis
+  auto& edited = targetProject.getEditedData();
+  edited.basePitch = audioData.basePitch;
+  edited.deltaPitch = audioData.deltaPitch;
+  edited.f0 = audioData.f0;
+  edited.voicedMask = audioData.voicedMask;
+  edited.vadMask = audioData.vadMask;
+  edited.voicingCurve = audioData.voicingCurve;
+  edited.breathCurve = audioData.breathCurve;
+  edited.tensionCurve = audioData.tensionCurve;
+
+  // Refresh note caches after segmentation
+  targetProject.refreshNoteCaches();
 
   if (onComplete)
     onComplete();
