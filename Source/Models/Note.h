@@ -15,7 +15,6 @@
  * Pitch model:
  * - midiNote: The base pitch of the note (can be changed by dragging)
  * - deltaPitch: Per-frame deviation from base pitch (preserved during drag)
- * - f0Values: Original F0 values from detection (for reference)
  *
  * When dragging a note up/down:
  * - midiNote changes
@@ -172,11 +171,6 @@ public:
     void setClipNoiseWaveform(std::vector<float> samples) { clipNoiseWaveform = std::move(samples); }
     bool hasClipNoiseWaveform() const { return !clipNoiseWaveform.empty(); }
 
-    // F0 values (original detected values)
-    const std::vector<float>& getF0Values() const { return f0Values; }
-    void setF0Values(std::vector<float> values) { f0Values = std::move(values); }
-    std::vector<float> getAdjustedF0() const;
-
     // Get F0 values based on current midiNote + deltaPitch
     std::vector<float> computeF0FromDelta() const;
 
@@ -312,7 +306,6 @@ private:
     float vibratoFadeInMs = 0.0f;       // Fade-in duration in ms
     float vibratoFadeOutMs = 0.0f;      // Fade-out duration in ms
 
-    std::vector<float> f0Values;
     std::vector<float> clipWaveform;
     std::vector<float> srcClipWaveform;  // Immutable original audio (from originalWaveform)
     std::vector<float> synthWaveform;    // Vocoder output (regenerated when synthDirty)

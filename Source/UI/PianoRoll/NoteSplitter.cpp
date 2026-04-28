@@ -318,15 +318,6 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
         secondNote.setClipNoiseWaveform(std::move(rightClip));
     }
 
-    // f0Values is source-domain: use integer index
-    if (!note->getF0Values().empty()) {
-        const auto& f0Values = note->getF0Values();
-        std::vector<float> leftF0, rightF0;
-        splitVectorAtIndex(f0Values, srcSplitIndex, leftF0, rightF0);
-        note->setF0Values(std::move(leftF0));
-        secondNote.setF0Values(std::move(rightF0));
-    }
-
     if (note->hasDeltaPitch()) {
         const auto& delta = note->getDeltaPitch();
         std::vector<float> leftDelta, rightDelta;

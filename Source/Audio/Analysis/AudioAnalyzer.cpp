@@ -419,9 +419,6 @@ void AudioAnalyzer::segmentWithGAME(Project &project)
     }
 
     Note note(f0Start, f0End, midi);
-    std::vector<float> f0Values(audioData.f0.begin() + f0Start,
-                                audioData.f0.begin() + f0End);
-    note.setF0Values(std::move(f0Values));
 
     // Extract waveform clip for this note
     if (audioData.waveform.getNumSamples() > 0)
@@ -510,9 +507,6 @@ void AudioAnalyzer::segmentFallback(Project &project)
 
     float midi = midiSum / midiCount;
     Note note(start, end, midi);
-    std::vector<float> f0Values(audioData.f0.begin() + start,
-                                audioData.f0.begin() + end);
-    note.setF0Values(std::move(f0Values));
 
     // Extract waveform clip
     if (audioData.waveform.getNumSamples() > 0)
@@ -752,9 +746,5 @@ void AudioAnalyzer::extendNoteBoundariesWithVad(Project &project)
     note.setEndFrame(clampedEnd);
     note.setSrcStartFrame(clampedStart);
     note.setSrcEndFrame(clampedEnd);
-
-    std::vector<float> f0Values(audioData.f0.begin() + clampedStart,
-                                audioData.f0.begin() + clampedEnd);
-    note.setF0Values(std::move(f0Values));
   }
 }

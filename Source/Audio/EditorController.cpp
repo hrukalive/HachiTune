@@ -1368,9 +1368,6 @@ void EditorController::segmentIntoNotes(Project &targetProject,
         continue;
 
       Note note(f0Start, f0End, gameNote.midiNote);
-      std::vector<float> f0Values(audioData.f0.begin() + f0Start,
-                                  audioData.f0.begin() + f0End);
-      note.setF0Values(std::move(f0Values));
       notes.push_back(note);
     }
 
@@ -1503,9 +1500,6 @@ void EditorController::segmentIntoNotes(Project &targetProject,
         note.setEndFrame(newEnd);
         note.setSrcStartFrame(newStart);
         note.setSrcEndFrame(newEnd);
-        std::vector<float> f0Values(audioData.f0.begin() + newStart,
-                                    audioData.f0.begin() + newEnd);
-        note.setF0Values(std::move(f0Values));
       }
     }
 
@@ -1544,9 +1538,6 @@ void EditorController::segmentIntoNotes(Project &targetProject,
     float midi = midiSum / midiCount;
 
     Note note(start, end, midi);
-    std::vector<float> f0Values(audioData.f0.begin() + start,
-                                audioData.f0.begin() + end);
-    note.setF0Values(std::move(f0Values));
     notes.push_back(note);
   };
 

@@ -358,10 +358,6 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
     obj->setProperty("smoothLeftFrames", note.getSmoothLeftFrames());
     obj->setProperty("smoothRightFrames", note.getSmoothRightFrames());
 
-    // Per-note original F0 values (source-aligned, for voiced mask reconstruction)
-    if (!note.getF0Values().empty())
-        obj->setProperty("f0Values", floatArrayToString(note.getF0Values(), 2));
-
     // Per-note original delta pitch (pristine curve from analysis)
     if (note.hasOriginalDeltaPitch())
         obj->setProperty("originalDeltaPitch", floatArrayToString(note.getOriginalDeltaPitch(), 4));
@@ -440,10 +436,9 @@ bool ProjectSerializer::noteFromJson(Note& note, const juce::var& json) {
     note.setSmoothLeftFrames(json.getProperty("smoothLeftFrames", 0));
     note.setSmoothRightFrames(json.getProperty("smoothRightFrames", 0));
 
-    // Per-note original F0 values (source-aligned, for voiced mask reconstruction)
-    auto f0ValuesStr = json.getProperty("f0Values", juce::var());
-    if (!f0ValuesStr.isVoid() && f0ValuesStr.toString().isNotEmpty())
-        note.setF0Values(stringToFloatArray(f0ValuesStr.toString()));
+    // Per-note original F0 values: read and discard (backward compatibility only)
+    // f0Values are no longer stored per-note; use analysisData.originalF0 instead.
+    // (no action needed)
 
     // Per-note original delta pitch (pristine curve from analysis)
     auto origDeltaStr = json.getProperty("originalDeltaPitch", juce::var());

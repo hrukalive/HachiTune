@@ -1210,15 +1210,22 @@ namespace
         return CurveResampler::resampleNearest(source, targetLength);
     }
 
-    std::vector<bool> buildSourceVoicedMask(const Note& note)
+    std::vector<bool> buildSourceVoicedMask(const std::vector<float>& globalOriginalF0,
+                                            int srcStart,
+                                            int srcEnd)
     {
-        const auto& f0 = note.getF0Values();
-        if (f0.empty())
+        const int len = srcEnd - srcStart;
+        if (len <= 0 || globalOriginalF0.empty())
             return {};
 
-        std::vector<bool> voiced(static_cast<size_t>(f0.size()), false);
-        for (size_t i = 0; i < f0.size(); ++i)
-            voiced[i] = f0[i] > 1.0f;
+        const int globalSize = static_cast<int>(globalOriginalF0.size());
+        std::vector<bool> voiced(static_cast<size_t>(len), false);
+        for (int i = 0; i < len; ++i)
+        {
+            const int gi = srcStart + i;
+            if (gi >= 0 && gi < globalSize)
+                voiced[static_cast<size_t>(i)] = globalOriginalF0[static_cast<size_t>(gi)] > 1.0f;
+        }
         return voiced;
     }
 
@@ -1296,7 +1303,11 @@ namespace
 
         auto harmonic = CurveResampler::resampleLinear2D(sourceMel, targetLength);
         auto noise = CurveResampler::resampleNearest2D(sourceMel, targetLength);
-        auto voiced = fitBoolCurve(buildSourceVoicedMask(note), targetLength);
+        auto voiced = fitBoolCurve(
+            buildSourceVoicedMask(audioData.f0,
+                                  note.getSrcStartFrame(),
+                                  note.getSrcEndFrame()),
+            targetLength);
 
         if (harmonic.size() != static_cast<size_t>(targetLength))
         {
@@ -1746,7 +1757,11 @@ void recomputeFromMarkers(Project& project,
         }
 
         const auto voicedFrames =
-            fitBoolCurve(buildSourceVoicedMask(note), durationFrames);
+            fitBoolCurve(
+                buildSourceVoicedMask(project.getAnalysisData().originalF0,
+                                      note.getSrcStartFrame(),
+                                      note.getSrcEndFrame()),
+                durationFrames);
         for (int i = 0; i < durationFrames && (newStart + i) < totalFrames; ++i)
         {
             newVoiced[static_cast<size_t>(newStart + i)] =
