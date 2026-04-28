@@ -1,4 +1,5 @@
 #include "Project.h"
+#include "../Audio/Synthesis/StretchProcessor.h"
 #include "../Utils/CenteredMelSpectrogram.h"
 #include "../Utils/Constants.h"
 #include "../Utils/CurveResampler.h"
@@ -1675,15 +1676,6 @@ void recomputeFromMarkers(Project& project,
     if (totalFrames <= 0)
         return;
 
-    const int numMels =
-        (!audioData.melSpectrogram.empty() &&
-         !audioData.melSpectrogram.front().empty())
-            ? static_cast<int>(audioData.melSpectrogram.front().size())
-            : NUM_MELS;
-
-    std::vector<std::vector<float>> newMel(
-        static_cast<size_t>(totalFrames),
-        std::vector<float>(static_cast<size_t>(numMels), 0.0f));
     std::vector<bool> newVoiced(static_cast<size_t>(totalFrames), false);
 
     for (auto& note : project.getNotes())
@@ -1762,16 +1754,15 @@ void recomputeFromMarkers(Project& project,
                     ? true
                     : voicedFrames[static_cast<size_t>(i)];
         }
-
-        const auto noteMel =
-            resampleMelHybrid(note, audioData, durationFrames, numMels);
-        for (int i = 0; i < durationFrames && (newStart + i) < totalFrames; ++i)
-            newMel[static_cast<size_t>(newStart + i)] =
-                noteMel[static_cast<size_t>(i)];
     }
 
     audioData.voicedMask = std::move(newVoiced);
-    audioData.melSpectrogram = std::move(newMel);
+    if (!audioData.melSpectrogram.empty())
+    {
+        audioData.melSpectrogram =
+            StretchProcessor::stretchMel(audioData.melSpectrogram,
+                                         normalizedMarkers);
+    }
 
     PitchCurveProcessor::rebuildBaseFromNotes(project);
     HNSepCurveProcessor::rebuildCurvesFromNotes(project);
