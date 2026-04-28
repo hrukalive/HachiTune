@@ -390,197 +390,27 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
   HNSepCurveProcessor::rebuildCurvesForRange(*project, startFrame, endFrame);
 
-  // ---------------------------------------------------------------------------
-  // HNSep segment processing: compose note-local curves into dense AudioData
-  // control arrays, then regenerate a temporary waveform/mel segment from the
-  // immutable harmonic/noise buffers. The project-wide baseline audio and mel
-  // stay untouched so undo/reset always has an unedited source to return to.
-  // ---------------------------------------------------------------------------
+  // If curve edits need mel update, recompute mel in global melSpectrogram
   const bool hasGlobalHNSep = audioData.harmonicWaveform.getNumSamples() > 0 &&
                               audioData.noiseWaveform.getNumSamples() > 0;
-  bool hasAnyHNSepCurves = false;
-  std::vector<std::vector<float>> melRange;
-
   if (hasGlobalHNSep &&
       !audioData.voicingCurve.empty() &&
       !audioData.breathCurve.empty() &&
       !audioData.tensionCurve.empty() &&
-      HNSepCurveProcessor::hasActiveEdits(*project, startFrame, endFrame)) {
-    TensionProcessor tensionProc;
-    hasAnyHNSepCurves = tensionProc.hasActiveEdits(
-        audioData.voicingCurve.data() + startFrame,
-        audioData.breathCurve.data() + startFrame,
-        audioData.tensionCurve.data() + startFrame,
-        endFrame - startFrame);
-
-    if (hasAnyHNSepCurves) {
-      // -----------------------------------------------------------------------
-      // Per-note formant-preserving HNSep mel override.
-      //
-      // We must NOT resample the raw harmonic/noise waveform to the output
-      // timeline — that would change the spectral content (formants shift with
-      // time-domain resampling).  Instead, for each note that overlaps the
-      // synthesis range:
-      //   1. Process harmonic/noise at SOURCE rate with source-duration curves
-      //   2. Compute mel from the processed audio at source rate
-      //   3. Resample the mel from source frames → output frames (hybrid:
-      //      linear for voiced, nearest for unvoiced — matching resampleMelHybrid)
-      //   4. Place the output-duration mel into the melRange at the note's
-      //      output position
-      //
-      // Gaps and notes without per-note HNSep clips fall through to the
-      // baseline mel from audioData.melSpectrogram.
-      // -----------------------------------------------------------------------
-      const int numMels = !audioData.melSpectrogram.empty()
-                              ? static_cast<int>(audioData.melSpectrogram.front().size())
-                              : 128;
-      const int rangeFrames = endFrame - startFrame;
-
-      // Start with the baseline (already time-stretched) mel
-      melRange.assign(audioData.melSpectrogram.begin() + startFrame,
-                      audioData.melSpectrogram.begin() + endFrame);
-
-      TensionProcessor noteProc;
-      MelSpectrogram melComputer(audioData.sampleRate);
-
-      for (const auto &note : project->getNotes()) {
-        if (note.isRest())
-          continue;
-
-        // Skip notes that don't overlap the synthesis range
-        const int noteOutStart = note.getStartFrame();
-        const int noteOutEnd = note.getEndFrame();
-        if (noteOutEnd <= startFrame || noteOutStart >= endFrame)
-          continue;
-
-        // Need per-note harmonic/noise clips (source-aligned)
-        if (!note.hasClipHarmonicWaveform() || !note.hasClipNoiseWaveform())
-          continue;
-
-        const auto &clipH = note.getClipHarmonicWaveform();
-        const auto &clipN = note.getClipNoiseWaveform();
-        const int srcDurationFrames = note.getSrcDurationFrames();
-        const int outDurationFrames = note.getDurationFrames();
-        if (srcDurationFrames <= 0 || outDurationFrames <= 0)
-          continue;
-        const int srcSamples = static_cast<int>(clipH.size());
-        if (srcSamples <= 0)
-          continue;
-
-        // Get source-duration HNSep curves for this note.
-        // Prefer the immutable source curves; fall back to fitting the output
-        // curves to source duration.
-        std::vector<float> srcVoicing, srcBreath, srcTension;
-        if (note.hasSourceVoicingCurve()) {
-          srcVoicing = note.getSourceVoicingCurve();
-        } else if (note.hasVoicingCurve()) {
-          srcVoicing = CurveResampler::resampleLinear(
-              note.getVoicingCurve(), srcDurationFrames);
-        } else {
-          srcVoicing.assign(static_cast<size_t>(srcDurationFrames),
-                            HNSepCurveProcessor::kDefaultVoicing);
-        }
-        if (note.hasSourceBreathCurve()) {
-          srcBreath = note.getSourceBreathCurve();
-        } else if (note.hasBreathCurve()) {
-          srcBreath = CurveResampler::resampleLinear(
-              note.getBreathCurve(), srcDurationFrames);
-        } else {
-          srcBreath.assign(static_cast<size_t>(srcDurationFrames),
-                           HNSepCurveProcessor::kDefaultBreath);
-        }
-        if (note.hasSourceTensionCurve()) {
-          srcTension = note.getSourceTensionCurve();
-        } else if (note.hasTensionCurve()) {
-          srcTension = CurveResampler::resampleLinear(
-              note.getTensionCurve(), srcDurationFrames);
-        } else {
-          srcTension.assign(static_cast<size_t>(srcDurationFrames),
-                            HNSepCurveProcessor::kDefaultTension);
-        }
-
-        // Check if this note actually has active edits
-        if (!noteProc.hasActiveEdits(
-                srcVoicing.data(), srcBreath.data(), srcTension.data(),
-                srcDurationFrames))
-          continue;
-
-        // Ensure curves are sized to source duration
-        srcVoicing.resize(static_cast<size_t>(srcDurationFrames),
-                          HNSepCurveProcessor::kDefaultVoicing);
-        srcBreath.resize(static_cast<size_t>(srcDurationFrames),
-                         HNSepCurveProcessor::kDefaultBreath);
-        srcTension.resize(static_cast<size_t>(srcDurationFrames),
-                          HNSepCurveProcessor::kDefaultTension);
-
-        // 1. Process harmonic/noise at SOURCE rate
-        const int noiseSamples = static_cast<int>(clipN.size());
-        std::vector<float> processedSrc = noteProc.processSegment(
-            clipH.data(), clipN.data(),
-            std::min(srcSamples, noiseSamples),
-            srcVoicing.data(), srcBreath.data(), srcTension.data(),
-            srcDurationFrames);
-
-        // 2. Compute mel at source rate
-        auto srcMel = melComputer.compute(
-            processedSrc.data(), static_cast<int>(processedSrc.size()));
-
-        if (srcMel.empty())
-          continue;
-
-        // 3. Resample mel from source frames → output frames (hybrid approach)
-        std::vector<std::vector<float>> outMel;
-        if (srcDurationFrames == outDurationFrames) {
-          // No stretch — use source mel directly
-          outMel = std::move(srcMel);
-        } else {
-          // Hybrid resampling: linear for voiced, nearest for unvoiced
-          auto melLinear =
-              CurveResampler::resampleLinear2D(srcMel, outDurationFrames);
-          // auto melNearest =
-          //     CurveResampler::resampleNearest2D(srcMel, outDurationFrames);
-
-          // Build voiced mask from note's f0 values
-          const auto &f0Vals = note.getF0Values();
-          std::vector<bool> voicedMask;
-          if (!f0Vals.empty()) {
-            std::vector<bool> srcVoiced(f0Vals.size());
-            for (size_t fi = 0; fi < f0Vals.size(); ++fi)
-              srcVoiced[fi] = f0Vals[fi] > 1.0f;
-            voicedMask = CurveResampler::resampleNearest(
-                srcVoiced, outDurationFrames);
-          }
-
-          // Use linear-resampled mel for all frames.
-          // (The nearest-neighbor path for unvoiced frames is currently
-          //  disabled; when re-enabled, compose outMel from both
-          //  melLinear and melNearest here instead of moving.)
-          outMel = std::move(melLinear);
-        }
-
-        // Ensure correct size
-        outMel.resize(static_cast<size_t>(outDurationFrames),
-                      std::vector<float>(static_cast<size_t>(numMels), 0.0f));
-
-        // 4. Place into melRange at the note's output position
-        const int localStart = std::max(0, noteOutStart - startFrame);
-        const int localEnd = std::min(rangeFrames, noteOutEnd - startFrame);
-        const int noteLocalOffset = std::max(0, startFrame - noteOutStart);
-        for (int fi = localStart; fi < localEnd; ++fi) {
-          const int noteIdx = noteLocalOffset + (fi - localStart);
-          if (noteIdx >= 0 && noteIdx < static_cast<int>(outMel.size()))
-            melRange[static_cast<size_t>(fi)] =
-                outMel[static_cast<size_t>(noteIdx)];
-        }
-      }
-
-    }
+      HNSepCurveProcessor::hasActiveEdits(*project, startFrame, endFrame))
+  {
+    HNSepCurveProcessor::recomputeMelForRange(*project, startFrame, endFrame);
   }
 
-  if (melRange.empty()) {
+  // Slice global mel for vocoder input
+  std::vector<std::vector<float>> melRange;
+  if (startFrame < static_cast<int>(audioData.melSpectrogram.size()) &&
+      endFrame <= static_cast<int>(audioData.melSpectrogram.size()))
+  {
     melRange.assign(audioData.melSpectrogram.begin() + startFrame,
                     audioData.melSpectrogram.begin() + endFrame);
   }
+
   std::vector<float> adjustedF0Range =
       project->getAdjustedF0ForRange(startFrame, endFrame);
 
