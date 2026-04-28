@@ -1054,6 +1054,12 @@ void EditorController::analyzeAudio(
   analysis.originalDeltaPitch = audioData.deltaPitch;
   analysis.originalVoicedMask = audioData.voicedMask;
   analysis.originalVADMask = audioData.vadMask;
+  analysis.noteSegments.clear();
+  for (const auto& note : targetProject.getNotes())
+  {
+    if (!note.isRest())
+      analysis.noteSegments.push_back({note.getSrcStartFrame(), note.getSrcEndFrame()});
+  }
 
   // Initialize EditedData as copy of analysis
   auto& edited = targetProject.getEditedData();

@@ -1810,8 +1810,9 @@ void Project::refreshNoteCaches()
   if (totalFrames == 0)
     return;
 
-  for (auto& note : notes)
+  for (int noteIdx = 0; noteIdx < static_cast<int>(notes.size()); ++noteIdx)
   {
+    auto& note = notes[static_cast<size_t>(noteIdx)];
     if (note.isRest())
       continue;
 
@@ -1860,6 +1861,12 @@ void Project::refreshNoteCaches()
         note.setOriginalDeltaPitch(sliceAnalysis(analysisData.originalDeltaPitch));
       if (!analysisData.originalPitch.empty())
         note.setOriginalPitch(sliceAnalysis(analysisData.originalPitch));
+    }
+
+    if (noteIdx < static_cast<int>(analysisData.noteSegments.size()))
+    {
+      note.setSrcStartFrame(analysisData.noteSegments[static_cast<size_t>(noteIdx)].srcStartFrame);
+      note.setSrcEndFrame(analysisData.noteSegments[static_cast<size_t>(noteIdx)].srcEndFrame);
     }
   }
 }

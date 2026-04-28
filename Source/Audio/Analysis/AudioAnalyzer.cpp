@@ -153,6 +153,17 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
     onProgress(0.90, "Segmenting notes...");
   segmentIntoNotes(project);
 
+  // Populate noteSegments in AnalysisData from the finalized notes
+  {
+    auto& analysisData = project.getAnalysisData();
+    analysisData.noteSegments.clear();
+    for (const auto& note : project.getNotes())
+    {
+      if (!note.isRest())
+        analysisData.noteSegments.push_back({note.getSrcStartFrame(), note.getSrcEndFrame()});
+    }
+  }
+
   // Build dense base/delta curves
   PitchCurveProcessor::rebuildCurvesFromSource(project, audioData.f0);
   HNSepCurveProcessor::initializeCurves(project);

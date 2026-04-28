@@ -15,6 +15,12 @@ struct AnalysisData
   std::vector<bool>  originalVoicedMask;  // [T] true = voiced
   std::vector<bool>  originalVADMask;     // [T] true = has audio energy
 
+  struct NoteSegment {
+    int srcStartFrame = 0;
+    int srcEndFrame = 0;
+  };
+  std::vector<NoteSegment> noteSegments;
+
   int getNumFrames() const
   {
     return static_cast<int>(originalF0.size());
@@ -29,5 +35,6 @@ struct AnalysisData
     originalDeltaPitch.clear();
     originalVoicedMask.clear();
     originalVADMask.clear();
+    noteSegments.clear();
   }
 };

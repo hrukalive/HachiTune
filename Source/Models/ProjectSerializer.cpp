@@ -503,6 +503,15 @@ juce::var ProjectSerializer::analysisDataToJson(const AnalysisData& data)
     obj->setProperty("originalDeltaPitch", floatArrayToString(data.originalDeltaPitch, 4));
     obj->setProperty("originalVoicedMask", boolArrayToString(data.originalVoicedMask));
     obj->setProperty("originalVADMask", boolArrayToString(data.originalVADMask));
+    juce::var segments;
+    for (const auto& seg : data.noteSegments)
+    {
+        auto* segObj = new juce::DynamicObject();
+        segObj->setProperty("srcStartFrame", seg.srcStartFrame);
+        segObj->setProperty("srcEndFrame", seg.srcEndFrame);
+        segments.append(juce::var(segObj));
+    }
+    obj->setProperty("noteSegments", segments);
     return juce::var(obj);
 }
 
@@ -515,6 +524,16 @@ bool ProjectSerializer::analysisDataFromJson(AnalysisData& data, const juce::var
     data.originalDeltaPitch = stringToFloatArray(json.getProperty("originalDeltaPitch", "").toString());
     data.originalVoicedMask = stringToBoolArray(json.getProperty("originalVoicedMask", "").toString());
     data.originalVADMask = stringToBoolArray(json.getProperty("originalVADMask", "").toString());
+    if (auto* segsArray = json["noteSegments"].getArray())
+    {
+        for (const auto& item : *segsArray)
+        {
+            AnalysisData::NoteSegment seg;
+            seg.srcStartFrame = item.getProperty("srcStartFrame", 0);
+            seg.srcEndFrame = item.getProperty("srcEndFrame", 0);
+            data.noteSegments.push_back(seg);
+        }
+    }
     return true;
 }
 
