@@ -1,4 +1,5 @@
 #include "TensionProcessor.h"
+#include "../Utils/MelSpectrogram.h"
 
 #include <algorithm>
 #include <cmath>
@@ -220,6 +221,150 @@ std::vector<float> TensionProcessor::preEmphasisBaseTensionSegment(
     for (float &sample : result)
       sample *= peakScale;
   }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// STFT-based processing (reads from precomputed cache)
+// ---------------------------------------------------------------------------
+
+TensionProcessor::TensionResult TensionProcessor::processSegmentFromSTFT(
+    const std::vector<float>& harmonicSTFT,
+    const std::vector<float>& noiseSTFT,
+    int totalSTFTFrames,
+    int startFrame, int endFrame,
+    const std::vector<float>& voicingCurve,
+    const std::vector<float>& breathCurve,
+    const std::vector<float>& tensionCurve) const
+{
+  TensionResult result;
+  const int numFrames = endFrame - startFrame;
+  if (numFrames <= 0 || totalSTFTFrames <= 0)
+    return result;
+
+  const int numSamples = numFrames * kHopSize;
+  const float maxTiltDb = 12.0f;
+  const float nyquist = static_cast<float>(kSampleRate) / 2.0f;
+  const float x0 = static_cast<float>(kFFTBin) / (nyquist / 1500.0f);
+
+  // Overlap-add buffers
+  const int paddedLen = numFrames * kHopSize + kWinSize;
+  const int offset = kWinSize / 2;
+
+  std::vector<float> harmonicOut(static_cast<size_t>(paddedLen), 0.0f);
+  std::vector<float> noiseOut(static_cast<size_t>(paddedLen), 0.0f);
+  std::vector<float> windowSum(static_cast<size_t>(paddedLen), 0.0f);
+
+  std::vector<float> fftReal(static_cast<size_t>(kFFTBin));
+  std::vector<float> fftImag(static_cast<size_t>(kFFTBin));
+  std::vector<float> outFrame(static_cast<size_t>(kFFTSize));
+
+  const int binsPerFrame = kFFTBin * 2; // interleaved real/imag
+
+  for (int f = 0; f < numFrames; ++f)
+  {
+    const int globalFrame = startFrame + f;
+    if (globalFrame < 0 || globalFrame >= totalSTFTFrames)
+      continue;
+
+    const int curveIdx = std::clamp(globalFrame,
+                                     0, static_cast<int>(voicingCurve.size()) - 1);
+    const float voicingPct = curveIdx < static_cast<int>(voicingCurve.size())
+                                 ? voicingCurve[static_cast<size_t>(curveIdx)]
+                                 : 100.0f;
+    const float breathPct = curveIdx < static_cast<int>(breathCurve.size())
+                                ? breathCurve[static_cast<size_t>(curveIdx)]
+                                : 100.0f;
+    const float userTension = curveIdx < static_cast<int>(tensionCurve.size())
+                                  ? tensionCurve[static_cast<size_t>(curveIdx)]
+                                  : 0.0f;
+    const float clampedTension = juce::jlimit(-100.0f, 100.0f, userTension);
+    const float b = -clampedTension / 100.0f * maxTiltDb;
+
+    const int stftOffset = globalFrame * binsPerFrame;
+
+    // --- Process harmonic: apply voicing + tension tilt ---
+    for (int k = 0; k < kFFTBin; ++k)
+    {
+      float re = harmonicSTFT[static_cast<size_t>(stftOffset + k * 2)];
+      float im = harmonicSTFT[static_cast<size_t>(stftOffset + k * 2 + 1)];
+
+      // Voicing scale
+      re *= (voicingPct / 100.0f);
+      im *= (voicingPct / 100.0f);
+
+      // Tension tilt (same formula as preEmphasisBaseTensionSegment)
+      if (std::abs(clampedTension) > 0.001f)
+      {
+        float filterDb = (-b / x0) * static_cast<float>(k) + b;
+        filterDb = juce::jlimit(-maxTiltDb, maxTiltDb, filterDb);
+        const float filterGain = std::pow(10.0f, filterDb / 20.0f);
+        re *= filterGain;
+        im *= filterGain;
+      }
+
+      fftReal[static_cast<size_t>(k)] = re;
+      fftImag[static_cast<size_t>(k)] = im;
+    }
+
+    inverseFFT(fftReal.data(), fftImag.data(), outFrame.data());
+
+    const int frameStart = f * kHopSize;
+    for (int n = 0; n < kFFTSize; ++n)
+    {
+      const int idx = frameStart + n;
+      if (idx >= paddedLen) continue;
+      const float w = hannWindow[static_cast<size_t>(n)];
+      harmonicOut[static_cast<size_t>(idx)] += outFrame[static_cast<size_t>(n)] * w;
+      windowSum[static_cast<size_t>(idx)] += w * w;
+    }
+
+    // --- Process noise: apply breath scale ---
+    for (int k = 0; k < kFFTBin; ++k)
+    {
+      float re = noiseSTFT[static_cast<size_t>(stftOffset + k * 2)];
+      float im = noiseSTFT[static_cast<size_t>(stftOffset + k * 2 + 1)];
+      re *= (breathPct / 100.0f);
+      im *= (breathPct / 100.0f);
+      fftReal[static_cast<size_t>(k)] = re;
+      fftImag[static_cast<size_t>(k)] = im;
+    }
+
+    inverseFFT(fftReal.data(), fftImag.data(), outFrame.data());
+
+    for (int n = 0; n < kFFTSize; ++n)
+    {
+      const int idx = frameStart + n;
+      if (idx >= paddedLen) continue;
+      const float w = hannWindow[static_cast<size_t>(n)];
+      noiseOut[static_cast<size_t>(idx)] += outFrame[static_cast<size_t>(n)] * w;
+      // windowSum already accumulated from harmonic pass
+    }
+  }
+
+  // Normalize by window sum
+  for (int i = 0; i < paddedLen; ++i)
+  {
+    if (windowSum[static_cast<size_t>(i)] > 1e-8f)
+    {
+      harmonicOut[static_cast<size_t>(i)] /= windowSum[static_cast<size_t>(i)];
+      noiseOut[static_cast<size_t>(i)] /= windowSum[static_cast<size_t>(i)];
+    }
+  }
+
+  // Extract result and mix
+  result.mixedWaveform.resize(static_cast<size_t>(numSamples), 0.0f);
+  for (int i = 0; i < numSamples; ++i)
+  {
+    result.mixedWaveform[static_cast<size_t>(i)] =
+        harmonicOut[static_cast<size_t>(offset + i)] +
+        noiseOut[static_cast<size_t>(offset + i)];
+  }
+
+  // Compute mel from mixed waveform
+  MelSpectrogram melComputer(kSampleRate);
+  result.mel = melComputer.compute(result.mixedWaveform.data(), numSamples);
 
   return result;
 }

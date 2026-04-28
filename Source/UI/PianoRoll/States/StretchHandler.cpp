@@ -1,6 +1,5 @@
-#include "StretchHandler.h"
+﻿#include "StretchHandler.h"
 
-#if HACHITUNE_ENABLE_STRETCH
 
 #include "../../PianoRollComponent.h"
 #include "../../../Undo/TimingActions.h"
@@ -526,4 +525,3 @@ void StretchHandler::cancelStretchDrag()
   stretchDrag = {};
 }
 
-#endif // HACHITUNE_ENABLE_STRETCH

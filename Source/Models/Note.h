@@ -78,6 +78,16 @@ public:
     void setOriginalDeltaPitch(std::vector<float> delta) { originalDeltaPitch = std::move(delta); }
     bool hasOriginalDeltaPitch() const { return !originalDeltaPitch.empty(); }
 
+    // Base pitch cache (from global editedData, note-local)
+    const std::vector<float>& getBasePitch() const { return basePitch; }
+    void setBasePitch(std::vector<float> bp) { basePitch = std::move(bp); }
+    bool hasBasePitch() const { return !basePitch.empty(); }
+
+    // Original pitch cache (from global analysisData, note-local)
+    const std::vector<float>& getOriginalPitch() const { return originalPitch; }
+    void setOriginalPitch(std::vector<float> op) { originalPitch = std::move(op); }
+    bool hasOriginalPitch() const { return !originalPitch.empty(); }
+
     // Pitch tool transformation parameters (non-destructive)
     float getTiltLeft() const { return tiltLeft; }
     void setTiltLeft(float tilt) { tiltLeft = tilt; }
@@ -109,6 +119,12 @@ public:
     void setVibratoDepthSemitones(float semitones) { vibratoDepthSemitones = semitones; }
     float getVibratoPhaseRadians() const { return vibratoPhaseRadians; }
     void setVibratoPhaseRadians(float radians) { vibratoPhaseRadians = radians; }
+    float getVibratoMix() const { return vibratoMix; }
+    void setVibratoMix(float mix) { vibratoMix = mix; }
+    float getVibratoFadeInMs() const { return vibratoFadeInMs; }
+    void setVibratoFadeInMs(float ms) { vibratoFadeInMs = ms; }
+    float getVibratoFadeOutMs() const { return vibratoFadeOutMs; }
+    void setVibratoFadeOutMs(float ms) { vibratoFadeOutMs = ms; }
 
     // -----------------------------------------------------------------------
     // Harmonic-Noise Separation (hnsep) parameters
@@ -272,6 +288,8 @@ private:
 
     std::vector<float> deltaPitch;  // Per-frame deviation from midiNote in semitones
     std::vector<float> originalDeltaPitch;  // Pristine curve from analysis (never modified)
+    std::vector<float> basePitch;            // Cache from editedData.basePitch
+    std::vector<float> originalPitch;        // Cache from analysisData.originalPitch
 
     // Pitch tool transformation parameters (non-destructive, stored as parameters)
     float tiltLeft = 0.0f;           // Tilt amount at left edge (semitones)
@@ -290,6 +308,9 @@ private:
     float vibratoRateHz = 5.0f;
     float vibratoDepthSemitones = 0.0f;
     float vibratoPhaseRadians = 0.0f;
+    float vibratoMix = 0.0f;            // 0..1: 0=pure delta, 1=pure vibrato
+    float vibratoFadeInMs = 0.0f;       // Fade-in duration in ms
+    float vibratoFadeOutMs = 0.0f;      // Fade-out duration in ms
 
     std::vector<float> f0Values;
     std::vector<float> clipWaveform;

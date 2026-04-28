@@ -57,6 +57,15 @@ namespace
             dest[static_cast<size_t>(clampedStart + i)] = fitted[static_cast<size_t>(i)];
     }
 
+    void syncHNSepToEditedData(Project& project)
+    {
+        auto& audioData = project.getAudioData();
+        auto& ed = project.getEditedData();
+        ed.voicingCurve = audioData.voicingCurve;
+        ed.breathCurve = audioData.breathCurve;
+        ed.tensionCurve = audioData.tensionCurve;
+    }
+
     bool curveDiffersFrom(const std::vector<float>& curve,
                           int startFrame,
                           int endFrame,
@@ -154,6 +163,7 @@ namespace HNSepCurveProcessor
         }
 
         rebuildCurvesFromNotes(project);
+        // initializeCurves sync handled by rebuildCurvesFromNotes
     }
 
     void rebuildCurvesFromNotes(Project& project)
@@ -184,6 +194,8 @@ namespace HNSepCurveProcessor
                             note.getStartFrame(), note.getEndFrame(),
                             kDefaultTension);
         }
+
+        syncHNSepToEditedData(project);
     }
 
     void rebuildCurvesForRange(Project& project, int startFrame, int endFrame)
@@ -236,6 +248,8 @@ namespace HNSepCurveProcessor
                     tension[static_cast<size_t>(localFrame)];
             }
         }
+
+        syncHNSepToEditedData(project);
     }
 
     void extractNoteCurvesFromMaster(Project& project)
@@ -268,6 +282,8 @@ namespace HNSepCurveProcessor
             note.setSourceBreathCurve(note.getBreathCurve());
             note.setSourceTensionCurve(note.getTensionCurve());
         }
+
+        syncHNSepToEditedData(project);
     }
 
     bool hasActiveEdits(const Project& project, int startFrame, int endFrame)

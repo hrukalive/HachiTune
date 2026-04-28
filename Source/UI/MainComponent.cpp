@@ -1,4 +1,4 @@
-#include "MainComponent.h"
+﻿#include "MainComponent.h"
 #include "Dialogs/PitchFilterDebugWindow.h"
 #include "Main/ExportHelper.h"
 #include "../Audio/RealtimePitchProcessor.h"
@@ -241,12 +241,10 @@ MainComponent::MainComponent(bool enableAudioDevice)
   { onZoomChanged(pps); };
   toolbar.onEditModeChanged = [this](EditMode mode)
   { setEditMode(mode); };
-#if HACHITUNE_ENABLE_STRETCH
   toolbar.onRippleModeToggled = [this](bool isRipple)
   {
     pianoRoll.setStretchMode(isRipple ? StretchMode::Ripple : StretchMode::Absorb);
   };
-#endif
   toolbar.onLoopToggled = [this](bool enabled)
   {
     auto *project = getProject();

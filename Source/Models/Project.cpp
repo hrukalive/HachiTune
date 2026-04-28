@@ -1782,3 +1782,130 @@ void recomputeFromMarkers(Project& project,
         project.setModified(true);
 }
 } // namespace WarpMarkerProcessor
+
+void Project::addListener(ProjectListener* listener)
+{
+  if (listener && std::find(listeners.begin(), listeners.end(), listener) == listeners.end())
+    listeners.push_back(listener);
+}
+
+void Project::removeListener(ProjectListener* listener)
+{
+  listeners.erase(std::remove(listeners.begin(), listeners.end(), listener), listeners.end());
+}
+
+void Project::notifyListeners(ProjectChangeType type,
+                              int affectedNoteIndex,
+                              int rangeStart,
+                              int rangeEnd)
+{
+  for (auto* l : listeners)
+    l->onProjectChanged(type, affectedNoteIndex, rangeStart, rangeEnd);
+}
+
+void Project::initAuditionBufferFromOriginal()
+{
+  const auto& orig = audioData.originalWaveform;
+  if (orig.getNumSamples() > 0)
+  {
+    auditionBuffer.makeCopyOf(orig);
+  }
+}
+
+void Project::refreshNoteCaches()
+{
+  const int totalFrames = editedData.getNumFrames();
+  if (totalFrames == 0)
+    return;
+
+  for (auto& note : notes)
+  {
+    if (note.isRest())
+      continue;
+
+    const int start = note.getStartFrame();
+    const int end = note.getEndFrame();
+    const int len = end - start;
+    if (len <= 0)
+      continue;
+
+    auto sliceFloat = [&](const std::vector<float>& global) {
+      std::vector<float> slice(static_cast<size_t>(len));
+      for (int i = 0; i < len; ++i)
+      {
+        int gi = start + i;
+        if (gi >= 0 && gi < totalFrames)
+          slice[static_cast<size_t>(i)] = global[static_cast<size_t>(gi)];
+      }
+      return slice;
+    };
+
+    note.setBasePitch(sliceFloat(editedData.basePitch));
+    note.setDeltaPitch(sliceFloat(editedData.deltaPitch));
+
+    if (!editedData.voicingCurve.empty())
+      note.setVoicingCurve(sliceFloat(editedData.voicingCurve));
+    if (!editedData.breathCurve.empty())
+      note.setBreathCurve(sliceFloat(editedData.breathCurve));
+    if (!editedData.tensionCurve.empty())
+      note.setTensionCurve(sliceFloat(editedData.tensionCurve));
+
+    const int analysisFrames = analysisData.getNumFrames();
+    if (analysisFrames > 0)
+    {
+      auto sliceAnalysis = [&](const std::vector<float>& global) {
+        std::vector<float> slice(static_cast<size_t>(len));
+        for (int i = 0; i < len; ++i)
+        {
+          int gi = start + i;
+          if (gi >= 0 && gi < analysisFrames)
+            slice[static_cast<size_t>(i)] = global[static_cast<size_t>(gi)];
+        }
+        return slice;
+      };
+
+      if (!analysisData.originalDeltaPitch.empty())
+        note.setOriginalDeltaPitch(sliceAnalysis(analysisData.originalDeltaPitch));
+      if (!analysisData.originalPitch.empty())
+        note.setOriginalPitch(sliceAnalysis(analysisData.originalPitch));
+    }
+  }
+}
+
+void Project::refreshNoteCachesForRange(int startFrame, int endFrame)
+{
+  for (auto& note : notes)
+  {
+    if (note.isRest())
+      continue;
+    if (note.getEndFrame() <= startFrame || note.getStartFrame() >= endFrame)
+      continue;
+
+    const int noteStart = note.getStartFrame();
+    const int noteEnd = note.getEndFrame();
+    const int len = noteEnd - noteStart;
+    if (len <= 0)
+      continue;
+
+    const int totalFrames = editedData.getNumFrames();
+    auto sliceFloat = [&](const std::vector<float>& global) {
+      std::vector<float> slice(static_cast<size_t>(len));
+      for (int i = 0; i < len; ++i)
+      {
+        int gi = noteStart + i;
+        if (gi >= 0 && gi < totalFrames)
+          slice[static_cast<size_t>(i)] = global[static_cast<size_t>(gi)];
+      }
+      return slice;
+    };
+
+    note.setBasePitch(sliceFloat(editedData.basePitch));
+    note.setDeltaPitch(sliceFloat(editedData.deltaPitch));
+    if (!editedData.voicingCurve.empty())
+      note.setVoicingCurve(sliceFloat(editedData.voicingCurve));
+    if (!editedData.breathCurve.empty())
+      note.setBreathCurve(sliceFloat(editedData.breathCurve));
+    if (!editedData.tensionCurve.empty())
+      note.setTensionCurve(sliceFloat(editedData.tensionCurve));
+  }
+}

@@ -1,6 +1,5 @@
-#pragma once
+﻿#pragma once
 
-#if HACHITUNE_ENABLE_STRETCH
 
 #include "InteractionHandler.h"
 #include "../../../Models/Project.h"
@@ -71,4 +70,3 @@ private:
   static constexpr int minStretchNoteFrames = 3;
 };
 
-#endif // HACHITUNE_ENABLE_STRETCH

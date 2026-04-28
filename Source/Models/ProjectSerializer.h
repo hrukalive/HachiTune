@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../JuceHeader.h"
+#include "AnalysisData.h"
+#include "EditedData.h"
 #include "Project.h"
 
 /**
@@ -40,9 +42,17 @@ private:
     static juce::var noteToJson(const Note& note);
     static bool noteFromJson(Note& note, const juce::var& json);
 
-    // Pitch data serialization
-    static juce::var pitchDataToJson(const AudioData& audioData);
-    static bool pitchDataFromJson(AudioData& audioData, const juce::var& json);
+    // New: analysisData + editedData serialization
+    static juce::var analysisDataToJson(const AnalysisData& data);
+    static bool analysisDataFromJson(AnalysisData& data, const juce::var& json);
+    static juce::var editedDataToJson(const EditedData& data);
+    static bool editedDataFromJson(EditedData& data, const juce::var& json);
+
+    // Legacy: pitchData backward compat (read only)
+    static bool legacyPitchDataFromJson(AudioData& audioData,
+                                        EditedData& editedData,
+                                        AnalysisData& analysisData,
+                                        const juce::var& json);
 
     // Array helpers (compact string format)
     static juce::String floatArrayToString(const std::vector<float>& arr, int precision = 4);

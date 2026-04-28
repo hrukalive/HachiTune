@@ -1,7 +1,11 @@
 #pragma once
 
 #include "../JuceHeader.h"
+#include "AnalysisData.h"
+#include "EditedData.h"
 #include "Note.h"
+#include "ProjectListener.h"
+#include <algorithm>
 #include <vector>
 #include <memory>
 #include <utility>
@@ -206,6 +210,35 @@ public:
     void setWarpMarkers(std::vector<WarpMarker> markers) { warpMarkers = std::move(markers); }
     void clearWarpMarkers() { warpMarkers.clear(); }
 
+    // --- Analysis & Edited Data (new architecture) ---
+    AnalysisData& getAnalysisData() { return analysisData; }
+    const AnalysisData& getAnalysisData() const { return analysisData; }
+    EditedData& getEditedData() { return editedData; }
+    const EditedData& getEditedData() const { return editedData; }
+
+    // --- Audition buffer ---
+    juce::AudioBuffer<float>& getAuditionBuffer() { return auditionBuffer; }
+    const juce::AudioBuffer<float>& getAuditionBuffer() const { return auditionBuffer; }
+    void initAuditionBufferFromOriginal();
+
+    // --- STFT cache (interleaved real/imag, kFFTBin*2 floats per frame) ---
+    std::vector<float>& getHarmonicSTFT() { return harmonicSTFT; }
+    const std::vector<float>& getHarmonicSTFT() const { return harmonicSTFT; }
+    std::vector<float>& getNoiseSTFT() { return noiseSTFT; }
+    const std::vector<float>& getNoiseSTFT() const { return noiseSTFT; }
+
+    // --- Listener system ---
+    void addListener(ProjectListener* listener);
+    void removeListener(ProjectListener* listener);
+    void notifyListeners(ProjectChangeType type,
+                         int affectedNoteIndex = -1,
+                         int rangeStart = -1,
+                         int rangeEnd = -1);
+
+    // --- Note cache refresh ---
+    void refreshNoteCaches();
+    void refreshNoteCachesForRange(int startFrame, int endFrame);
+
     Note *getNoteAtFrame(int frame);
     std::vector<Note *> getNotesInRange(int startFrame, int endFrame);
     std::vector<Note *> getSelectedNotes();
@@ -316,6 +349,13 @@ private:
     AudioData audioData;
     std::vector<Note> notes;
     std::vector<WarpMarker> warpMarkers;
+
+    AnalysisData analysisData;
+    EditedData editedData;
+    juce::AudioBuffer<float> auditionBuffer;
+    std::vector<float> harmonicSTFT;
+    std::vector<float> noiseSTFT;
+    std::vector<ProjectListener*> listeners;
 
     float globalPitchOffset = 0.0f;
     float formantShift = 0.0f;

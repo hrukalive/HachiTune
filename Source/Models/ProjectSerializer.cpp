@@ -81,7 +81,10 @@ juce::var ProjectSerializer::toJson(const Project& project) {
     obj->setProperty("warpMarkers", warpMarkersArray);
 
     // Pitch data
-    obj->setProperty("pitchData", pitchDataToJson(project.getAudioData()));
+    // Analysis data (original, immutable after detection)
+    obj->setProperty("analysisData", analysisDataToJson(project.getAnalysisData()));
+    // Edited data (global edit state)
+    obj->setProperty("editedData", editedDataToJson(project.getEditedData()));
 
     return juce::var(obj);
 }
@@ -203,10 +206,38 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
         project.setWarpMarkers(std::move(markers));
     }
 
-    // Pitch data
-    auto pitchDataVar = json.getProperty("pitchData", juce::var());
-    if (pitchDataVar.isObject()) {
-        pitchDataFromJson(audioData, pitchDataVar);
+    // Try new format first
+    auto analysisDataVar = json.getProperty("analysisData", juce::var());
+    auto editedDataVar = json.getProperty("editedData", juce::var());
+
+    if (analysisDataVar.isObject() && editedDataVar.isObject())
+    {
+        // New format
+        analysisDataFromJson(project.getAnalysisData(), analysisDataVar);
+        editedDataFromJson(project.getEditedData(), editedDataVar);
+
+        // Sync to AudioData for backward compat with existing code paths
+        auto& ad = project.getAudioData();
+        const auto& ed = project.getEditedData();
+        ad.f0 = ed.f0;
+        ad.baseF0 = ed.f0;
+        ad.basePitch = ed.basePitch;
+        ad.deltaPitch = ed.deltaPitch;
+        ad.voicingCurve = ed.voicingCurve;
+        ad.breathCurve = ed.breathCurve;
+        ad.tensionCurve = ed.tensionCurve;
+        ad.voicedMask = ed.voicedMask;
+        ad.vadMask = ed.vadMask;
+    }
+    else
+    {
+        // Legacy format
+        auto pitchDataVar = json.getProperty("pitchData", juce::var());
+        if (pitchDataVar.isObject())
+        {
+            legacyPitchDataFromJson(audioData, project.getEditedData(),
+                                    project.getAnalysisData(), pitchDataVar);
+        }
     }
 
     // Rebuild curves if needed
@@ -309,6 +340,9 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
     vibrato->setProperty("rateHz", note.getVibratoRateHz());
     vibrato->setProperty("depthSemitones", note.getVibratoDepthSemitones());
     vibrato->setProperty("phaseRadians", note.getVibratoPhaseRadians());
+    vibrato->setProperty("mix", note.getVibratoMix());
+    vibrato->setProperty("fadeInMs", note.getVibratoFadeInMs());
+    vibrato->setProperty("fadeOutMs", note.getVibratoFadeOutMs());
     obj->setProperty("vibrato", juce::var(vibrato));
 
     // Lyric/Phoneme
@@ -385,6 +419,9 @@ bool ProjectSerializer::noteFromJson(Note& note, const juce::var& json) {
         note.setVibratoRateHz(static_cast<float>(vibratoVar.getProperty("rateHz", 5.0)));
         note.setVibratoDepthSemitones(static_cast<float>(vibratoVar.getProperty("depthSemitones", 0.0)));
         note.setVibratoPhaseRadians(static_cast<float>(vibratoVar.getProperty("phaseRadians", 0.0)));
+        note.setVibratoMix(static_cast<float>(vibratoVar.getProperty("mix", 0.0)));
+        note.setVibratoFadeInMs(static_cast<float>(vibratoVar.getProperty("fadeInMs", 0.0)));
+        note.setVibratoFadeOutMs(static_cast<float>(vibratoVar.getProperty("fadeOutMs", 0.0)));
     }
 
     // Lyric/Phoneme
@@ -458,37 +495,94 @@ bool ProjectSerializer::noteFromJson(Note& note, const juce::var& json) {
     return true;
 }
 
-juce::var ProjectSerializer::pitchDataToJson(const AudioData& audioData) {
+juce::var ProjectSerializer::analysisDataToJson(const AnalysisData& data)
+{
     auto* obj = new juce::DynamicObject();
-
-    // Store as compact strings for efficiency
-    obj->setProperty("f0", floatArrayToString(audioData.f0, 2));
-    obj->setProperty("basePitch", floatArrayToString(audioData.basePitch, 4));
-    obj->setProperty("deltaPitch", floatArrayToString(audioData.deltaPitch, 4));
-    obj->setProperty("voicingCurve", floatArrayToString(audioData.voicingCurve, 2));
-    obj->setProperty("breathCurve", floatArrayToString(audioData.breathCurve, 2));
-    obj->setProperty("tensionCurve", floatArrayToString(audioData.tensionCurve, 2));
-    obj->setProperty("voicedMask", boolArrayToString(audioData.voicedMask));
-    obj->setProperty("vadMask", boolArrayToString(audioData.vadMask));
-    obj->setProperty("f0EditedMask", boolArrayToString(audioData.f0EditedMask));
-
+    obj->setProperty("originalF0", floatArrayToString(data.originalF0, 2));
+    obj->setProperty("originalPitch", floatArrayToString(data.originalPitch, 4));
+    obj->setProperty("originalDeltaPitch", floatArrayToString(data.originalDeltaPitch, 4));
+    obj->setProperty("originalVoicedMask", boolArrayToString(data.originalVoicedMask));
+    obj->setProperty("originalVADMask", boolArrayToString(data.originalVADMask));
     return juce::var(obj);
 }
 
-bool ProjectSerializer::pitchDataFromJson(AudioData& audioData, const juce::var& json) {
+bool ProjectSerializer::analysisDataFromJson(AnalysisData& data, const juce::var& json)
+{
+    if (!json.isObject())
+        return false;
+    data.originalF0 = stringToFloatArray(json.getProperty("originalF0", "").toString());
+    data.originalPitch = stringToFloatArray(json.getProperty("originalPitch", "").toString());
+    data.originalDeltaPitch = stringToFloatArray(json.getProperty("originalDeltaPitch", "").toString());
+    data.originalVoicedMask = stringToBoolArray(json.getProperty("originalVoicedMask", "").toString());
+    data.originalVADMask = stringToBoolArray(json.getProperty("originalVADMask", "").toString());
+    return true;
+}
+
+juce::var ProjectSerializer::editedDataToJson(const EditedData& data)
+{
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("basePitch", floatArrayToString(data.basePitch, 4));
+    obj->setProperty("deltaPitch", floatArrayToString(data.deltaPitch, 4));
+    obj->setProperty("f0", floatArrayToString(data.f0, 2));
+    obj->setProperty("voicedMask", boolArrayToString(data.voicedMask));
+    obj->setProperty("vadMask", boolArrayToString(data.vadMask));
+    obj->setProperty("voicingCurve", floatArrayToString(data.voicingCurve, 2));
+    obj->setProperty("breathCurve", floatArrayToString(data.breathCurve, 2));
+    obj->setProperty("tensionCurve", floatArrayToString(data.tensionCurve, 2));
+    return juce::var(obj);
+}
+
+bool ProjectSerializer::editedDataFromJson(EditedData& data, const juce::var& json)
+{
+    if (!json.isObject())
+        return false;
+    data.basePitch = stringToFloatArray(json.getProperty("basePitch", "").toString());
+    data.deltaPitch = stringToFloatArray(json.getProperty("deltaPitch", "").toString());
+    data.f0 = stringToFloatArray(json.getProperty("f0", "").toString());
+    data.voicedMask = stringToBoolArray(json.getProperty("voicedMask", "").toString());
+    data.vadMask = stringToBoolArray(json.getProperty("vadMask", "").toString());
+    data.voicingCurve = stringToFloatArray(json.getProperty("voicingCurve", "").toString());
+    data.breathCurve = stringToFloatArray(json.getProperty("breathCurve", "").toString());
+    data.tensionCurve = stringToFloatArray(json.getProperty("tensionCurve", "").toString());
+    return true;
+}
+
+bool ProjectSerializer::legacyPitchDataFromJson(AudioData& audioData,
+                                                 EditedData& editedData,
+                                                 AnalysisData& analysisData,
+                                                 const juce::var& json)
+{
     if (!json.isObject())
         return false;
 
-    audioData.f0 = stringToFloatArray(json.getProperty("f0", "").toString());
-    audioData.baseF0 = audioData.f0; // Initialize baseF0 from loaded f0
-    audioData.basePitch = stringToFloatArray(json.getProperty("basePitch", "").toString());
-    audioData.deltaPitch = stringToFloatArray(json.getProperty("deltaPitch", "").toString());
-    audioData.voicingCurve = stringToFloatArray(json.getProperty("voicingCurve", "").toString());
-    audioData.breathCurve = stringToFloatArray(json.getProperty("breathCurve", "").toString());
-    audioData.tensionCurve = stringToFloatArray(json.getProperty("tensionCurve", "").toString());
-    audioData.voicedMask = stringToBoolArray(json.getProperty("voicedMask", "").toString());
-    audioData.vadMask = stringToBoolArray(json.getProperty("vadMask", "").toString());
+    // Old format stored everything flat in pitchData
+    editedData.f0 = stringToFloatArray(json.getProperty("f0", "").toString());
+    editedData.basePitch = stringToFloatArray(json.getProperty("basePitch", "").toString());
+    editedData.deltaPitch = stringToFloatArray(json.getProperty("deltaPitch", "").toString());
+    editedData.voicingCurve = stringToFloatArray(json.getProperty("voicingCurve", "").toString());
+    editedData.breathCurve = stringToFloatArray(json.getProperty("breathCurve", "").toString());
+    editedData.tensionCurve = stringToFloatArray(json.getProperty("tensionCurve", "").toString());
+    editedData.voicedMask = stringToBoolArray(json.getProperty("voicedMask", "").toString());
+    editedData.vadMask = stringToBoolArray(json.getProperty("vadMask", "").toString());
+
+    // Also populate AudioData for backward compat with existing code paths
+    audioData.f0 = editedData.f0;
+    audioData.baseF0 = editedData.f0;
+    audioData.basePitch = editedData.basePitch;
+    audioData.deltaPitch = editedData.deltaPitch;
+    audioData.voicingCurve = editedData.voicingCurve;
+    audioData.breathCurve = editedData.breathCurve;
+    audioData.tensionCurve = editedData.tensionCurve;
+    audioData.voicedMask = editedData.voicedMask;
+    audioData.vadMask = editedData.vadMask;
     audioData.f0EditedMask = stringToBoolArray(json.getProperty("f0EditedMask", "").toString());
+
+    // For legacy files, analysis data = initial edited data (best we can do)
+    analysisData.originalF0 = editedData.f0;
+    analysisData.originalPitch = editedData.basePitch;
+    analysisData.originalDeltaPitch = editedData.deltaPitch;
+    analysisData.originalVoicedMask = editedData.voicedMask;
+    analysisData.originalVADMask = editedData.vadMask;
 
     return true;
 }

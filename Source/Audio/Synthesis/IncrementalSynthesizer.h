@@ -20,6 +20,24 @@ public:
   using ProgressCallback = std::function<void(const juce::String &message)>;
   using CompleteCallback = std::function<void(bool success)>;
 
+  /**
+   * Describes a range that needs resynthesis.
+   */
+  struct ResynthRange
+  {
+    int startFrame = -1;
+    int endFrame = -1;
+    bool needsMelUpdate = false;  // true = curve edit needs tension recomputation
+
+    bool isValid() const { return startFrame >= 0 && endFrame > startFrame; }
+  };
+
+  /**
+   * Compute the range needing resynthesis from dirty notes + dirty ranges.
+   * Expands to VAD=0 boundaries for clean splice points.
+   */
+  ResynthRange computeResynthRange();
+
   IncrementalSynthesizer();
   ~IncrementalSynthesizer();
 
