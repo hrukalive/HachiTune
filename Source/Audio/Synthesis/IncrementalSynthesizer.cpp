@@ -10,6 +10,80 @@
 
 IncrementalSynthesizer::IncrementalSynthesizer() = default;
 
+// ---------------------------------------------------------------------------
+// computeResynthRange: VAD-boundary-aware dirty range expansion.
+// ---------------------------------------------------------------------------
+IncrementalSynthesizer::ResynthRange
+IncrementalSynthesizer::computeResynthRange()
+{
+  if (!project)
+    return {};
+
+  ResynthRange range;
+
+  // 1. Collect dirty notes' frame ranges
+  int dirtyStart = INT_MAX;
+  int dirtyEnd = INT_MIN;
+  for (const auto& note : project->getNotes())
+  {
+    if (note.isDirty() || note.isSynthDirty())
+    {
+      dirtyStart = std::min(dirtyStart, note.getStartFrame());
+      dirtyEnd = std::max(dirtyEnd, note.getEndFrame());
+    }
+  }
+
+  // 2. Merge f0 dirty range
+  if (project->hasF0DirtyRange())
+  {
+    auto [f0s, f0e] = project->getF0DirtyRange();
+    dirtyStart = std::min(dirtyStart, f0s);
+    dirtyEnd = std::max(dirtyEnd, f0e);
+  }
+
+  // 3. Merge param dirty range (curve edits need mel update)
+  if (project->hasParamDirtyRange())
+  {
+    auto [ps, pe] = project->getParamDirtyRange();
+    dirtyStart = std::min(dirtyStart, ps);
+    dirtyEnd = std::max(dirtyEnd, pe);
+    range.needsMelUpdate = true;
+  }
+
+  if (dirtyStart >= dirtyEnd)
+    return {};
+
+  // 4-5. Expand to VAD=0 boundaries
+  const auto& vadMask = project->getEditedData().vadMask;
+
+  // If editedData.vadMask is empty, fall back to audioData.vadMask
+  const auto& effectiveVadMask = vadMask.empty()
+      ? project->getAudioData().vadMask
+      : vadMask;
+  const int effectiveTotal = static_cast<int>(effectiveVadMask.size());
+
+  if (effectiveTotal == 0)
+  {
+    range.startFrame = std::max(0, dirtyStart);
+    range.endFrame = dirtyEnd;
+    return range;
+  }
+
+  int start = dirtyStart;
+  while (start > 0 && start < effectiveTotal &&
+         static_cast<bool>(effectiveVadMask[static_cast<size_t>(start)]))
+    --start;
+
+  int end = dirtyEnd;
+  while (end < effectiveTotal &&
+         static_cast<bool>(effectiveVadMask[static_cast<size_t>(end)]))
+    ++end;
+
+  range.startFrame = std::max(0, start);
+  range.endFrame = std::min(effectiveTotal, end);
+  return range;
+}
+
 IncrementalSynthesizer::~IncrementalSynthesizer() { cancel(); }
 
 void IncrementalSynthesizer::cancel() {
@@ -913,6 +987,26 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
           // Compose the global waveform from per-note synthWaveforms
           capturedProject->composeGlobalWaveform();
+
+          // Sync composed waveform to auditionBuffer
+          auto& audition = capturedProject->getAuditionBuffer();
+          const auto& composed = capturedProject->getAudioData().waveform;
+          if (composed.getNumSamples() > 0 &&
+              audition.getNumSamples() >= composed.getNumSamples())
+          {
+            // Copy only the synthesized region
+            const int startSamp = capturedStartFrame * hopSize;
+            const int endSamp = std::min(capturedEndFrame * hopSize,
+                                         composed.getNumSamples());
+            if (startSamp < endSamp && composed.getNumChannels() > 0 &&
+                audition.getNumChannels() > 0)
+            {
+              const int numToCopy = endSamp - startSamp;
+              audition.copyFrom(0, startSamp,
+                                composed.getReadPointer(0, startSamp),
+                                numToCopy);
+            }
+          }
 
           isBusy = false;
           juce::MessageManager::callAsync(
