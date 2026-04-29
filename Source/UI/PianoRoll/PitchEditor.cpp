@@ -96,6 +96,9 @@ void PitchEditor::startNoteDrag(Note *note, float y)
   for (int i = startFrame; i < endFrame && i < f0Size; ++i)
     originalF0Values.push_back(audioData.f0[i]);
 
+  dragBeforeBasePitch = SnapshotHelper::captureFloatRange(
+      audioData.basePitch, startFrame, endFrame);
+
   prepareDragBasePreview();
 
   if (onNoteSelected)
@@ -180,27 +183,26 @@ void PitchEditor::endNoteDrag()
     // Create undo action
     if (undoManager)
     {
-      std::vector<F0FrameEdit> f0Edits;
-      for (int i = startFrame; i < endFrame && i < f0Size; ++i)
-      {
-        int localIdx = i - startFrame;
-        F0FrameEdit edit;
-        edit.idx = i;
-        edit.oldF0 = (localIdx < static_cast<int>(originalF0Values.size()))
-                         ? originalF0Values[localIdx]
-                         : 0.0f;
-        edit.newF0 = audioData.f0[static_cast<size_t>(i)];
-        f0Edits.push_back(edit);
-      }
+      auto afterF0 = SnapshotHelper::captureFloatRange(
+          audioData.f0, startFrame, endFrame);
+      auto afterBasePitch = SnapshotHelper::captureFloatRange(
+          audioData.basePitch, startFrame, endFrame);
+
+      int noteIdx = project->getNoteIndex(draggedNote);
 
       int capturedExpandedStart = expandedStart;
       int capturedExpandedEnd = expandedEnd;
       int capturedF0Size = f0Size;
       auto action = std::make_unique<NotePitchDragAction>(
-          draggedNote, &audioData.f0, originalMidiNote,
-          originalMidiNote + newOffset, std::move(f0Edits),
+          *project, noteIdx, originalMidiNote,
+          originalMidiNote + newOffset,
+          startFrame, endFrame,
+          std::vector<float>(originalF0Values),
+          std::move(afterF0),
+          std::move(dragBeforeBasePitch),
+          std::move(afterBasePitch),
           [this, capturedExpandedStart, capturedExpandedEnd,
-           capturedF0Size](Note *n)
+           capturedF0Size]()
           {
             if (project)
             {
@@ -211,8 +213,6 @@ void PitchEditor::endNoteDrag()
               int smoothEnd =
                   std::min(capturedF0Size, capturedExpandedEnd + 60);
               project->setF0DirtyRange(smoothStart, smoothEnd);
-              if (n)
-                n->markSynthDirty();
             }
           });
       undoManager->addAction(std::move(action));
@@ -244,13 +244,20 @@ void PitchEditor::endNoteDrag()
   dragPreviewWeights.clear();
   dragBasePitchSnapshot.clear();
   dragF0Snapshot.clear();
+  dragBeforeBasePitch.clear();
 }
 
 void PitchEditor::startDrawing(float x, float y)
 {
   isDrawing = true;
-  drawingEdits.clear();
-  drawingEditIndexByFrame.clear();
+  drawSnapshotStartFrame = -1;
+  drawSnapshotEndFrame = -1;
+  drawBeforeF0.clear();
+  drawBeforeDelta.clear();
+  drawBeforeVoiced.clear();
+  drawBeforeEdited.clear();
+  drawMinEditedFrame = std::numeric_limits<int>::max();
+  drawMaxEditedFrame = std::numeric_limits<int>::min();
   drawCurves.clear();
   activeDrawCurve = nullptr;
   lastDrawFrame = -1;
@@ -282,59 +289,75 @@ void PitchEditor::continueDrawing(float x, float y)
 
 void PitchEditor::endDrawing()
 {
-  if (drawingEdits.empty())
+  if (drawMinEditedFrame > drawMaxEditedFrame || drawSnapshotStartFrame < 0)
   {
     isDrawing = false;
     return;
   }
 
-  // Calculate dirty frame range
-  int minFrame = std::numeric_limits<int>::max();
-  int maxFrame = std::numeric_limits<int>::min();
-  for (const auto &e : drawingEdits)
-  {
-    minFrame = std::min(minFrame, e.idx);
-    maxFrame = std::max(maxFrame, e.idx);
-  }
+  const int rangeStart = drawMinEditedFrame;
+  const int rangeEnd = drawMaxEditedFrame + 1;
 
   // Clear deltaPitch for notes in edited range
-  if (project && minFrame <= maxFrame)
+  if (project && rangeStart < rangeEnd)
   {
-    const int maxFrameExclusive = maxFrame + 1;
     auto &notes = project->getNotes();
     for (auto &note : notes)
     {
-      if (note.getEndFrame() > minFrame &&
-          note.getStartFrame() < maxFrameExclusive)
+      if (note.getEndFrame() > rangeStart &&
+          note.getStartFrame() < rangeEnd)
       {
         if (note.hasDeltaPitch())
-        {
           note.setDeltaPitch(std::vector<float>());
-        }
       }
     }
-    project->setF0DirtyRange(minFrame, maxFrameExclusive);
+    project->setF0DirtyRange(rangeStart, rangeEnd);
   }
 
   // Create undo action
   if (undoManager && project)
   {
     auto &audioData = project->getAudioData();
-    auto action = std::make_unique<F0EditAction>(
-        &audioData.f0, &audioData.deltaPitch, &audioData.voicedMask,
-        &audioData.f0EditedMask,
-        drawingEdits, [this](int minFrame, int maxFrame)
-        {
+
+    auto afterF0 = SnapshotHelper::captureFloatRange(audioData.f0, rangeStart, rangeEnd);
+    auto afterDelta = SnapshotHelper::captureFloatRange(audioData.deltaPitch, rangeStart, rangeEnd);
+    auto afterVoiced = SnapshotHelper::captureBoolRange(audioData.voicedMask, rangeStart, rangeEnd);
+    auto afterEdited = SnapshotHelper::captureBoolRange(audioData.f0EditedMask, rangeStart, rangeEnd);
+
+    auto slicedBeforeF0 = SnapshotHelper::captureFloatRange(drawBeforeF0, rangeStart - drawSnapshotStartFrame,
+                                                             rangeEnd - drawSnapshotStartFrame);
+    auto slicedBeforeDelta = SnapshotHelper::captureFloatRange(drawBeforeDelta, rangeStart - drawSnapshotStartFrame,
+                                                               rangeEnd - drawSnapshotStartFrame);
+    auto slicedBeforeVoiced = SnapshotHelper::captureBoolRange(drawBeforeVoiced, rangeStart - drawSnapshotStartFrame,
+                                                                rangeEnd - drawSnapshotStartFrame);
+    auto slicedBeforeEdited = SnapshotHelper::captureBoolRange(drawBeforeEdited, rangeStart - drawSnapshotStartFrame,
+                                                                rangeEnd - drawSnapshotStartFrame);
+
+    auto action = std::make_unique<F0DrawAction>(
+        *project,
+        rangeStart, rangeEnd,
+        std::move(slicedBeforeF0), std::move(afterF0),
+        std::move(slicedBeforeDelta), std::move(afterDelta),
+        std::move(slicedBeforeVoiced), std::move(afterVoiced),
+        std::move(slicedBeforeEdited), std::move(afterEdited),
+        [this](int minFrame, int maxFrame) {
           if (project) {
             project->setF0DirtyRange(minFrame, maxFrame + 1);
             if (onPitchEditFinished)
               onPitchEditFinished();
-          } });
+          }
+        });
     undoManager->addAction(std::move(action));
   }
 
-  drawingEdits.clear();
-  drawingEditIndexByFrame.clear();
+  drawSnapshotStartFrame = -1;
+  drawSnapshotEndFrame = -1;
+  drawBeforeF0.clear();
+  drawBeforeDelta.clear();
+  drawBeforeVoiced.clear();
+  drawBeforeEdited.clear();
+  drawMinEditedFrame = std::numeric_limits<int>::max();
+  drawMaxEditedFrame = std::numeric_limits<int>::min();
   lastDrawFrame = -1;
   lastDrawValueCents = 0;
   activeDrawCurve = nullptr;
@@ -369,13 +392,20 @@ void PitchEditor::applyPitchPoint(int frameIndex, int midiCents)
       return;
 
     const float newFreq = midiToFreq(static_cast<float>(cents) / 100.0f);
-    const float oldF0 = audioData.f0[idx];
-    const float oldDelta = (idx < static_cast<int>(audioData.deltaPitch.size()))
-                               ? audioData.deltaPitch[idx]
-                               : 0.0f;
-    const bool oldVoiced = (idx < static_cast<int>(audioData.voicedMask.size()))
-                               ? audioData.voicedMask[idx]
-                               : false;
+
+    // Lazy snapshot capture on first frame edit
+    if (drawSnapshotStartFrame < 0) {
+      const int totalFrames = static_cast<int>(audioData.f0.size());
+      drawSnapshotStartFrame = 0;
+      drawSnapshotEndFrame = totalFrames;
+      drawBeforeF0 = SnapshotHelper::captureFloatRange(audioData.f0, 0, totalFrames);
+      drawBeforeDelta = SnapshotHelper::captureFloatRange(audioData.deltaPitch, 0, totalFrames);
+      drawBeforeVoiced = SnapshotHelper::captureBoolRange(audioData.voicedMask, 0, totalFrames);
+      drawBeforeEdited = SnapshotHelper::captureBoolRange(audioData.f0EditedMask, 0, totalFrames);
+    }
+
+    drawMinEditedFrame = std::min(drawMinEditedFrame, idx);
+    drawMaxEditedFrame = std::max(drawMaxEditedFrame, idx);
 
     float baseMidi = (idx < static_cast<int>(audioData.basePitch.size()))
                          ? audioData.basePitch[static_cast<size_t>(idx)]
@@ -383,31 +413,16 @@ void PitchEditor::applyPitchPoint(int frameIndex, int midiCents)
     float newMidi = static_cast<float>(cents) / 100.0f;
     float newDelta = newMidi - baseMidi;
 
-    auto it = drawingEditIndexByFrame.find(idx);
-    if (it == drawingEditIndexByFrame.end())
+    // Clear deltaPitch for notes containing this frame
+    auto &notes = project->getNotes();
+    for (auto &note : notes)
     {
-      drawingEditIndexByFrame.emplace(idx, drawingEdits.size());
-      drawingEdits.push_back(F0FrameEdit{idx, oldF0, newFreq, oldDelta,
-                                         newDelta, oldVoiced, true});
-
-      // Clear deltaPitch for notes containing this frame
-      auto &notes = project->getNotes();
-      for (auto &note : notes)
+      if (note.getStartFrame() <= idx && note.getEndFrame() > idx &&
+          note.hasDeltaPitch())
       {
-        if (note.getStartFrame() <= idx && note.getEndFrame() > idx &&
-            note.hasDeltaPitch())
-        {
-          note.setDeltaPitch(std::vector<float>());
-          break;
-        }
+        note.setDeltaPitch(std::vector<float>());
+        break;
       }
-    }
-    else
-    {
-      auto &e = drawingEdits[it->second];
-      e.newF0 = newFreq;
-      e.newDelta = newDelta;
-      e.newVoiced = true;
     }
 
     audioData.f0[idx] = newFreq;
@@ -585,6 +600,19 @@ void PitchEditor::startMultiNoteDrag(const std::vector<Note *> &notes,
 
   prepareDragBasePreview();
 
+  int overallStart = std::numeric_limits<int>::max();
+  int overallEnd = std::numeric_limits<int>::min();
+  for (auto* note : draggedNotes) {
+    overallStart = std::min(overallStart, note->getStartFrame());
+    overallEnd = std::max(overallEnd, note->getEndFrame());
+  }
+  multiDragStartFrame = overallStart;
+  multiDragEndFrame = overallEnd;
+  multiDragBeforeF0 = SnapshotHelper::captureFloatRange(
+      audioData.f0, overallStart, overallEnd);
+  multiDragBeforeBasePitch = SnapshotHelper::captureFloatRange(
+      audioData.basePitch, overallStart, overallEnd);
+
   isMultiDragging = true;
 }
 
@@ -676,38 +704,28 @@ void PitchEditor::endMultiNoteDrag()
     // Create undo action for multi-note drag
     if (undoManager)
     {
-      std::vector<F0FrameEdit> f0Edits;
-      for (size_t i = 0; i < draggedNotes.size(); ++i)
-      {
-        auto *note = draggedNotes[i];
-        int startFrame = note->getStartFrame();
-        int endFrame = note->getEndFrame();
-        for (int j = startFrame; j < endFrame && j < f0Size; ++j)
-        {
-          int localIdx = j - startFrame;
-          F0FrameEdit edit;
-          edit.idx = j;
-          edit.oldF0 =
-              (localIdx < static_cast<int>(originalF0ValuesMulti[i].size()))
-                  ? originalF0ValuesMulti[i][localIdx]
-                  : 0.0f;
-          edit.newF0 = audioData.f0[static_cast<size_t>(j)];
-          f0Edits.push_back(edit);
-        }
-      }
+      auto afterF0 = SnapshotHelper::captureFloatRange(
+          audioData.f0, multiDragStartFrame, multiDragEndFrame);
+      auto afterBasePitch = SnapshotHelper::captureFloatRange(
+          audioData.basePitch, multiDragStartFrame, multiDragEndFrame);
+
+      std::vector<int> noteIndices;
+      noteIndices.reserve(draggedNotes.size());
+      for (auto* note : draggedNotes)
+        noteIndices.push_back(project->getNoteIndex(note));
 
       int capturedExpandedStart = expandedStart;
       int capturedExpandedEnd = expandedEnd;
       int capturedF0Size = f0Size;
-      std::vector<Note *> capturedNotes = draggedNotes;
-      std::vector<float> capturedOriginalMidi = originalMidiNotes;
-      float capturedNewOffset = newOffset;
-
       auto action = std::make_unique<MultiNotePitchDragAction>(
-          capturedNotes, &audioData.f0, capturedOriginalMidi, capturedNewOffset,
-          std::move(f0Edits),
+          *project, std::move(noteIndices), originalMidiNotes, newOffset,
+          multiDragStartFrame, multiDragEndFrame,
+          std::move(multiDragBeforeF0),
+          std::move(afterF0),
+          std::move(multiDragBeforeBasePitch),
+          std::move(afterBasePitch),
           [this, capturedExpandedStart, capturedExpandedEnd,
-           capturedF0Size](const std::vector<Note *> &)
+           capturedF0Size]()
           {
             if (project)
             {
@@ -753,6 +771,10 @@ void PitchEditor::endMultiNoteDrag()
   dragPreviewWeights.clear();
   dragBasePitchSnapshot.clear();
   dragF0Snapshot.clear();
+  multiDragStartFrame = -1;
+  multiDragEndFrame = -1;
+  multiDragBeforeF0.clear();
+  multiDragBeforeBasePitch.clear();
 }
 
 void PitchEditor::prepareDragBasePreview()

@@ -1,148 +1,10 @@
 #pragma once
 
 #include "UndoableAction.h"
-#include "F0FrameEdit.h"
+#include "SnapshotHelper.h"
 #include "../Models/Note.h"
 #include <vector>
 #include <functional>
-
-/**
- * Action for dragging a note to change pitch (MIDI note + F0 values).
- */
-class NotePitchDragAction : public UndoableAction
-{
-public:
-    NotePitchDragAction(Note *note, std::vector<float> *f0Array,
-                        float oldMidi, float newMidi,
-                        std::vector<F0FrameEdit> f0Edits,
-                        std::function<void(Note *)> onNoteChanged = nullptr)
-        : note(note), f0Array(f0Array), oldMidi(oldMidi), newMidi(newMidi),
-          f0Edits(std::move(f0Edits)), onNoteChanged(onNoteChanged) {}
-
-    void undo() override
-    {
-        if (note)
-        {
-            note->setMidiNote(oldMidi);
-            note->markDirty();
-            note->markSynthDirty();
-        }
-        if (f0Array)
-        {
-            for (const auto &e : f0Edits)
-            {
-                if (e.idx >= 0 && e.idx < static_cast<int>(f0Array->size()))
-                    (*f0Array)[e.idx] = e.oldF0;
-            }
-        }
-        if (onNoteChanged && note)
-        {
-            onNoteChanged(note);
-        }
-    }
-
-    void redo() override
-    {
-        if (note)
-        {
-            note->setMidiNote(newMidi);
-            note->markDirty();
-            note->markSynthDirty();
-        }
-        if (f0Array)
-        {
-            for (const auto &e : f0Edits)
-            {
-                if (e.idx >= 0 && e.idx < static_cast<int>(f0Array->size()))
-                    (*f0Array)[e.idx] = e.newF0;
-            }
-        }
-        if (onNoteChanged && note)
-        {
-            onNoteChanged(note);
-        }
-    }
-
-    juce::String getName() const override { return "Drag Note Pitch"; }
-
-private:
-    Note *note;
-    std::vector<float> *f0Array;
-    float oldMidi;
-    float newMidi;
-    std::vector<F0FrameEdit> f0Edits;
-    std::function<void(Note *)> onNoteChanged;
-};
-
-/**
- * Action for dragging multiple notes to change pitch.
- */
-class MultiNotePitchDragAction : public UndoableAction
-{
-public:
-    MultiNotePitchDragAction(std::vector<Note *> notes, std::vector<float> *f0Array,
-                             std::vector<float> oldMidis, float pitchDelta,
-                             std::vector<F0FrameEdit> f0Edits,
-                             std::function<void(const std::vector<Note *> &)> onNotesChanged = nullptr)
-        : notes(std::move(notes)), f0Array(f0Array), oldMidis(std::move(oldMidis)),
-          pitchDelta(pitchDelta), f0Edits(std::move(f0Edits)), onNotesChanged(onNotesChanged) {}
-
-    void undo() override
-    {
-        for (size_t i = 0; i < notes.size() && i < oldMidis.size(); ++i)
-        {
-            if (notes[i])
-            {
-                notes[i]->setMidiNote(oldMidis[i]);
-                notes[i]->markDirty();
-                notes[i]->markSynthDirty();
-            }
-        }
-        if (f0Array)
-        {
-            for (const auto &e : f0Edits)
-            {
-                if (e.idx >= 0 && e.idx < static_cast<int>(f0Array->size()))
-                    (*f0Array)[e.idx] = e.oldF0;
-            }
-        }
-        if (onNotesChanged)
-            onNotesChanged(notes);
-    }
-
-    void redo() override
-    {
-        for (size_t i = 0; i < notes.size() && i < oldMidis.size(); ++i)
-        {
-            if (notes[i])
-            {
-                notes[i]->setMidiNote(oldMidis[i] + pitchDelta);
-                notes[i]->markDirty();
-                notes[i]->markSynthDirty();
-            }
-        }
-        if (f0Array)
-        {
-            for (const auto &e : f0Edits)
-            {
-                if (e.idx >= 0 && e.idx < static_cast<int>(f0Array->size()))
-                    (*f0Array)[e.idx] = e.newF0;
-            }
-        }
-        if (onNotesChanged)
-            onNotesChanged(notes);
-    }
-
-    juce::String getName() const override { return "Drag Multiple Notes"; }
-
-private:
-    std::vector<Note *> notes;
-    std::vector<float> *f0Array;
-    std::vector<float> oldMidis;
-    float pitchDelta;
-    std::vector<F0FrameEdit> f0Edits;
-    std::function<void(const std::vector<Note *> &)> onNotesChanged;
-};
 
 /**
  * Action for nudging selected notes by keyboard (up/down, octave).
@@ -194,4 +56,156 @@ private:
     std::vector<float> oldMidis;
     std::vector<float> newMidis;
     std::function<void(const std::vector<Note *> &)> onNotesChanged;
+};
+
+class NotePitchDragAction : public UndoableAction
+{
+public:
+  NotePitchDragAction(Project& project,
+                              int noteIndex,
+                              float oldMidi, float newMidi,
+                              int startFrame, int endFrame,
+                              std::vector<float> beforeF0,
+                              std::vector<float> afterF0,
+                              std::vector<float> beforeBasePitch,
+                              std::vector<float> afterBasePitch,
+                              std::function<void()> onChanged = nullptr)
+      : project(project),
+        noteIndex(noteIndex),
+        oldMidi(oldMidi), newMidi(newMidi),
+        startFrame(startFrame), endFrame(endFrame),
+        beforeF0(std::move(beforeF0)), afterF0(std::move(afterF0)),
+        beforeBasePitch(std::move(beforeBasePitch)),
+        afterBasePitch(std::move(afterBasePitch)),
+        onChanged(std::move(onChanged)) {}
+
+  void undo() override
+  {
+    auto& audioData = project.getAudioData();
+    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, beforeF0);
+    SnapshotHelper::restoreFloatRange(audioData.basePitch, startFrame, beforeBasePitch);
+    auto& notes = project.getNotes();
+    if (noteIndex >= 0 && noteIndex < static_cast<int>(notes.size()))
+    {
+      notes[noteIndex].setMidiNote(oldMidi);
+      notes[noteIndex].markDirty();
+      notes[noteIndex].markSynthDirty();
+    }
+    SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    if (onChanged)
+      onChanged();
+  }
+
+  void redo() override
+  {
+    auto& audioData = project.getAudioData();
+    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, afterF0);
+    SnapshotHelper::restoreFloatRange(audioData.basePitch, startFrame, afterBasePitch);
+    auto& notes = project.getNotes();
+    if (noteIndex >= 0 && noteIndex < static_cast<int>(notes.size()))
+    {
+      notes[noteIndex].setMidiNote(newMidi);
+      notes[noteIndex].markDirty();
+      notes[noteIndex].markSynthDirty();
+    }
+    SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    if (onChanged)
+      onChanged();
+  }
+
+  juce::String getName() const override { return "Drag Note Pitch"; }
+
+private:
+  Project& project;
+  int noteIndex;
+  float oldMidi;
+  float newMidi;
+  int startFrame;
+  int endFrame;
+  std::vector<float> beforeF0;
+  std::vector<float> afterF0;
+  std::vector<float> beforeBasePitch;
+  std::vector<float> afterBasePitch;
+  std::function<void()> onChanged;
+};
+
+class MultiNotePitchDragAction : public UndoableAction
+{
+public:
+  MultiNotePitchDragAction(Project& project,
+                                   std::vector<int> noteIndices,
+                                   std::vector<float> oldMidis,
+                                   float pitchDelta,
+                                   int startFrame, int endFrame,
+                                   std::vector<float> beforeF0,
+                                   std::vector<float> afterF0,
+                                   std::vector<float> beforeBasePitch,
+                                   std::vector<float> afterBasePitch,
+                                   std::function<void()> onChanged = nullptr)
+      : project(project),
+        noteIndices(std::move(noteIndices)),
+        oldMidis(std::move(oldMidis)),
+        pitchDelta(pitchDelta),
+        startFrame(startFrame), endFrame(endFrame),
+        beforeF0(std::move(beforeF0)), afterF0(std::move(afterF0)),
+        beforeBasePitch(std::move(beforeBasePitch)),
+        afterBasePitch(std::move(afterBasePitch)),
+        onChanged(std::move(onChanged)) {}
+
+  void undo() override
+  {
+    auto& audioData = project.getAudioData();
+    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, beforeF0);
+    SnapshotHelper::restoreFloatRange(audioData.basePitch, startFrame, beforeBasePitch);
+    auto& notes = project.getNotes();
+    for (size_t i = 0; i < noteIndices.size() && i < oldMidis.size(); ++i)
+    {
+      int idx = noteIndices[i];
+      if (idx >= 0 && idx < static_cast<int>(notes.size()))
+      {
+        notes[idx].setMidiNote(oldMidis[i]);
+        notes[idx].markDirty();
+        notes[idx].markSynthDirty();
+      }
+    }
+    SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    if (onChanged)
+      onChanged();
+  }
+
+  void redo() override
+  {
+    auto& audioData = project.getAudioData();
+    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, afterF0);
+    SnapshotHelper::restoreFloatRange(audioData.basePitch, startFrame, afterBasePitch);
+    auto& notes = project.getNotes();
+    for (size_t i = 0; i < noteIndices.size() && i < oldMidis.size(); ++i)
+    {
+      int idx = noteIndices[i];
+      if (idx >= 0 && idx < static_cast<int>(notes.size()))
+      {
+        notes[idx].setMidiNote(oldMidis[i] + pitchDelta);
+        notes[idx].markDirty();
+        notes[idx].markSynthDirty();
+      }
+    }
+    SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    if (onChanged)
+      onChanged();
+  }
+
+  juce::String getName() const override { return "Drag Multiple Notes"; }
+
+private:
+  Project& project;
+  std::vector<int> noteIndices;
+  std::vector<float> oldMidis;
+  float pitchDelta;
+  int startFrame;
+  int endFrame;
+  std::vector<float> beforeF0;
+  std::vector<float> afterF0;
+  std::vector<float> beforeBasePitch;
+  std::vector<float> afterBasePitch;
+  std::function<void()> onChanged;
 };

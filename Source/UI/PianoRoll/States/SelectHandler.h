@@ -1,6 +1,7 @@
 #pragma once
 
 #include "InteractionHandler.h"
+#include "../../../Undo/SnapshotHelper.h"
 
 #include <vector>
 
@@ -49,6 +50,7 @@ private:
   float boundaryF0Start = 0.0f;
   float boundaryF0End = 0.0f;
   std::vector<float> originalF0Values;
+  std::vector<float> dragBeforeBasePitch;
   float lastDragPitchOffset = 0.0f;
   int dragPreviewStartFrame = -1;
   int dragPreviewEndFrame = -1;

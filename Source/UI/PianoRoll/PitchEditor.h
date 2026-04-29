@@ -3,13 +3,14 @@
 #include "../../JuceHeader.h"
 #include "../../Models/Project.h"
 #include "../../Undo/UndoActions.h"
+#include "../../Undo/SnapshotHelper.h"
 #include "../../Utils/UI/DrawCurve.h"
 #include "../../Utils/BasePitchPreview.h"
 #include "../../Utils/PitchCurveProcessor.h"
 #include "CoordinateMapper.h"
 #include <deque>
 #include <memory>
-#include <unordered_map>
+#include <limits>
 #include <functional>
 
 /**
@@ -82,6 +83,11 @@ private:
     std::vector<float> dragPreviewWeights;
     std::vector<float> dragBasePitchSnapshot;
     std::vector<float> dragF0Snapshot;
+    std::vector<float> dragBeforeBasePitch;
+    int multiDragStartFrame = -1;
+    int multiDragEndFrame = -1;
+    std::vector<float> multiDragBeforeF0;
+    std::vector<float> multiDragBeforeBasePitch;
 
     // Multi-note drag state
     bool isMultiDragging = false;
@@ -93,8 +99,14 @@ private:
 
     // Draw state
     bool isDrawing = false;
-    std::vector<F0FrameEdit> drawingEdits;
-    std::unordered_map<int, size_t> drawingEditIndexByFrame;
+    int drawSnapshotStartFrame = -1;
+    int drawSnapshotEndFrame = -1;
+    std::vector<float> drawBeforeF0;
+    std::vector<float> drawBeforeDelta;
+    std::vector<bool> drawBeforeVoiced;
+    std::vector<bool> drawBeforeEdited;
+    int drawMinEditedFrame = std::numeric_limits<int>::max();
+    int drawMaxEditedFrame = std::numeric_limits<int>::min();
     int lastDrawFrame = -1;
     int lastDrawValueCents = 0;
     DrawCurve* activeDrawCurve = nullptr;

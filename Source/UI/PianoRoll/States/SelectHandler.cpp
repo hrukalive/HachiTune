@@ -139,6 +139,7 @@ bool SelectHandler::mouseDown(const juce::MouseEvent &e, float worldX,
       // Single note selection and drag
       project->deselectAllNotes();
       note->setSelected(true);
+      project->notifyListeners(ProjectChangeType::NoteSelectionChanged);
       owner_.updatePitchToolHandlesFromSelection();
 
       if (owner_.onNoteSelected)
@@ -182,6 +183,9 @@ bool SelectHandler::mouseDown(const juce::MouseEvent &e, float worldX,
       originalF0Values.clear();
       for (int i = startFrame; i < endFrame && i < f0Size; ++i)
         originalF0Values.push_back(audioData.f0[i]);
+
+      dragBeforeBasePitch = SnapshotHelper::captureFloatRange(
+          audioData.basePitch, startFrame, endFrame);
 
       prepareDragBasePreview();
     }
@@ -336,6 +340,7 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
       note->setSelected(true);
     }
     owner_.boxSelector->endSelection();
+    project->notifyListeners(ProjectChangeType::NoteSelectionChanged);
     owner_.updatePitchToolHandlesFromSelection();
     owner_.repaint();
     return true;
@@ -412,29 +417,26 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
       // Create undo action
       if (owner_.undoManager)
       {
-        std::vector<F0FrameEdit> f0Edits;
-        for (int i = startFrame; i < endFrame && i < f0Size; ++i)
-        {
-          int localIdx = i - startFrame;
-          F0FrameEdit edit;
-          edit.idx = i;
-          edit.oldF0 =
-              (localIdx <
-               static_cast<int>(originalF0Values.size()))
-                  ? originalF0Values[localIdx]
-                  : 0.0f;
-          edit.newF0 = audioData.f0[static_cast<size_t>(i)];
-          f0Edits.push_back(edit);
-        }
+        auto afterF0 = SnapshotHelper::captureFloatRange(
+            audioData.f0, startFrame, endFrame);
+        auto afterBasePitch = SnapshotHelper::captureFloatRange(
+            audioData.basePitch, startFrame, endFrame);
+
+        int noteIdx = project->getNoteIndex(draggedNote);
+
         int capturedExpandedStart = expandedStart;
         int capturedExpandedEnd = expandedEnd;
         int capturedF0Size = f0Size;
         auto *ownerPtr = &owner_;
         auto action = std::make_unique<NotePitchDragAction>(
-            draggedNote, &audioData.f0, originalMidiNote,
-            finalMidiNote, std::move(f0Edits),
+            *project, noteIdx, originalMidiNote, finalMidiNote,
+            startFrame, endFrame,
+            std::vector<float>(originalF0Values),
+            std::move(afterF0),
+            std::move(dragBeforeBasePitch),
+            std::move(afterBasePitch),
             [ownerPtr, capturedExpandedStart, capturedExpandedEnd,
-             capturedF0Size](Note *n)
+             capturedF0Size]()
             {
               if (ownerPtr->project)
               {
@@ -446,11 +448,7 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
                 int smoothEnd = std::min(capturedF0Size,
                                          capturedExpandedEnd + 60);
                 ownerPtr->project->setF0DirtyRange(smoothStart,
-                                                   smoothEnd);
-                if (n)
-                {
-                  n->markSynthDirty();
-                }
+                                                    smoothEnd);
               }
             });
         owner_.undoManager->addAction(std::move(action));
@@ -485,6 +483,7 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
   dragPreviewWeights.clear();
   dragBasePitchSnapshot.clear();
   dragF0Snapshot.clear();
+  dragBeforeBasePitch.clear();
   return true;
 }
 

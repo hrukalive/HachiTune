@@ -825,6 +825,8 @@ namespace PitchCurveProcessor
             audioData.baseF0[static_cast<size_t>(i)] = midiToFreq(audioData.basePitch[static_cast<size_t>(i)]);
 
         composeF0InPlace(project, /*applyUvMask=*/false);
+
+        project.notifyListeners(ProjectChangeType::NotePitchChanged);
     }
 
     void rebuildBaseFromNotesForDrag(Project& project, const std::vector<Note*>& affectedNotes)
@@ -899,5 +901,7 @@ namespace PitchCurveProcessor
         ed.basePitch = audioData.basePitch;
         ed.deltaPitch = audioData.deltaPitch;
         ed.f0 = audioData.f0;
+
+        project.notifyListeners(ProjectChangeType::EditedDataChanged);
     }
 } // namespace PitchCurveProcessor

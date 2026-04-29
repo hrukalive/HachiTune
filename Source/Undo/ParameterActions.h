@@ -45,7 +45,7 @@ struct ParameterFrameEdit
  *   2. On mouse up, create ParameterCurveAction and add to PitchUndoManager
  *   3. The action stores a getCurve lambda that retrieves the note's curve vector
  *
- * @see F0EditAction for the analogous pitch curve undo action.
+ * @see F0DrawAction for the analogous pitch curve undo action.
  */
 class ParameterCurveAction : public UndoableAction
 {

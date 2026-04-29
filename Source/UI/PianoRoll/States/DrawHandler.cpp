@@ -1,5 +1,6 @@
 #include "DrawHandler.h"
 #include "../../PianoRollComponent.h"
+#include "../../../Undo/F0Actions.h"
 #include "../../../Utils/Constants.h"
 #include "../../../Utils/NoteEditUtils.h"
 #include "../../../Utils/PitchCurveProcessor.h"
@@ -20,8 +21,14 @@ bool DrawHandler::mouseDown(const juce::MouseEvent &e, float worldX,
 
   isDrawing = false;
   isPendingDraw = true;
-  drawingEdits.clear();
-  drawingEditIndexByFrame.clear();
+  snapshotStartFrame = -1;
+  snapshotEndFrame = -1;
+  beforeF0.clear();
+  beforeDelta.clear();
+  beforeVoiced.clear();
+  beforeEdited.clear();
+  minEditedFrame = std::numeric_limits<int>::max();
+  maxEditedFrame = std::numeric_limits<int>::min();
   bakedNotes.clear();
   drawCurves.clear();
   activeDrawCurve = nullptr;
@@ -60,8 +67,14 @@ bool DrawHandler::mouseUp(const juce::MouseEvent &e, float worldX,
 
   if (isPendingDraw) {
     isPendingDraw = false;
-    drawingEdits.clear();
-    drawingEditIndexByFrame.clear();
+    snapshotStartFrame = -1;
+    snapshotEndFrame = -1;
+    beforeF0.clear();
+    beforeDelta.clear();
+    beforeVoiced.clear();
+    beforeEdited.clear();
+    minEditedFrame = std::numeric_limits<int>::max();
+    maxEditedFrame = std::numeric_limits<int>::min();
     lastDrawFrame = -1;
     lastDrawValueCents = 0;
     activeDrawCurve = nullptr;
@@ -83,8 +96,14 @@ bool DrawHandler::isActive() const { return isDrawing || isPendingDraw; }
 void DrawHandler::cancel() {
   if (isPendingDraw) {
     isPendingDraw = false;
-    drawingEdits.clear();
-    drawingEditIndexByFrame.clear();
+    snapshotStartFrame = -1;
+    snapshotEndFrame = -1;
+    beforeF0.clear();
+    beforeDelta.clear();
+    beforeVoiced.clear();
+    beforeEdited.clear();
+    minEditedFrame = std::numeric_limits<int>::max();
+    maxEditedFrame = std::numeric_limits<int>::min();
     bakedNotes.clear();
     lastDrawFrame = -1;
     lastDrawValueCents = 0;
@@ -97,32 +116,36 @@ void DrawHandler::cancel() {
   if (!isDrawing)
     return;
 
-  // Restore original F0 values from drawing edits
-  if (owner_.project && !drawingEdits.empty()) {
+  // Restore original F0 values from before-snapshot
+  if (owner_.project && snapshotStartFrame >= 0 && minEditedFrame <= maxEditedFrame) {
     auto &audioData = owner_.project->getAudioData();
-    for (const auto &e : drawingEdits) {
-      if (e.idx >= 0 && e.idx < static_cast<int>(audioData.f0.size())) {
-        audioData.f0[e.idx] = e.oldF0;
-      }
-      if (e.idx >= 0 &&
-          e.idx < static_cast<int>(audioData.deltaPitch.size())) {
-        audioData.deltaPitch[e.idx] = e.oldDelta;
-      }
-      if (e.idx >= 0 &&
-          e.idx < static_cast<int>(audioData.voicedMask.size())) {
-        audioData.voicedMask[e.idx] = e.oldVoiced;
-      }
-      if (e.idx >= 0 &&
-          e.idx < static_cast<int>(audioData.f0EditedMask.size())) {
-        audioData.f0EditedMask[e.idx] = e.oldEdited;
-      }
+    for (int i = minEditedFrame; i <= maxEditedFrame; ++i) {
+      const int bi = i - snapshotStartFrame;
+      if (bi >= 0 && bi < static_cast<int>(beforeF0.size()) &&
+          i >= 0 && i < static_cast<int>(audioData.f0.size()))
+        audioData.f0[i] = beforeF0[bi];
+      if (bi >= 0 && bi < static_cast<int>(beforeDelta.size()) &&
+          i >= 0 && i < static_cast<int>(audioData.deltaPitch.size()))
+        audioData.deltaPitch[i] = beforeDelta[bi];
+      if (bi >= 0 && bi < static_cast<int>(beforeVoiced.size()) &&
+          i >= 0 && i < static_cast<int>(audioData.voicedMask.size()))
+        audioData.voicedMask[i] = beforeVoiced[bi];
+      if (bi >= 0 && bi < static_cast<int>(beforeEdited.size()) &&
+          i >= 0 && i < static_cast<int>(audioData.f0EditedMask.size()))
+        audioData.f0EditedMask[i] = beforeEdited[bi];
     }
   }
 
   isDrawing = false;
   isPendingDraw = false;
-  drawingEdits.clear();
-  drawingEditIndexByFrame.clear();
+  snapshotStartFrame = -1;
+  snapshotEndFrame = -1;
+  beforeF0.clear();
+  beforeDelta.clear();
+  beforeVoiced.clear();
+  beforeEdited.clear();
+  minEditedFrame = std::numeric_limits<int>::max();
+  maxEditedFrame = std::numeric_limits<int>::min();
   bakedNotes.clear();
   lastDrawFrame = -1;
   lastDrawValueCents = 0;
@@ -157,33 +180,24 @@ void DrawHandler::applyPitchDrawing(float x, float y) {
 }
 
 void DrawHandler::commitPitchDrawing() {
-  if (drawingEdits.empty())
+  if (minEditedFrame > maxEditedFrame || snapshotStartFrame < 0)
     return;
 
-  // Calculate the dirty frame range from the changes
-  int minFrame = std::numeric_limits<int>::max();
-  int maxFrame = std::numeric_limits<int>::min();
-  for (const auto &e : drawingEdits) {
-    minFrame = std::min(minFrame, e.idx);
-    maxFrame = std::max(maxFrame, e.idx);
-  }
+  const int rangeStart = minEditedFrame;
+  const int rangeEnd = maxEditedFrame + 1;
 
-  // Clear deltaPitch for notes in the edited range so they use the drawn F0
-  if (owner_.project && minFrame <= maxFrame) {
-    const int maxFrameExclusive = maxFrame + 1;
+  // Clear deltaPitch for notes in the edited range and bake
+  if (owner_.project && rangeStart < rangeEnd) {
     auto &notes = owner_.project->getNotes();
     auto &audioData = owner_.project->getAudioData();
 
     for (auto &note : notes) {
       if (note.isRest())
         continue;
-      if (note.getEndFrame() <= minFrame ||
-          note.getStartFrame() >= maxFrameExclusive)
+      if (note.getEndFrame() <= rangeStart ||
+          note.getStartFrame() >= rangeEnd)
         continue;
 
-      // Bake the current audioData.deltaPitch into this note's
-      // originalDeltaPitch so that subsequent note-tool transforms
-      // (tilt, variance, etc.) operate on the drawn curve.
       const int noteStart = note.getStartFrame();
       const int noteEnd = note.getEndFrame();
       const int noteLen = noteEnd - noteStart;
@@ -198,7 +212,6 @@ void DrawHandler::commitPitchDrawing() {
           destDelta[static_cast<size_t>(i)] = audioData.deltaPitch[static_cast<size_t>(g)];
       }
 
-      // Resample to source duration if stretched, then store as original
       const int srcLen = note.getSrcDurationFrames();
       if (srcLen > 0 && srcLen != noteLen) {
         note.setOriginalDeltaPitch(
@@ -207,14 +220,9 @@ void DrawHandler::commitPitchDrawing() {
         note.setOriginalDeltaPitch(std::move(destDelta));
       }
 
-      // Clear the note's dest-domain deltaPitch; it will be rebuilt
-      // from the freshly baked originalDeltaPitch by rebuildBaseFromNotes.
       if (note.hasDeltaPitch())
         note.setDeltaPitch(std::vector<float>());
 
-      // Clear f0EditedMask for this note's frames — the drawn delta
-      // is now part of originalDeltaPitch and the normal rebuild
-      // pipeline will reproduce it correctly.
       if (!audioData.f0EditedMask.empty()) {
         const int maskSize = static_cast<int>(audioData.f0EditedMask.size());
         for (int i = noteStart; i < noteEnd && i < maskSize; ++i) {
@@ -225,18 +233,36 @@ void DrawHandler::commitPitchDrawing() {
     }
   }
 
-  // Set F0 dirty range in project for incremental synthesis
-  if (owner_.project && minFrame <= maxFrame) {
-    owner_.project->setF0DirtyRange(minFrame, maxFrame + 1);
-  }
+  if (owner_.project)
+    owner_.project->setF0DirtyRange(rangeStart, rangeEnd);
 
-  // Create undo action
+  // Create undo action with before/after snapshots
   if (owner_.undoManager && owner_.project) {
     auto &audioData = owner_.project->getAudioData();
-    auto action = std::make_unique<F0EditAction>(
-        &audioData.f0, &audioData.deltaPitch, &audioData.voicedMask,
-        &audioData.f0EditedMask,
-        drawingEdits, [this](int minFrame, int maxFrame) {
+
+    auto afterF0 = SnapshotHelper::captureFloatRange(audioData.f0, rangeStart, rangeEnd);
+    auto afterDelta = SnapshotHelper::captureFloatRange(audioData.deltaPitch, rangeStart, rangeEnd);
+    auto afterVoiced = SnapshotHelper::captureBoolRange(audioData.voicedMask, rangeStart, rangeEnd);
+    auto afterEdited = SnapshotHelper::captureBoolRange(audioData.f0EditedMask, rangeStart, rangeEnd);
+
+    // Slice before-snapshots to the edited range
+    auto slicedBeforeF0 = SnapshotHelper::captureFloatRange(beforeF0, rangeStart - snapshotStartFrame,
+                                                             rangeEnd - snapshotStartFrame);
+    auto slicedBeforeDelta = SnapshotHelper::captureFloatRange(beforeDelta, rangeStart - snapshotStartFrame,
+                                                               rangeEnd - snapshotStartFrame);
+    auto slicedBeforeVoiced = SnapshotHelper::captureBoolRange(beforeVoiced, rangeStart - snapshotStartFrame,
+                                                                rangeEnd - snapshotStartFrame);
+    auto slicedBeforeEdited = SnapshotHelper::captureBoolRange(beforeEdited, rangeStart - snapshotStartFrame,
+                                                                rangeEnd - snapshotStartFrame);
+
+    auto action = std::make_unique<F0DrawAction>(
+        *owner_.project,
+        rangeStart, rangeEnd,
+        std::move(slicedBeforeF0), std::move(afterF0),
+        std::move(slicedBeforeDelta), std::move(afterDelta),
+        std::move(slicedBeforeVoiced), std::move(afterVoiced),
+        std::move(slicedBeforeEdited), std::move(afterEdited),
+        [this](int minFrame, int maxFrame) {
           if (owner_.project) {
             owner_.project->setF0DirtyRange(minFrame, maxFrame + 1);
             if (owner_.onPitchEditFinished)
@@ -246,15 +272,20 @@ void DrawHandler::commitPitchDrawing() {
     owner_.undoManager->addAction(std::move(action));
   }
 
-  drawingEdits.clear();
-  drawingEditIndexByFrame.clear();
+  snapshotStartFrame = -1;
+  snapshotEndFrame = -1;
+  beforeF0.clear();
+  beforeDelta.clear();
+  beforeVoiced.clear();
+  beforeEdited.clear();
+  minEditedFrame = std::numeric_limits<int>::max();
+  maxEditedFrame = std::numeric_limits<int>::min();
   bakedNotes.clear();
   lastDrawFrame = -1;
   lastDrawValueCents = 0;
   activeDrawCurve = nullptr;
   drawCurves.clear();
 
-  // Trigger synthesis
   if (owner_.onPitchEditFinished)
     owner_.onPitchEditFinished();
 }
@@ -301,16 +332,6 @@ void DrawHandler::applyPitchPoint(int frameIndex, int midiCents) {
       return;
 
     const float newFreq = midiToFreq(static_cast<float>(cents) / 100.0f);
-    const float oldF0 = audioData.f0[idx];
-    const float oldDelta = (idx < static_cast<int>(audioData.deltaPitch.size()))
-                               ? audioData.deltaPitch[idx]
-                               : 0.0f;
-    const bool oldVoiced = (idx < static_cast<int>(audioData.voicedMask.size()))
-                               ? audioData.voicedMask[idx]
-                               : false;
-    const bool oldEdited = (idx < static_cast<int>(audioData.f0EditedMask.size()))
-                               ? audioData.f0EditedMask[idx]
-                               : false;
 
     float baseMidi = (idx < static_cast<int>(audioData.basePitch.size()))
                          ? audioData.basePitch[static_cast<size_t>(idx)]
@@ -318,28 +339,29 @@ void DrawHandler::applyPitchPoint(int frameIndex, int midiCents) {
     float newMidi = static_cast<float>(cents) / 100.0f;
     float newDelta = newMidi - baseMidi;
 
-    auto it = drawingEditIndexByFrame.find(idx);
-    if (it == drawingEditIndexByFrame.end()) {
-      drawingEditIndexByFrame.emplace(idx, drawingEdits.size());
-      drawingEdits.push_back(F0FrameEdit{idx, oldF0, newFreq, oldDelta,
-                                         newDelta, oldVoiced, true,
-                                         oldEdited, true});
+    // Lazy snapshot capture on first frame edit
+    if (snapshotStartFrame < 0) {
+      const int totalFrames = static_cast<int>(audioData.f0.size());
+      snapshotStartFrame = 0;
+      snapshotEndFrame = totalFrames;
+      beforeF0 = SnapshotHelper::captureFloatRange(audioData.f0, 0, totalFrames);
+      beforeDelta = SnapshotHelper::captureFloatRange(audioData.deltaPitch, 0, totalFrames);
+      beforeVoiced = SnapshotHelper::captureBoolRange(audioData.voicedMask, 0, totalFrames);
+      beforeEdited = SnapshotHelper::captureBoolRange(audioData.f0EditedMask, 0, totalFrames);
+    }
 
-      // Clear deltaPitch for any note containing this frame
-      auto &notes = owner_.project->getNotes();
-      for (auto &note : notes) {
-        if (note.getStartFrame() <= idx && note.getEndFrame() > idx &&
-            note.hasDeltaPitch()) {
-          note.setDeltaPitch(std::vector<float>());
-          break;
-        }
+    // Track dirty range
+    minEditedFrame = std::min(minEditedFrame, idx);
+    maxEditedFrame = std::max(maxEditedFrame, idx);
+
+    // Clear deltaPitch for any note containing this frame (on first touch)
+    auto &notes = owner_.project->getNotes();
+    for (auto &note : notes) {
+      if (note.getStartFrame() <= idx && note.getEndFrame() > idx &&
+          note.hasDeltaPitch()) {
+        note.setDeltaPitch(std::vector<float>());
+        break;
       }
-    } else {
-      auto &e = drawingEdits[it->second];
-      e.newF0 = newFreq;
-      e.newDelta = newDelta;
-      e.newVoiced = true;
-      e.newEdited = true;
     }
 
     audioData.f0[idx] = newFreq;

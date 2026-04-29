@@ -345,6 +345,8 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     const int dirtyEndFrame = std::max(originalNote.getEndFrame(), secondNote.getEndFrame());
     refreshProjectAfterSplit(project, dirtyStartFrame, dirtyEndFrame);
 
+    project->notifyListeners(ProjectChangeType::NoteListChanged);
+
     auto onSplitStateApplied = [project = project,
                                 dirtyStartFrame,
                                 dirtyEndFrame]() mutable

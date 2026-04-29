@@ -6,6 +6,7 @@
 #include "Note.h"
 #include "ProjectListener.h"
 #include <algorithm>
+#include <cmath>
 #include <vector>
 #include <memory>
 #include <utility>
@@ -244,19 +245,32 @@ public:
     std::vector<Note *> getSelectedNotes();
     bool removeNoteByStartFrame(int startFrame);
     std::vector<Note *> getDirtyNotes();
+    int getNoteIndex(const Note* note) const;
     void selectAllNotes(bool includeRests = false);
     void deselectAllNotes();
     void clearAllDirty();
 
     // Global settings
     float getGlobalPitchOffset() const { return globalPitchOffset; }
-    void setGlobalPitchOffset(float offset) { globalPitchOffset = offset; }
+    void setGlobalPitchOffset(float offset) {
+      if (std::abs(globalPitchOffset - offset) < 0.0001f) return;
+      globalPitchOffset = offset;
+      notifyListeners(ProjectChangeType::GlobalParamChanged);
+    }
 
     float getFormantShift() const { return formantShift; }
-    void setFormantShift(float shift) { formantShift = shift; }
+    void setFormantShift(float shift) {
+      if (std::abs(formantShift - shift) < 0.0001f) return;
+      formantShift = shift;
+      notifyListeners(ProjectChangeType::GlobalParamChanged);
+    }
 
     float getVolume() const { return volume; }
-    void setVolume(float vol) { volume = vol; }
+    void setVolume(float vol) {
+      if (std::abs(volume - vol) < 0.0001f) return;
+      volume = vol;
+      notifyListeners(ProjectChangeType::GlobalParamChanged);
+    }
 
     // Get adjusted F0 with all modifications applied
     std::vector<float> getAdjustedF0() const;

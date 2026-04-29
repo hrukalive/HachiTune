@@ -1,79 +1,70 @@
 #pragma once
 
 #include "UndoableAction.h"
-#include "F0FrameEdit.h"
+#include "SnapshotHelper.h"
 #include <vector>
 #include <functional>
 #include <limits>
 
-/**
- * Action for changing multiple F0 values (hand-drawing).
- */
-class F0EditAction : public UndoableAction
+class F0DrawAction : public UndoableAction
 {
 public:
-    F0EditAction(std::vector<float>* f0Array,
-                 std::vector<float>* deltaPitchArray,
-                 std::vector<bool>* voicedMask,
-                 std::vector<bool>* f0EditedMask,
-                 std::vector<F0FrameEdit> edits,
-                 std::function<void(int, int)> onF0Changed = nullptr)
-        : f0Array(f0Array), deltaPitchArray(deltaPitchArray), voicedMask(voicedMask),
-          f0EditedMask(f0EditedMask), edits(std::move(edits)), onF0Changed(onF0Changed) {}
+  F0DrawAction(Project& project,
+               int startFrame, int endFrame,
+               std::vector<float> beforeF0,
+               std::vector<float> afterF0,
+               std::vector<float> beforeDelta,
+               std::vector<float> afterDelta,
+               std::vector<bool> beforeVoiced,
+               std::vector<bool> afterVoiced,
+               std::vector<bool> beforeEdited,
+               std::vector<bool> afterEdited,
+               std::function<void(int, int)> onChanged = nullptr)
+      : project(project),
+        startFrame(startFrame), endFrame(endFrame),
+        beforeF0(std::move(beforeF0)), afterF0(std::move(afterF0)),
+        beforeDelta(std::move(beforeDelta)), afterDelta(std::move(afterDelta)),
+        beforeVoiced(std::move(beforeVoiced)), afterVoiced(std::move(afterVoiced)),
+        beforeEdited(std::move(beforeEdited)), afterEdited(std::move(afterEdited)),
+        onChanged(std::move(onChanged)) {}
 
-    void undo() override
-    {
-        if (!f0Array) return;
-        int minIdx = std::numeric_limits<int>::max();
-        int maxIdx = std::numeric_limits<int>::min();
-        for (const auto& e : edits)
-        {
-            if (e.idx >= 0 && e.idx < static_cast<int>(f0Array->size())) {
-                (*f0Array)[e.idx] = e.oldF0;
-                minIdx = std::min(minIdx, e.idx);
-                maxIdx = std::max(maxIdx, e.idx);
-            }
-            if (deltaPitchArray && e.idx >= 0 && e.idx < static_cast<int>(deltaPitchArray->size()))
-                (*deltaPitchArray)[e.idx] = e.oldDelta;
-            if (voicedMask && e.idx >= 0 && e.idx < static_cast<int>(voicedMask->size()))
-                (*voicedMask)[e.idx] = e.oldVoiced;
-            if (f0EditedMask && e.idx >= 0 && e.idx < static_cast<int>(f0EditedMask->size()))
-                (*f0EditedMask)[e.idx] = e.oldEdited;
-        }
-        if (onF0Changed && minIdx <= maxIdx)
-            onF0Changed(minIdx, maxIdx);
-    }
+  void undo() override
+  {
+    auto& audioData = project.getAudioData();
+    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, beforeF0);
+    SnapshotHelper::restoreFloatRange(audioData.deltaPitch, startFrame, beforeDelta);
+    SnapshotHelper::restoreBoolRange(audioData.voicedMask, startFrame, beforeVoiced);
+    SnapshotHelper::restoreBoolRange(audioData.f0EditedMask, startFrame, beforeEdited);
+    SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    if (onChanged)
+      onChanged(startFrame, endFrame);
+  }
 
-    void redo() override
-    {
-        if (!f0Array) return;
-        int minIdx = std::numeric_limits<int>::max();
-        int maxIdx = std::numeric_limits<int>::min();
-        for (const auto& e : edits)
-        {
-            if (e.idx >= 0 && e.idx < static_cast<int>(f0Array->size())) {
-                (*f0Array)[e.idx] = e.newF0;
-                minIdx = std::min(minIdx, e.idx);
-                maxIdx = std::max(maxIdx, e.idx);
-            }
-            if (deltaPitchArray && e.idx >= 0 && e.idx < static_cast<int>(deltaPitchArray->size()))
-                (*deltaPitchArray)[e.idx] = e.newDelta;
-            if (voicedMask && e.idx >= 0 && e.idx < static_cast<int>(voicedMask->size()))
-                (*voicedMask)[e.idx] = e.newVoiced;
-            if (f0EditedMask && e.idx >= 0 && e.idx < static_cast<int>(f0EditedMask->size()))
-                (*f0EditedMask)[e.idx] = e.newEdited;
-        }
-        if (onF0Changed && minIdx <= maxIdx)
-            onF0Changed(minIdx, maxIdx);
-    }
+  void redo() override
+  {
+    auto& audioData = project.getAudioData();
+    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, afterF0);
+    SnapshotHelper::restoreFloatRange(audioData.deltaPitch, startFrame, afterDelta);
+    SnapshotHelper::restoreBoolRange(audioData.voicedMask, startFrame, afterVoiced);
+    SnapshotHelper::restoreBoolRange(audioData.f0EditedMask, startFrame, afterEdited);
+    SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    if (onChanged)
+      onChanged(startFrame, endFrame);
+  }
 
-    juce::String getName() const override { return "Edit Pitch Curve"; }
+  juce::String getName() const override { return "Edit Pitch Curve"; }
 
 private:
-    std::vector<float>* f0Array;
-    std::vector<float>* deltaPitchArray;
-    std::vector<bool>* voicedMask;
-    std::vector<bool>* f0EditedMask;
-    std::vector<F0FrameEdit> edits;
-    std::function<void(int, int)> onF0Changed;
+  Project& project;
+  int startFrame;
+  int endFrame;
+  std::vector<float> beforeF0;
+  std::vector<float> afterF0;
+  std::vector<float> beforeDelta;
+  std::vector<float> afterDelta;
+  std::vector<bool> beforeVoiced;
+  std::vector<bool> afterVoiced;
+  std::vector<bool> beforeEdited;
+  std::vector<bool> afterEdited;
+  std::function<void(int, int)> onChanged;
 };

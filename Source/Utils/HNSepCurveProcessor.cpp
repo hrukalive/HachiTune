@@ -192,6 +192,8 @@ namespace HNSepCurveProcessor
         }
 
         syncHNSepToEditedData(project);
+
+        project.notifyListeners(ProjectChangeType::NoteCurveChanged);
     }
 
     void rebuildCurvesForRange(Project& project, int startFrame, int endFrame)
@@ -246,6 +248,8 @@ namespace HNSepCurveProcessor
         }
 
         syncHNSepToEditedData(project);
+
+        project.notifyListeners(ProjectChangeType::NoteCurveChanged, -1, startFrame, endFrame);
     }
 
     void extractNoteCurvesFromMaster(Project& project)

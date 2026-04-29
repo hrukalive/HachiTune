@@ -6,7 +6,6 @@
  */
 
 #include "UndoableAction.h"
-#include "F0FrameEdit.h"
 #include "NoteActions.h"
 #include "F0Actions.h"
 #include "DragActions.h"

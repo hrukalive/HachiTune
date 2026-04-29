@@ -3,13 +3,9 @@
 #include "../../JuceHeader.h"
 #include "../../Models/Project.h"
 #include "../../Models/ProjectListener.h"
-#include <algorithm>
+#include "ProjectTreeView.h"
+#include "MelViewComponent.h"
 
-/**
- * Debug window that displays the Project's live state as a tree.
- * Implements ProjectListener to auto-refresh on changes.
- * Open via menu or programmatically during development.
- */
 class TreeValueMonitor : public juce::DocumentWindow,
                          public ProjectListener
 {
@@ -32,18 +28,14 @@ private:
   {
   public:
     ContentComponent();
-    void paint(juce::Graphics& g) override;
     void resized() override;
-    void setText(const juce::String& text);
 
-  private:
-    juce::TextEditor textEditor;
+    ProjectTreeView treeView;
+    MelViewComponent melView;
   };
 
   Project* project = nullptr;
   ContentComponent content;
-
-  juce::String buildDisplayText() const;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TreeValueMonitor)
 };

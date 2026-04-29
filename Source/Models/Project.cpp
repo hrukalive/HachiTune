@@ -100,6 +100,7 @@ void Project::deselectAllNotes()
 {
     for (auto &note : notes)
         note.setSelected(false);
+    notifyListeners(ProjectChangeType::NoteSelectionChanged);
 }
 
 void Project::selectAllNotes(bool includeRests)
@@ -110,6 +111,7 @@ void Project::selectAllNotes(bool includeRests)
             continue;
         note.setSelected(true);
     }
+    notifyListeners(ProjectChangeType::NoteSelectionChanged);
 }
 
 std::vector<Note *> Project::getDirtyNotes()
@@ -121,6 +123,18 @@ std::vector<Note *> Project::getDirtyNotes()
             result.push_back(&note);
     }
     return result;
+}
+
+int Project::getNoteIndex(const Note* note) const
+{
+  if (!note)
+    return -1;
+  for (int i = 0; i < static_cast<int>(notes.size()); ++i)
+  {
+    if (&notes[i] == note)
+      return i;
+  }
+  return -1;
 }
 
 void Project::clearAllDirty()
@@ -343,6 +357,7 @@ void Project::setLoopRange(double startSeconds, double endSeconds)
     loopRange.startSeconds = startSeconds;
     loopRange.endSeconds = endSeconds;
     loopRange.enabled = loopRange.endSeconds > loopRange.startSeconds;
+    notifyListeners(ProjectChangeType::SettingsChanged);
 }
 
 void Project::setLoopEnabled(bool enabled)
@@ -351,6 +366,7 @@ void Project::setLoopEnabled(bool enabled)
         loopRange.enabled = false;
     else
         loopRange.enabled = enabled;
+    notifyListeners(ProjectChangeType::SettingsChanged);
 }
 
 void Project::clearLoopRange()
@@ -365,6 +381,7 @@ void Project::setScaleMode(ScaleMode mode)
 
     scaleMode = mode;
     modified = true;
+    notifyListeners(ProjectChangeType::SettingsChanged);
 }
 
 void Project::setScaleRootNote(int noteInOctave)
@@ -375,6 +392,7 @@ void Project::setScaleRootNote(int noteInOctave)
 
     scaleRootNote = normalized;
     modified = true;
+    notifyListeners(ProjectChangeType::SettingsChanged);
 }
 
 void Project::setPitchReferenceHz(int hz)
@@ -421,6 +439,7 @@ void Project::setTimelineDisplayMode(TimelineDisplayMode mode)
 
     timelineDisplayMode = mode;
     modified = true;
+    notifyListeners(ProjectChangeType::SettingsChanged);
 }
 
 void Project::setTimelineBeatSignature(int numerator, int denominator)
@@ -435,6 +454,7 @@ void Project::setTimelineBeatSignature(int numerator, int denominator)
     timelineBeatNumerator = normalizedNumerator;
     timelineBeatDenominator = normalizedDenominator;
     modified = true;
+    notifyListeners(ProjectChangeType::SettingsChanged);
 }
 
 void Project::setTimelineTempoBpm(double bpm)
@@ -445,6 +465,7 @@ void Project::setTimelineTempoBpm(double bpm)
 
     timelineTempoBpm = normalized;
     modified = true;
+    notifyListeners(ProjectChangeType::SettingsChanged);
 }
 
 void Project::setTimelineGridDivision(TimelineGridDivision division)
@@ -455,6 +476,7 @@ void Project::setTimelineGridDivision(TimelineGridDivision division)
 
     timelineGridDivision = normalized;
     modified = true;
+    notifyListeners(ProjectChangeType::SettingsChanged);
 }
 
 void Project::setTimelineSnapCycle(bool enabled)
@@ -464,6 +486,7 @@ void Project::setTimelineSnapCycle(bool enabled)
 
     timelineSnapCycle = enabled;
     modified = true;
+    notifyListeners(ProjectChangeType::SettingsChanged);
 }
 
 // ---------------------------------------------------------------------------
@@ -1720,6 +1743,8 @@ void recomputeFromMarkers(Project& project,
 
     if (updateProjectMarkers)
         project.setModified(true);
+
+    project.notifyListeners(ProjectChangeType::WarpChanged);
 }
 } // namespace WarpMarkerProcessor
 

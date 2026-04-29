@@ -724,6 +724,7 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
           juce::MessageManager::callAsync(
               [capturedProject, onComplete]() {
                 capturedProject->clearAllDirty();
+                capturedProject->notifyListeners(ProjectChangeType::SynthesisComplete);
                 if (onComplete) onComplete(true);
               });
         }).detach();

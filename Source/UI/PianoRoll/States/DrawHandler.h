@@ -1,12 +1,12 @@
 #pragma once
 
 #include "InteractionHandler.h"
-#include "../../../Undo/F0FrameEdit.h"
+#include "../../../Undo/SnapshotHelper.h"
 #include "../../../Utils/UI/DrawCurve.h"
 
 #include <deque>
+#include <limits>
 #include <memory>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -48,8 +48,14 @@ private:
   bool isPendingDraw = false;
   float pendingDrawStartX = 0.0f;
   float pendingDrawStartY = 0.0f;
-  std::vector<F0FrameEdit> drawingEdits;
-  std::unordered_map<int, size_t> drawingEditIndexByFrame;
+  int snapshotStartFrame = -1;
+  int snapshotEndFrame = -1;
+  std::vector<float> beforeF0;
+  std::vector<float> beforeDelta;
+  std::vector<bool> beforeVoiced;
+  std::vector<bool> beforeEdited;
+  int minEditedFrame = std::numeric_limits<int>::max();
+  int maxEditedFrame = std::numeric_limits<int>::min();
   std::unordered_set<Note *> bakedNotes; // Notes already baked in this session
   int lastDrawFrame = -1;
   int lastDrawValueCents = 0;

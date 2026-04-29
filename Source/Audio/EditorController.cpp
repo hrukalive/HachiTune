@@ -480,6 +480,8 @@ void EditorController::loadAudioFileAsync(
          original = std::move(originalWaveform), onComplete]() mutable {
           setProject(std::move(project));
           isLoadingAudio = false;
+          if (this->project)
+            this->project->notifyListeners(ProjectChangeType::AudioDataChanged);
           if (onComplete)
             onComplete(original);
         }); });
@@ -579,6 +581,8 @@ void EditorController::setHostAudioAsync(
             return;
           setProject(std::move(project));
           isLoadingAudio = false;
+          if (this->project)
+            this->project->notifyListeners(ProjectChangeType::AudioDataChanged);
           if (onComplete)
             onComplete(original);
         }); });
@@ -1124,6 +1128,8 @@ void EditorController::analyzeAudioAsync(
       project->getAudioData().noiseWaveform.makeCopyOf(
           projectCopy->getAudioData().noiseWaveform);
 
+      project->notifyListeners(ProjectChangeType::AudioDataChanged);
+
       if (onProjectReady)
         onProjectReady(*project);
       if (onProjectChanged)
@@ -1487,6 +1493,8 @@ void EditorController::segmentIntoNotes(Project &targetProject,
       PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
     HNSepCurveProcessor::initializeCurves(targetProject);
 
+    targetProject.notifyListeners(ProjectChangeType::NoteListChanged);
+
     return;
   }
 
@@ -1592,4 +1600,6 @@ void EditorController::segmentIntoNotes(Project &targetProject,
   if (!audioData.f0.empty())
     PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
   HNSepCurveProcessor::initializeCurves(targetProject);
+
+  targetProject.notifyListeners(ProjectChangeType::NoteListChanged);
 }

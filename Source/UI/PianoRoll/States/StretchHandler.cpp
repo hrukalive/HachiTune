@@ -103,6 +103,7 @@ bool StretchHandler::mouseDown(const juce::MouseEvent &e, float worldX,
   {
     project->deselectAllNotes();
     note->setSelected(true);
+    project->notifyListeners(ProjectChangeType::NoteSelectionChanged);
     owner_.updatePitchToolHandlesFromSelection();
     if (owner_.onNoteSelected)
       owner_.onNoteSelected(note);
