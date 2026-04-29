@@ -26,10 +26,11 @@ AGENTS.md are the source of truth.
 ## Goal
 
 Phase 1 makes `AnalysisData` and `EditedData` the authoritative project data
-layers while keeping `AudioData` as a temporary runtime compatibility cache.
-The phase also updates the project serializer to the new JSON shape, improves
-the debug monitor for validation, and adds a minimal core test target for the
-new boundaries.
+layers and removes editable pitch, curve, and mask storage from `AudioData`.
+The phase also migrates UI, undo, pitch processing, and synthesis call sites
+that currently read or write those `AudioData` fields. It updates the project
+serializer to the new JSON shape, improves the debug monitor for validation,
+and adds a minimal core test target for the new boundaries.
 
 ## Non-Goals
 
@@ -38,9 +39,9 @@ This phase does not rewrite the whole synthesis engine.
 This phase does not replace `TensionProcessor` with JUCE DSP. That is a later
 phase because it changes audio behavior and should be tested independently.
 
-This phase does not remove every legacy read of `AudioData` in UI and undo code.
-Instead, it introduces a clear bridge so behavior stays stable while later
-phases migrate callers to `EditedData`.
+This phase may temporarily break buildability while the migration is in
+progress, but it must not finish with any production reads or writes of
+editable pitch, curve, or mask fields on `AudioData`.
 
 This phase does not move all `WarpMarkerProcessor` implementation out of
 `Project.cpp`. The phase can add tests for `StretchProcessor`, but full stretch
@@ -80,8 +81,9 @@ It stores:
 
 ### EditedData
 
-`EditedData` is the authoritative editable per-frame state. Synthesis and
-serialization should prefer this data over `AudioData`.
+`EditedData` is the authoritative editable per-frame state. Synthesis,
+serialization, UI edit paths, and undo paths must use this data instead of
+`AudioData`.
 
 It stores:
 
@@ -94,12 +96,16 @@ It stores:
 - `breathCurve`
 - `tensionCurve`
 
+It may also hold transient edit metadata such as `f0EditedMask` if draw-mode
+rebuild logic still needs it. Transient edit metadata is not serialized unless
+it becomes part of the approved save schema.
+
 `EditedData` is serialized under `editedData`.
 
 ### AudioData
 
-`AudioData` remains in phase 1, but its role changes to runtime cache and
-compatibility bridge.
+`AudioData` remains in phase 1, but only as runtime cache. It is not a
+compatibility bridge for editable pitch, curve, or mask state.
 
 It should keep:
 
@@ -112,10 +118,8 @@ It should keep:
 - `segmentDebugChunks`
 - `incrementalDebug`
 - `sampleRate` for now, until sample rate is moved fully to `Project`
-- `f0EditedMask` for now, because draw/undo still use it
 
-The following fields are temporary mirrors and should not be treated as
-authoritative after this phase:
+The following fields must be removed from `AudioData` during this phase:
 
 - `f0`
 - `baseF0`
@@ -126,29 +130,30 @@ authoritative after this phase:
 - `voicingCurve`
 - `breathCurve`
 - `tensionCurve`
+- `f0EditedMask`
 
-New code should not introduce additional dependencies on these mirror fields.
-Later phases will migrate old callers and remove the mirrors.
+Their authoritative homes are `AnalysisData` and `EditedData`. `baseF0` is not
+stored; it is computed from `EditedData.basePitch` when needed.
 
 ## Project API Changes
 
-Add explicit synchronization helpers to `Project`:
+Add explicit data-layer helpers to `Project`:
 
-- `syncRuntimePitchCacheFromEditedData()`: copy `EditedData` into legacy
-  `AudioData` mirrors and recompute `baseF0`. This keeps existing UI/undo paths
-  alive while `EditedData` becomes authoritative.
-- `syncEditedDataFromRuntimePitchCache()`: temporary adapter for existing edit
-  paths that still write `AudioData`. It should be called only at known bridge
-  points and marked as transitional.
+- `getBaseF0ForFrame(frame)` or an equivalent helper: compute base frequency
+  from `EditedData.basePitch` without storing a dense `baseF0` cache.
+- `getFrameCount()`: return the authoritative edited frame count from
+  `EditedData`, falling back only to runtime mel length before analysis data has
+  been initialized.
 - `refreshNoteCaches()`: fill note-local cache data from `EditedData` and
   `AnalysisData`.
 - `refreshNoteCachesForRange(startFrame, endFrame)`: update only overlapping
   note caches from `EditedData`.
 - `validateFrameData()`: return a result object describing per-frame array
-  length consistency across `AnalysisData`, `EditedData`, and runtime mirrors.
+  length consistency across `AnalysisData`, `EditedData`, runtime mel, and note
+  caches.
 
 The listener system remains `ProjectListener` in phase 1. Project setters and
-sync helpers notify:
+data-layer helpers notify:
 
 - `EditedDataChanged` for global per-frame edit changes.
 - `AudioDataChanged` for analysis/load/runtime cache replacement.
@@ -223,7 +228,7 @@ The serializer must not write:
 - `deltaOffset`
 - `highPassFilterStrength` when zero
 - `lowPassFilterStrength` when zero
-- any `AudioData` mirror pitch/curve/mask fields outside `editedData`
+- any removed `AudioData` pitch/curve/mask fields outside `editedData`
 
 Non-zero high-pass and low-pass strengths can remain supported for backward
 compatibility if the current UI still exposes them, but defaults must not be
@@ -240,15 +245,13 @@ After loading:
 3. Notes are loaded without source-frame persistence.
 4. Source note segments are restored from `analysisData.noteSegments` when
    available.
-5. `Project::syncRuntimePitchCacheFromEditedData()` updates temporary
-   `AudioData` mirrors.
-6. `Project::refreshNoteCaches()` fills note-local display/edit caches.
-7. `Project::validateFrameData()` is used by tests and the monitor to expose
+5. `Project::refreshNoteCaches()` fills note-local display/edit caches.
+6. `Project::validateFrameData()` is used by tests and the monitor to expose
    mismatches.
 
 Legacy `pitchData` remains read-only compatibility. Legacy load should populate
 both `AnalysisData` and `EditedData` with the best available data, then use the
-same sync and cache refresh path as new-format load.
+same cache refresh path as new-format load.
 
 ## Editing Rules
 
@@ -263,9 +266,10 @@ The intended end state is:
 - reset reads from `AnalysisData` and writes into `EditedData`.
 - note-local pitch and curve vectors are caches for GUI display/editing.
 
-During phase 1, existing edit paths may still write `AudioData` mirrors. Those
-paths must cross through explicit sync helpers so the ownership violation is
-visible and easy to remove later.
+During phase 1, existing edit paths that write `AudioData.f0`,
+`AudioData.basePitch`, `AudioData.deltaPitch`, `AudioData.f0EditedMask`, masks,
+or HNSep curves must be migrated to `EditedData`. Snapshot and undo helpers
+must capture and restore `EditedData` ranges directly.
 
 HNSep curve edits modify note-local curves for GUI interaction, then write the
 affected region into `EditedData.voicingCurve`, `EditedData.breathCurve`, and
@@ -279,12 +283,11 @@ The desired synthesis contract is that vocoder input comes from:
 - mel from runtime mel cache after HNSep and stretch processing
 
 Phase 1 moves `Project::getAdjustedF0()` and
-`Project::getAdjustedF0ForRange()` toward `EditedData` as the primary source.
-Existing `AudioData` fallback can remain during migration.
+`Project::getAdjustedF0ForRange()` to `EditedData` as the source.
 
 Incremental synthesis range computation should prefer `EditedData.vadMask` and
-`EditedData.voicedMask`. Existing fallbacks to `AudioData` can remain for
-legacy intermediate states.
+`EditedData.voicedMask`. It should not depend on `AudioData` masks after this
+phase.
 
 ## Stretch Contract
 
@@ -338,34 +341,38 @@ models and avoid GUI windows.
 Initial tests:
 
 1. Serializer writes the new schema and excludes removed note-local fields.
-2. Serializer loads new schema, fills `EditedData`, syncs runtime mirrors, and
-   refreshes note caches.
+2. Serializer loads new schema, fills `EditedData`, and refreshes note caches.
 3. Legacy `pitchData` load populates `AnalysisData` and `EditedData`.
 4. `StretchProcessor::stretchEditedData()` applies nearest-neighbor and linear
    interpolation rules and recomputes `f0`.
 5. `Project::refreshNoteCaches()` copies slices from `EditedData` and
    `AnalysisData` without mutating `AnalysisData`.
 6. `Project::validateFrameData()` reports mismatched frame array lengths.
+7. UI and undo-facing helpers mutate `EditedData` ranges, not removed
+   `AudioData` fields.
 
 ## Implementation Phases After This Spec
 
-### Phase 1A: Persistence and Invariants
+### Phase 1A: Data Removal and Invariants
 
-Implement serializer cleanup, sync helpers, validation, and tests.
+Remove editable pitch, curve, and mask fields from `AudioData`. Implement
+Project helpers, validation, and tests around `AnalysisData` and `EditedData`.
 
-### Phase 1B: Debug Monitor
+### Phase 1B: Caller Migration
+
+Migrate Project, UI, Undo, pitch processor, HNSep curve processor, and
+incremental synthesis reads/writes from removed `AudioData` fields to
+`EditedData`.
+
+### Phase 1C: Debug Monitor
 
 Expose validation and richer data-layer information in `TreeValueMonitor`.
 
-### Phase 1C: First Caller Migration
-
-Move low-risk `Project` and synthesis read paths to prefer `EditedData` while
-keeping `AudioData` compatibility mirrors.
-
 ## Risks
 
-The largest risk is accidentally leaving `EditedData` and `AudioData` mirrors
-out of sync. Explicit sync helpers and tests reduce this risk.
+The largest risk is missing a caller that still expects removed `AudioData`
+fields. Full-project build failures are useful during this phase because they
+identify every call site that must migrate to `EditedData`.
 
 The second risk is changing save/load behavior for existing projects. Legacy
 load compatibility remains, and tests cover both new schema and legacy
@@ -381,8 +388,11 @@ Phase 1 is complete when:
 - New saves use the approved schema.
 - Removed note-local and dead properties are absent from saves.
 - New-format and legacy-format loads populate `AnalysisData` and `EditedData`.
+- `AudioData` no longer contains editable pitch, curve, or mask fields.
+- UI, undo, pitch processing, HNSep curve processing, and synthesis read or
+  write editable per-frame data through `EditedData`.
 - `EditedData` is the authoritative source for project serialization and
-  selected Project read paths.
+  Project read paths.
 - Note caches can be refreshed from global data.
 - `TreeValueMonitor` shows frame-data consistency and updates via listeners.
 - The new core tests pass.
