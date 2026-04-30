@@ -266,23 +266,49 @@ std::vector<float> Project::getAdjustedF0() const
     for (const auto &note : notes)
     {
         const bool hasVibrato = note.isVibratoEnabled() &&
+                                note.getVibratoLengthFrames() > 0 &&
                                 note.getVibratoDepthSemitones() > 0.0001f &&
                                 note.getVibratoRateHz() > 0.0001f;
         if (!hasVibrato)
             continue;
 
-        const int start = std::max(0, note.getStartFrame());
-        const int end = std::min(note.getEndFrame(), static_cast<int>(adjustedF0.size()));
+        const int noteStart = std::max(0, note.getStartFrame());
+        const int noteEnd = std::min(note.getEndFrame(), static_cast<int>(adjustedF0.size()));
+        const int vibAbsStart = noteStart + note.getVibratoStartFrame();
+        const int vibAbsEnd = vibAbsStart + note.getVibratoLengthFrames();
+        const int fadeIn = note.getVibratoFadeInFrames();
+        const int fadeOut = note.getVibratoFadeOutFrames();
+        const int vibLength = note.getVibratoLengthFrames();
+        const float mix = note.getVibratoMix();
+        const float depth = note.getVibratoDepthSemitones();
+        const float rate = note.getVibratoRateHz();
+        const float phase = note.getVibratoPhaseRadians();
 
-        for (int i = start; i < end; ++i)
+        for (int i = noteStart; i < noteEnd; ++i)
         {
+            if (i < vibAbsStart || i >= vibAbsEnd)
+                continue;
+
             if (i < static_cast<int>(editedData.voicedMask.size()) && !editedData.voicedMask[i])
                 continue;
 
-            float vib = note.getVibratoDepthSemitones() *
-                        std::sin(twoPi * note.getVibratoRateHz() * framesToSeconds(i - start) +
-                                 note.getVibratoPhaseRadians());
-            adjustedF0[static_cast<size_t>(i)] *= std::pow(2.0f, vib / 12.0f);
+            const int localT = i - vibAbsStart;
+
+            // Compute fade envelope
+            float envelope = 1.0f;
+            if (localT < fadeIn && fadeIn > 0)
+                envelope = static_cast<float>(localT) / static_cast<float>(fadeIn);
+            if (localT >= (vibLength - fadeOut) && fadeOut > 0)
+                envelope = static_cast<float>(vibLength - 1 - localT) / static_cast<float>(fadeOut);
+            envelope = juce::jlimit(0.0f, 1.0f, envelope);
+
+            // Compute vibrato signal
+            float vibratoSemitones = depth *
+                std::sin(twoPi * rate * framesToSeconds(localT) + phase) * envelope;
+
+            // Apply mix
+            float finalVibrato = vibratoSemitones * mix;
+            adjustedF0[static_cast<size_t>(i)] *= std::pow(2.0f, finalVibrato / 12.0f);
         }
     }
 
@@ -319,23 +345,48 @@ std::vector<float> Project::getAdjustedF0ForRange(int startFrame, int endFrame) 
     for (const auto &note : notes)
     {
         const bool hasVibrato = note.isVibratoEnabled() &&
+                                note.getVibratoLengthFrames() > 0 &&
                                 note.getVibratoDepthSemitones() > 0.0001f &&
                                 note.getVibratoRateHz() > 0.0001f;
         if (!hasVibrato)
             continue;
 
-        const int overlapStart = std::max(note.getStartFrame(), startFrame);
-        const int overlapEnd = std::min(note.getEndFrame(), endFrame);
+        const int noteStart = note.getStartFrame();
+        const int vibAbsStart = noteStart + note.getVibratoStartFrame();
+        const int vibAbsEnd = vibAbsStart + note.getVibratoLengthFrames();
+        const int fadeIn = note.getVibratoFadeInFrames();
+        const int fadeOut = note.getVibratoFadeOutFrames();
+        const int vibLength = note.getVibratoLengthFrames();
+        const float mix = note.getVibratoMix();
+        const float depth = note.getVibratoDepthSemitones();
+        const float rate = note.getVibratoRateHz();
+        const float phase = note.getVibratoPhaseRadians();
+
+        const int overlapStart = std::max({vibAbsStart, startFrame});
+        const int overlapEnd = std::min({vibAbsEnd, endFrame, note.getEndFrame()});
         for (int frame = overlapStart; frame < overlapEnd; ++frame)
         {
             const int localIdx = frame - startFrame;
             if (frame < static_cast<int>(editedData.voicedMask.size()) && !editedData.voicedMask[frame])
                 continue;
 
-            float vib = note.getVibratoDepthSemitones() *
-                        std::sin(twoPi * note.getVibratoRateHz() * framesToSeconds(frame - note.getStartFrame()) +
-                                 note.getVibratoPhaseRadians());
-            adjustedF0[static_cast<size_t>(localIdx)] *= std::pow(2.0f, vib / 12.0f);
+            const int localT = frame - vibAbsStart;
+
+            // Compute fade envelope
+            float envelope = 1.0f;
+            if (localT < fadeIn && fadeIn > 0)
+                envelope = static_cast<float>(localT) / static_cast<float>(fadeIn);
+            if (localT >= (vibLength - fadeOut) && fadeOut > 0)
+                envelope = static_cast<float>(vibLength - 1 - localT) / static_cast<float>(fadeOut);
+            envelope = juce::jlimit(0.0f, 1.0f, envelope);
+
+            // Compute vibrato signal
+            float vibratoSemitones = depth *
+                std::sin(twoPi * rate * framesToSeconds(localT) + phase) * envelope;
+
+            // Apply mix
+            float finalVibrato = vibratoSemitones * mix;
+            adjustedF0[static_cast<size_t>(localIdx)] *= std::pow(2.0f, finalVibrato / 12.0f);
         }
     }
 

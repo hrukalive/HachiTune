@@ -312,6 +312,13 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
 
     obj->setProperty("startFrame", note.getStartFrame());
     obj->setProperty("endFrame", note.getEndFrame());
+
+    // Only save src frames if they differ from output frames (stretch applied)
+    if (note.getSrcStartFrame() != note.getStartFrame())
+        obj->setProperty("srcStartFrame", note.getSrcStartFrame());
+    if (note.getSrcEndFrame() != note.getEndFrame())
+        obj->setProperty("srcEndFrame", note.getSrcEndFrame());
+
     obj->setProperty("midiNote", note.getMidiNote());
     obj->setProperty("pitchOffset", note.getPitchOffset());
     obj->setProperty("volumeDb", note.getVolumeDb());
@@ -347,11 +354,9 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
     if (note.hasOriginalDeltaPitch())
         obj->setProperty("originalDeltaPitch", floatArrayToString(note.getOriginalDeltaPitch(), 4));
 
-    // Per-note delta scale/offset
-    if (std::abs(note.getHighPassFilterStrength()) > 0.0001f)
-        obj->setProperty("highPassFilterStrength", note.getHighPassFilterStrength());
-    if (std::abs(note.getLowPassFilterStrength()) > 0.0001f)
-        obj->setProperty("lowPassFilterStrength", note.getLowPassFilterStrength());
+    // Filter strengths (always serialize)
+    obj->setProperty("highPassFilterStrength", note.getHighPassFilterStrength());
+    obj->setProperty("lowPassFilterStrength", note.getLowPassFilterStrength());
 
     // Harmonic-noise separation curves (voicing/breath/tension)
     if (note.hasVoicingCurve())
