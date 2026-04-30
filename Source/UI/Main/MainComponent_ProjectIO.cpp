@@ -118,14 +118,12 @@ void MainComponent::openProjectFile(const juce::File &file) {
                 }
 
                 // If the project has warp markers, mel was just recomputed
-                // from the raw audio (source-aligned) but pitch curves were
-                // loaded in output-aligned coordinates.  Reconcile everything
-                // by replaying the warp mapping so mel, voiced mask, and
-                // per-note curves all end up in correct output coordinates.
+                // from raw audio (source-aligned), while saved pitch curves
+                // and note frames are already output-aligned.
                 const auto& loadedMarkers = projectToUse->getWarpMarkers();
                 if (!loadedMarkers.empty())
-                  WarpMarkerProcessor::recomputeFromMarkers(
-                      *projectToUse, loadedMarkers, /*updateProjectMarkers=*/false);
+                  WarpMarkerProcessor::rebuildSourceDerivedOutput(
+                      *projectToUse, loadedMarkers);
 
                 if (safeThis->undoManager)
                   safeThis->undoManager->clear();

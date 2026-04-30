@@ -311,8 +311,10 @@ void StretchHandler::startStretchDrag(const StretchBoundary &boundary)
   stretchDrag.boundary = boundary;
   stretchDrag.currentBoundary = boundary.frame;
   stretchDrag.originalMarkers =
-      WarpMarkerProcessor::normalizeMarkers(*project, project->getWarpMarkers());
+      WarpMarkerProcessor::buildWarpMapWithEndpoints(*project,
+                                                     project->getWarpMarkers());
   stretchDrag.previewMarkers = stretchDrag.originalMarkers;
+  stretchDrag.lastAppliedMarkers = stretchDrag.originalMarkers;
 
   const int existingIndex =
       findMarkerIndex(stretchDrag.previewMarkers, boundary.sourceFrame);
@@ -338,6 +340,9 @@ void StretchHandler::startStretchDrag(const StretchBoundary &boundary)
   }
 
   const int totalFrames = WarpMarkerProcessor::getSourceFrameLimit(*project);
+  const int outputEnd = stretchDrag.originalMarkers.empty()
+                            ? totalFrames
+                            : stretchDrag.originalMarkers.back().outputFrame;
   const int prevSource = markerIndex > 0
                              ? stretchDrag.previewMarkers[static_cast<size_t>(markerIndex - 1)].sourceFrame
                              : 0;
@@ -351,7 +356,7 @@ void StretchHandler::startStretchDrag(const StretchBoundary &boundary)
   const int nextOutput =
       markerIndex + 1 < static_cast<int>(stretchDrag.previewMarkers.size())
           ? stretchDrag.previewMarkers[static_cast<size_t>(markerIndex + 1)].outputFrame
-          : totalFrames;
+          : outputEnd;
 
   stretchDrag.minFrame =
       prevOutput +
@@ -361,8 +366,8 @@ void StretchHandler::startStretchDrag(const StretchBoundary &boundary)
       nextOutput -
       WarpMarkerProcessor::computeSegmentMinimumOutputSpan(
           *project, boundary.sourceFrame, nextSource, minStretchNoteFrames);
-  stretchDrag.minFrame = std::clamp(stretchDrag.minFrame, 0, totalFrames);
-  stretchDrag.maxFrame = std::clamp(stretchDrag.maxFrame, 0, totalFrames);
+  stretchDrag.minFrame = std::clamp(stretchDrag.minFrame, 0, outputEnd);
+  stretchDrag.maxFrame = std::clamp(stretchDrag.maxFrame, 0, outputEnd);
   if (stretchDrag.maxFrame < stretchDrag.minFrame)
     stretchDrag.maxFrame = stretchDrag.minFrame;
 }
@@ -400,8 +405,20 @@ void StretchHandler::applyMarkers(const std::vector<Project::WarpMarker> &marker
   if (!project)
     return;
 
-  WarpMarkerProcessor::recomputeFromMarkers(*project, markers,
-                                            updateProjectMarkers);
+  if (stretchDrag.active)
+  {
+    WarpMarkerProcessor::recomputeFromMarkers(*project,
+                                              stretchDrag.lastAppliedMarkers,
+                                              markers,
+                                              updateProjectMarkers);
+    stretchDrag.lastAppliedMarkers =
+        WarpMarkerProcessor::buildWarpMapWithEndpoints(*project, markers);
+  }
+  else
+  {
+    WarpMarkerProcessor::recomputeFromMarkers(*project, markers,
+                                              updateProjectMarkers);
+  }
   invalidateBoundaryCache();
   owner_.invalidateBasePitchCache();
   owner_.invalidateWaveformCache();

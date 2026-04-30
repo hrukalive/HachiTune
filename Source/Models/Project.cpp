@@ -1035,8 +1035,11 @@ void Project::composeGlobalWaveform()
               });
 
     // --- Step 2: Compute required output buffer length --------------------
-    // Output must hold all shifted notes + trailing gap after the last note.
-    int requiredSamples = origSamples;
+    // Output follows the edited/warped timeline and can shrink as well as grow.
+    const int outputFrames = getFrameCount();
+    const int timelineSamples =
+        outputFrames > 0 ? outputFrames * HOP_SIZE : origSamples;
+    int requiredSamples = timelineSamples;
     if (!sortedNotes.empty())
     {
         const auto *last = sortedNotes.back();
@@ -1048,16 +1051,12 @@ void Project::composeGlobalWaveform()
             lastEnd = std::max(lastEnd, synthEnd);
         }
         requiredSamples = std::max(requiredSamples, lastEnd);
-        // Trailing gap: original audio after last note's source end, placed
-        // after last note's output end.
-        int srcTrailLen = std::max(0,
-                                   origSamples - last->getSrcEndFrame() * HOP_SIZE);
-        requiredSamples = std::max(requiredSamples,
-                                   last->getEndFrame() * HOP_SIZE + srcTrailLen);
     }
 
-    // Resize waveform buffer if needed (grow only — shrinking left to caller)
-    if (waveform.getNumSamples() < requiredSamples)
+    if (requiredSamples <= 0)
+        return;
+
+    if (waveform.getNumSamples() != requiredSamples)
         waveform.setSize(numChannels, requiredSamples, false, true, false);
     const int totalSamples = waveform.getNumSamples();
 
@@ -1163,8 +1162,10 @@ void Project::composeGlobalWaveform()
 
     if (sortedNotes.empty())
     {
-        // No notes — copy entire original
-        copyFromOrig(0, 0, origSamples);
+        if (timelineSamples > 0 && timelineSamples != origSamples)
+            stretchFromOrig(0, 0, origSamples, timelineSamples);
+        else
+            copyFromOrig(0, 0, origSamples);
     }
     else
     {
@@ -1202,11 +1203,10 @@ void Project::composeGlobalWaveform()
             }
             else
             {
-                // Trailing gap: preserve original gap length (1:1 copy),
-                // don't stretch to fill the entire buffer which may be
-                // larger than needed from a previous longer stretch.
+                // Trailing gap follows the warped endpoint so waveform, mel,
+                // and edited curves share the same output duration.
                 gapSrcEnd = origSamples;
-                gapDstEnd = gapDstStart + std::max(0, gapSrcEnd - gapSrcStart);
+                gapDstEnd = timelineSamples;
             }
             int gapSrcLen = gapSrcEnd - gapSrcStart;
             int gapDstLen = gapDstEnd - gapDstStart;
@@ -1611,6 +1611,7 @@ void Project::refreshNoteCaches()
   if (totalFrames == 0)
     return;
 
+  int segmentIndex = 0;
   for (int noteIdx = 0; noteIdx < static_cast<int>(notes.size()); ++noteIdx)
   {
     auto& note = notes[static_cast<size_t>(noteIdx)];
@@ -1644,30 +1645,34 @@ void Project::refreshNoteCaches()
     if (!editedData.tensionCurve.empty())
       note.setTensionCurve(sliceFloat(editedData.tensionCurve));
 
+    if (segmentIndex < static_cast<int>(analysisData.noteSegments.size()))
+    {
+      note.setSrcStartFrame(analysisData.noteSegments[static_cast<size_t>(segmentIndex)].srcStartFrame);
+      note.setSrcEndFrame(analysisData.noteSegments[static_cast<size_t>(segmentIndex)].srcEndFrame);
+    }
+    ++segmentIndex;
+
     const int analysisFrames = analysisData.getNumFrames();
     if (analysisFrames > 0)
     {
+      const int sourceStart = note.getSrcStartFrame();
+      const int sourceEnd = note.getSrcEndFrame();
+      const int sourceLen = sourceEnd - sourceStart;
       auto sliceAnalysis = [&](const std::vector<float>& global) {
-        std::vector<float> slice(static_cast<size_t>(len));
-        for (int i = 0; i < len; ++i)
+        std::vector<float> slice(static_cast<size_t>(sourceLen));
+        for (int i = 0; i < sourceLen; ++i)
         {
-          int gi = start + i;
+          int gi = sourceStart + i;
           if (gi >= 0 && gi < analysisFrames)
             slice[static_cast<size_t>(i)] = global[static_cast<size_t>(gi)];
         }
         return slice;
       };
 
-      if (!analysisData.originalDeltaPitch.empty())
+      if (sourceLen > 0 && !analysisData.originalDeltaPitch.empty())
         note.setOriginalDeltaPitch(sliceAnalysis(analysisData.originalDeltaPitch));
-      if (!analysisData.originalPitch.empty())
+      if (sourceLen > 0 && !analysisData.originalPitch.empty())
         note.setOriginalPitch(sliceAnalysis(analysisData.originalPitch));
-    }
-
-    if (noteIdx < static_cast<int>(analysisData.noteSegments.size()))
-    {
-      note.setSrcStartFrame(analysisData.noteSegments[static_cast<size_t>(noteIdx)].srcStartFrame);
-      note.setSrcEndFrame(analysisData.noteSegments[static_cast<size_t>(noteIdx)].srcEndFrame);
     }
   }
 }

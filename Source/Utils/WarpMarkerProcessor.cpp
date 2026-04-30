@@ -20,6 +20,8 @@ namespace
         int limit = 0;
         if (audioData.originalWaveform.getNumSamples() > 0)
             limit = getWaveformFrameCount(audioData.originalWaveform);
+        else if (project.getAnalysisData().getNumFrames() > 0)
+            limit = project.getAnalysisData().getNumFrames();
         else if (audioData.waveform.getNumSamples() > 0)
             limit = getWaveformFrameCount(audioData.waveform);
         else
@@ -48,6 +50,267 @@ namespace
                                      return a.sourceFrame == b.sourceFrame;
                                  }),
                      result.end());
+        return result;
+    }
+
+    bool hasEndpointMarker(const std::vector<Project::WarpMarker>& markers,
+                           int sourceEnd)
+    {
+        return std::any_of(markers.begin(), markers.end(),
+                           [sourceEnd](const auto& marker)
+                           {
+                               return marker.sourceFrame <= 0 ||
+                                      marker.sourceFrame >= sourceEnd;
+                           });
+    }
+
+    int getEndpointOutputFrame(const std::vector<Project::WarpMarker>& markers,
+                               int sourceEnd)
+    {
+        int outputEnd = 0;
+        for (const auto& marker : markers)
+        {
+            if (marker.sourceFrame == sourceEnd && marker.outputFrame > 0)
+                outputEnd = std::max(outputEnd, marker.outputFrame);
+        }
+        return outputEnd;
+    }
+
+    int getOutputFrameLimit(const Project& project,
+                            const std::vector<Project::WarpMarker>& markers,
+                            int sourceEnd)
+    {
+        const int endpointOutput = getEndpointOutputFrame(markers, sourceEnd);
+        if (endpointOutput > 0)
+            return endpointOutput;
+
+        const int projectFrames = project.getFrameCount();
+        if (projectFrames > 0)
+            return projectFrames;
+
+        return sourceEnd;
+    }
+
+    std::vector<Project::WarpMarker> normalizeMarkersForBounds(
+        const std::vector<Project::WarpMarker>& markers,
+        int sourceEnd,
+        int outputEnd,
+        bool includeEndpoints)
+    {
+        if (sourceEnd <= 0 || outputEnd <= 0)
+            return {};
+
+        std::vector<Project::WarpMarker> result;
+        if (includeEndpoints)
+            result.push_back({0, 0});
+
+        if (outputEnd > 1)
+        {
+            const auto sorted = sortedUniqueMarkers(markers);
+            int previousSource = 0;
+            int previousOutput = 0;
+            for (auto marker : sorted)
+            {
+                if (marker.sourceFrame <= previousSource ||
+                    marker.sourceFrame >= sourceEnd)
+                {
+                    continue;
+                }
+
+                marker.outputFrame =
+                    std::clamp(marker.outputFrame, 1, outputEnd - 1);
+                if (marker.outputFrame <= previousOutput ||
+                    marker.outputFrame >= outputEnd)
+                {
+                    continue;
+                }
+
+                result.push_back(marker);
+                previousSource = marker.sourceFrame;
+                previousOutput = marker.outputFrame;
+            }
+        }
+
+        if (includeEndpoints)
+            result.push_back({sourceEnd, outputEnd});
+
+        return result;
+    }
+
+    bool markersEqual(const std::vector<Project::WarpMarker>& a,
+                      const std::vector<Project::WarpMarker>& b)
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); ++i)
+        {
+            if (a[i].sourceFrame != b[i].sourceFrame ||
+                a[i].outputFrame != b[i].outputFrame)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    float sampleLinear(const std::vector<float>& values, float frame)
+    {
+        if (values.empty())
+            return 0.0f;
+
+        const int maxIndex = static_cast<int>(values.size()) - 1;
+        const float clamped = std::clamp(frame, 0.0f,
+                                         static_cast<float>(maxIndex));
+        const int index = static_cast<int>(std::floor(clamped));
+        const int nextIndex = std::min(index + 1, maxIndex);
+        const float frac = clamped - static_cast<float>(index);
+        return values[static_cast<size_t>(index)] * (1.0f - frac) +
+               values[static_cast<size_t>(nextIndex)] * frac;
+    }
+
+    float sampleNearest(const std::vector<float>& values, float frame)
+    {
+        if (values.empty())
+            return 0.0f;
+
+        const int maxIndex = static_cast<int>(values.size()) - 1;
+        const int index =
+            std::clamp(static_cast<int>(std::round(frame)), 0, maxIndex);
+        return values[static_cast<size_t>(index)];
+    }
+
+    bool sampleNearest(const std::vector<bool>& values, float frame)
+    {
+        if (values.empty())
+            return false;
+
+        const int maxIndex = static_cast<int>(values.size()) - 1;
+        const int index =
+            std::clamp(static_cast<int>(std::round(frame)), 0, maxIndex);
+        return values[static_cast<size_t>(index)];
+    }
+
+    std::vector<float> unwarpLinearToSource(
+        const std::vector<float>& values,
+        const std::vector<Project::WarpMarker>& currentMap,
+        int sourceFrames)
+    {
+        if (values.empty() || sourceFrames <= 0)
+            return {};
+
+        std::vector<float> result(static_cast<size_t>(sourceFrames), 0.0f);
+        for (int frame = 0; frame < sourceFrames; ++frame)
+        {
+            const float outputFrame =
+                StretchProcessor::mapFrame(currentMap,
+                                           static_cast<float>(frame));
+            result[static_cast<size_t>(frame)] =
+                sampleLinear(values, outputFrame);
+        }
+        return result;
+    }
+
+    std::vector<float> unwarpNearestToSource(
+        const std::vector<float>& values,
+        const std::vector<Project::WarpMarker>& currentMap,
+        int sourceFrames)
+    {
+        if (values.empty() || sourceFrames <= 0)
+            return {};
+
+        std::vector<float> result(static_cast<size_t>(sourceFrames), 0.0f);
+        for (int frame = 0; frame < sourceFrames; ++frame)
+        {
+            const float outputFrame =
+                StretchProcessor::mapFrame(currentMap,
+                                           static_cast<float>(frame));
+            result[static_cast<size_t>(frame)] =
+                sampleNearest(values, outputFrame);
+        }
+        return result;
+    }
+
+    std::vector<bool> unwarpNearestToSource(
+        const std::vector<bool>& values,
+        const std::vector<Project::WarpMarker>& currentMap,
+        int sourceFrames)
+    {
+        if (values.empty() || sourceFrames <= 0)
+            return {};
+
+        std::vector<bool> result(static_cast<size_t>(sourceFrames), false);
+        for (int frame = 0; frame < sourceFrames; ++frame)
+        {
+            const float outputFrame =
+                StretchProcessor::mapFrame(currentMap,
+                                           static_cast<float>(frame));
+            result[static_cast<size_t>(frame)] =
+                sampleNearest(values, outputFrame);
+        }
+        return result;
+    }
+
+    EditedData unwarpEditedDataToSource(
+        const EditedData& editedData,
+        const std::vector<Project::WarpMarker>& currentMap,
+        int sourceFrames)
+    {
+        EditedData sourceData;
+        sourceData.basePitch =
+            unwarpNearestToSource(editedData.basePitch, currentMap, sourceFrames);
+        sourceData.deltaPitch =
+            unwarpLinearToSource(editedData.deltaPitch, currentMap, sourceFrames);
+        sourceData.f0 =
+            unwarpLinearToSource(editedData.f0, currentMap, sourceFrames);
+        sourceData.voicedMask =
+            unwarpNearestToSource(editedData.voicedMask, currentMap, sourceFrames);
+        sourceData.vadMask =
+            unwarpNearestToSource(editedData.vadMask, currentMap, sourceFrames);
+        sourceData.voicingCurve =
+            unwarpLinearToSource(editedData.voicingCurve, currentMap, sourceFrames);
+        sourceData.breathCurve =
+            unwarpLinearToSource(editedData.breathCurve, currentMap, sourceFrames);
+        sourceData.tensionCurve =
+            unwarpLinearToSource(editedData.tensionCurve, currentMap, sourceFrames);
+        return sourceData;
+    }
+
+    std::vector<std::vector<float>> unwarpMelToSource(
+        const std::vector<std::vector<float>>& mel,
+        const std::vector<Project::WarpMarker>& currentMap,
+        int sourceFrames)
+    {
+        if (mel.empty() || sourceFrames <= 0)
+            return {};
+
+        const int numMels = static_cast<int>(mel[0].size());
+        std::vector<std::vector<float>> result(static_cast<size_t>(sourceFrames));
+        for (int frame = 0; frame < sourceFrames; ++frame)
+        {
+            const float outputFrame =
+                StretchProcessor::mapFrame(currentMap,
+                                           static_cast<float>(frame));
+            const int maxFrame = static_cast<int>(mel.size()) - 1;
+            const float clamped = std::clamp(outputFrame, 0.0f,
+                                             static_cast<float>(maxFrame));
+            const int index = static_cast<int>(std::floor(clamped));
+            const int nextIndex = std::min(index + 1, maxFrame);
+            const float frac = clamped - static_cast<float>(index);
+            result[static_cast<size_t>(frame)].resize(static_cast<size_t>(numMels));
+            for (int melIndex = 0; melIndex < numMels; ++melIndex)
+            {
+                const float current =
+                    melIndex < static_cast<int>(mel[static_cast<size_t>(index)].size())
+                        ? mel[static_cast<size_t>(index)][static_cast<size_t>(melIndex)]
+                        : 0.0f;
+                const float next =
+                    melIndex < static_cast<int>(mel[static_cast<size_t>(nextIndex)].size())
+                        ? mel[static_cast<size_t>(nextIndex)][static_cast<size_t>(melIndex)]
+                        : 0.0f;
+                result[static_cast<size_t>(frame)][static_cast<size_t>(melIndex)] =
+                    current * (1.0f - frac) + next * frac;
+            }
+        }
         return result;
     }
 
@@ -98,38 +361,13 @@ std::vector<Project::WarpMarker> normalizeMarkers(
     const Project& project,
     const std::vector<Project::WarpMarker>& markers)
 {
-    const int totalFrames = getSourceFrameLimit(project);
-    if (totalFrames <= 1)
+    const int sourceEnd = getSourceFrameLimit(project);
+    if (sourceEnd <= 0)
         return {};
 
-    auto result = sortedUniqueMarkers(markers);
-    result.erase(std::remove_if(result.begin(), result.end(),
-                                [totalFrames](const auto& marker)
-                                {
-                                    return marker.sourceFrame <= 0 ||
-                                           marker.sourceFrame >= totalFrames;
-                                }),
-                 result.end());
-
-    for (auto& marker : result)
-        marker.outputFrame = std::clamp(marker.outputFrame, 1, totalFrames - 1);
-
-    int prevOut = 0;
-    for (auto& marker : result)
-    {
-        marker.outputFrame = std::max(marker.outputFrame, prevOut + 1);
-        prevOut = marker.outputFrame;
-    }
-
-    int nextOut = totalFrames;
-    for (int i = static_cast<int>(result.size()) - 1; i >= 0; --i)
-    {
-        result[static_cast<size_t>(i)].outputFrame =
-            std::min(result[static_cast<size_t>(i)].outputFrame, nextOut - 1);
-        nextOut = result[static_cast<size_t>(i)].outputFrame;
-    }
-
-    return result;
+    const int outputEnd = getOutputFrameLimit(project, markers, sourceEnd);
+    return normalizeMarkersForBounds(markers, sourceEnd, outputEnd,
+                                     hasEndpointMarker(markers, sourceEnd));
 }
 
 std::vector<Project::WarpMarker> buildWarpMapWithEndpoints(
@@ -140,44 +378,23 @@ std::vector<Project::WarpMarker> buildWarpMapWithEndpoints(
     if (sourceEnd <= 0)
         return {};
 
-    int outputEnd = project.getFrameCount();
-    if (outputEnd <= 0)
-        outputEnd = sourceEnd;
+    const int outputEnd = getOutputFrameLimit(project, markers, sourceEnd);
+    return normalizeMarkersForBounds(markers, sourceEnd, outputEnd, true);
+}
 
-    std::vector<Project::WarpMarker> result;
-    result.push_back({0, 0});
+void rebuildSourceDerivedOutput(Project& project,
+                                const std::vector<Project::WarpMarker>& markers)
+{
+    const auto warpMap = buildWarpMapWithEndpoints(project, markers);
+    if (warpMap.size() < 2)
+        return;
 
-    if (outputEnd <= 0)
-        return {};
+    auto& audioData = project.getAudioData();
+    if (!audioData.melSpectrogram.empty())
+        audioData.melSpectrogram =
+            StretchProcessor::stretchMel(audioData.melSpectrogram, warpMap);
 
-    if (outputEnd > 1)
-    {
-        const auto sorted = sortedUniqueMarkers(markers);
-        int previousSource = 0;
-        int previousOutput = 0;
-        for (auto marker : sorted)
-        {
-            if (marker.sourceFrame <= previousSource ||
-                marker.sourceFrame >= sourceEnd)
-            {
-                continue;
-            }
-
-            marker.outputFrame = std::clamp(marker.outputFrame, 1, outputEnd - 1);
-            if (marker.outputFrame <= previousOutput ||
-                marker.outputFrame >= outputEnd)
-            {
-                continue;
-            }
-
-            result.push_back(marker);
-            previousSource = marker.sourceFrame;
-            previousOutput = marker.outputFrame;
-        }
-    }
-
-    result.push_back({sourceEnd, outputEnd});
-    return result;
+    project.composeGlobalWaveform();
 }
 
 bool hasMarkerAtSourceFrame(const std::vector<Project::WarpMarker>& markers,
@@ -277,7 +494,7 @@ int mapSourceFrame(const Project& project,
         return 0;
 
     sourceFrame = std::clamp(sourceFrame, 0, totalFrames);
-    const auto normalized = normalizeMarkers(project, markers);
+    const auto normalized = buildWarpMapWithEndpoints(project, markers);
 
     int prevSource = 0;
     int prevOutput = 0;
@@ -345,26 +562,39 @@ int computeSegmentMinimumOutputSpan(const Project& project,
 }
 
 void recomputeFromMarkers(Project& project,
+                          const std::vector<Project::WarpMarker>& currentMarkers,
                           const std::vector<Project::WarpMarker>& markers,
                           bool updateProjectMarkers)
 {
+    const auto currentMap =
+        buildWarpMapWithEndpoints(project, currentMarkers);
     const auto warpMap = buildWarpMapWithEndpoints(project, markers);
     if (warpMap.size() < 2)
         return;
 
-    if (updateProjectMarkers)
-        project.setWarpMarkers(warpMap);
+    const bool mapsAlreadyMatch = markersEqual(currentMap, warpMap);
 
     const int newTotalFrames = warpMap.back().outputFrame;
     auto& editedData = project.getEditedData();
-    StretchProcessor::stretchEditedData(editedData, warpMap, newTotalFrames);
+    if (!mapsAlreadyMatch)
+    {
+        const int sourceFrames = warpMap.back().sourceFrame;
+        auto sourceEditedData =
+            unwarpEditedDataToSource(editedData, currentMap, sourceFrames);
+        StretchProcessor::stretchEditedData(sourceEditedData, warpMap,
+                                            newTotalFrames);
+        editedData = std::move(sourceEditedData);
+    }
     StretchProcessor::remapNoteFrames(project.getNotes(), warpMap);
 
     auto& audioData = project.getAudioData();
-    if (!audioData.melSpectrogram.empty())
+    if (!mapsAlreadyMatch && !audioData.melSpectrogram.empty())
     {
+        const int sourceFrames = warpMap.back().sourceFrame;
+        auto sourceMel =
+            unwarpMelToSource(audioData.melSpectrogram, currentMap, sourceFrames);
         audioData.melSpectrogram =
-            StretchProcessor::stretchMel(audioData.melSpectrogram, warpMap);
+            StretchProcessor::stretchMel(sourceMel, warpMap);
     }
 
     project.refreshNoteCaches();
@@ -372,8 +602,19 @@ void recomputeFromMarkers(Project& project,
     rebuildVadMaskFromWaveform(project);
 
     if (updateProjectMarkers)
+    {
+        project.setWarpMarkers(warpMap);
         project.setModified(true);
+    }
 
     project.notifyListeners(ProjectChangeType::WarpChanged);
+}
+
+void recomputeFromMarkers(Project& project,
+                          const std::vector<Project::WarpMarker>& markers,
+                          bool updateProjectMarkers)
+{
+    recomputeFromMarkers(project, project.getWarpMarkers(), markers,
+                         updateProjectMarkers);
 }
 } // namespace WarpMarkerProcessor

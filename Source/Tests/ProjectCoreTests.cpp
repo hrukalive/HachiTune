@@ -2,6 +2,7 @@
 #include "../Audio/Synthesis/StretchProcessor.h"
 #include "../Models/Project.h"
 #include "../Models/ProjectSerializer.h"
+#include "../Utils/Constants.h"
 #include "../Utils/WarpMarkerProcessor.h"
 
 #include <cmath>
@@ -31,6 +32,22 @@ bool hasProperty(const juce::var& object, const juce::Identifier& name)
          !object.getProperty(name, juce::var()).isVoid();
 }
 
+bool markersEqual(const std::vector<Project::WarpMarker>& a,
+                  const std::vector<Project::WarpMarker>& b)
+{
+  if (a.size() != b.size())
+    return false;
+  for (size_t i = 0; i < a.size(); ++i)
+  {
+    if (a[i].sourceFrame != b[i].sourceFrame ||
+        a[i].outputFrame != b[i].outputFrame)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
 void expectNear(float actual, float expected, float tolerance,
                 const char* message)
 {
@@ -38,6 +55,39 @@ void expectNear(float actual, float expected, float tolerance,
              std::isfinite(expected) &&
              std::abs(actual - expected) <= tolerance,
          message);
+}
+
+void expectVectorNear(const std::vector<float>& actual,
+                      const std::vector<float>& expected,
+                      float tolerance,
+                      const char* message)
+{
+  if (!require(actual.size() == expected.size(), message))
+    return;
+
+  for (size_t i = 0; i < actual.size(); ++i)
+  {
+    if (!std::isfinite(actual[i]) ||
+        !std::isfinite(expected[i]) ||
+        std::abs(actual[i] - expected[i]) > tolerance)
+    {
+      ++failures;
+      std::cerr << "FAIL: " << message << " at " << i << "\n";
+      return;
+    }
+  }
+}
+
+void resizeEditedData(EditedData& edited, int frames)
+{
+  edited.basePitch.resize(static_cast<size_t>(frames), 60.0f);
+  edited.deltaPitch.resize(static_cast<size_t>(frames), 0.0f);
+  edited.f0.resize(static_cast<size_t>(frames), 261.63f);
+  edited.voicedMask.resize(static_cast<size_t>(frames), true);
+  edited.vadMask.resize(static_cast<size_t>(frames), true);
+  edited.voicingCurve.resize(static_cast<size_t>(frames), 100.0f);
+  edited.breathCurve.resize(static_cast<size_t>(frames), 100.0f);
+  edited.tensionCurve.resize(static_cast<size_t>(frames), 0.0f);
 }
 
 Project makeProject()
@@ -323,6 +373,164 @@ void testWarpEndpoints()
   expect(markers.back().sourceFrame == 4, "warp ends at source end");
   expect(markers.back().outputFrame == 4, "warp ends at output end");
 }
+
+void testNormalizePreservesEndpointOutputLength()
+{
+  auto project = makeProject();
+  project.getEditedData().f0.resize(6, 100.0f);
+
+  const auto markers = WarpMarkerProcessor::normalizeMarkers(
+      project, {{0, 0}, {2, 4}, {4, 6}});
+
+  require(markers.size() == 3, "normalization keeps endpoint map");
+  expect(markers.front().sourceFrame == 0, "normalized map starts at source 0");
+  expect(markers.front().outputFrame == 0, "normalized map starts at output 0");
+  expect(markers[1].sourceFrame == 2, "normalized map keeps interior source");
+  expect(markers[1].outputFrame == 4, "normalized map keeps stretched output");
+  expect(markers.back().sourceFrame == 4, "normalized map keeps source end");
+  expect(markers.back().outputFrame == 6, "normalized map keeps output end");
+}
+
+void testRecomputeFromMarkersIsIdempotent()
+{
+  auto project = makeProject();
+  const std::vector<Project::WarpMarker> target = {{0, 0}, {2, 3}, {4, 6}};
+
+  WarpMarkerProcessor::recomputeFromMarkers(project, target, true);
+  const auto firstBasePitch = project.getEditedData().basePitch;
+  const auto firstDeltaPitch = project.getEditedData().deltaPitch;
+  const auto firstMel = project.getAudioData().melSpectrogram;
+  const auto firstMarkers = project.getWarpMarkers();
+
+  WarpMarkerProcessor::recomputeFromMarkers(project, target, true);
+
+  expectVectorNear(project.getEditedData().basePitch, firstBasePitch, 0.0001f,
+                   "recompute does not restretch basePitch");
+  expectVectorNear(project.getEditedData().deltaPitch, firstDeltaPitch, 0.0001f,
+                   "recompute does not restretch deltaPitch");
+  expectVectorNear(project.getNotes().front().getOriginalDeltaPitch(),
+                   std::vector<float>{0.0f, 0.1f, 0.2f, 0.3f},
+                   0.0001f,
+                   "recompute preserves source original delta cache");
+  expect(project.getNotes().front().getDeltaPitch().size() == 6,
+         "recompute refreshes output delta cache to stretched length");
+  require(project.getAudioData().melSpectrogram.size() == firstMel.size(),
+          "recompute does not change mel length");
+  if (!project.getAudioData().melSpectrogram.empty() && !firstMel.empty())
+  {
+    expectVectorNear(project.getAudioData().melSpectrogram[1], firstMel[1],
+                     0.0001f, "recompute does not restretch mel");
+  }
+  expect(markersEqual(project.getWarpMarkers(), firstMarkers),
+         "recompute keeps target markers stable");
+}
+
+void testPreviewRecomputeCanAdvanceAndCancel()
+{
+  auto directProject = makeProject();
+  auto previewProject = makeProject();
+  const std::vector<Project::WarpMarker> original =
+      {{0, 0}, {4, 4}};
+  const std::vector<Project::WarpMarker> previewA =
+      {{0, 0}, {2, 3}, {4, 5}};
+  const std::vector<Project::WarpMarker> previewB =
+      {{0, 0}, {2, 4}, {4, 6}};
+
+  WarpMarkerProcessor::recomputeFromMarkers(directProject, previewB, false);
+
+  auto currentMarkers = original;
+  WarpMarkerProcessor::recomputeFromMarkers(previewProject, currentMarkers,
+                                            previewA, false);
+  currentMarkers =
+      WarpMarkerProcessor::buildWarpMapWithEndpoints(previewProject, previewA);
+  WarpMarkerProcessor::recomputeFromMarkers(previewProject, currentMarkers,
+                                            previewB, false);
+  currentMarkers =
+      WarpMarkerProcessor::buildWarpMapWithEndpoints(previewProject, previewB);
+
+  expectVectorNear(previewProject.getEditedData().deltaPitch,
+                   directProject.getEditedData().deltaPitch,
+                   0.0001f,
+                   "preview recompute advances from previous preview map");
+  expectVectorNear(previewProject.getNotes().front().getOriginalDeltaPitch(),
+                   std::vector<float>{0.0f, 0.1f, 0.2f, 0.3f},
+                   0.0001f,
+                   "preview recompute preserves source original delta cache");
+  expect(previewProject.getWarpMarkers().empty(),
+         "preview recompute does not commit project markers");
+
+  WarpMarkerProcessor::recomputeFromMarkers(previewProject, currentMarkers,
+                                            original, false);
+  expect(previewProject.getEditedData().deltaPitch.size() == 4,
+         "preview cancel returns edited data to original length");
+  expect(markersEqual(WarpMarkerProcessor::buildWarpMapWithEndpoints(
+                          previewProject, previewProject.getWarpMarkers()),
+                      original),
+         "preview cancel keeps project markers on original map");
+}
+
+void testRefreshNoteCachesUsesNonRestAnalysisSegments()
+{
+  Project project;
+  project.getAudioData().sampleRate = 44100;
+
+  Note rest(0, 1, 60.0f);
+  rest.setRest(true);
+  project.addNote(std::move(rest));
+
+  Note note(1, 3, 60.0f);
+  note.setSrcStartFrame(1);
+  note.setSrcEndFrame(3);
+  project.addNote(std::move(note));
+
+  auto& analysis = project.getAnalysisData();
+  analysis.originalF0 = {100.0f, 110.0f, 120.0f, 130.0f};
+  analysis.originalPitch = {50.0f, 51.0f, 52.0f, 53.0f};
+  analysis.originalDeltaPitch = {0.0f, 1.0f, 2.0f, 3.0f};
+  analysis.originalVoicedMask = {true, true, true, true};
+  analysis.originalVADMask = {true, true, true, true};
+  analysis.noteSegments.push_back({1, 3});
+
+  resizeEditedData(project.getEditedData(), 3);
+  project.refreshNoteCaches();
+
+  const auto& refreshedNote = project.getNotes()[1];
+  expect(refreshedNote.getSrcStartFrame() == 1,
+         "refresh caches uses first non-rest source start");
+  expect(refreshedNote.getSrcEndFrame() == 3,
+         "refresh caches uses first non-rest source end");
+  expectVectorNear(refreshedNote.getOriginalDeltaPitch(),
+                   std::vector<float>{1.0f, 2.0f},
+                   0.0001f,
+                   "refresh caches slices original delta from non-rest segment");
+}
+
+void testComposeWaveformFollowsOutputFrameCount()
+{
+  auto project = makeProject();
+  constexpr int sourceFrames = 4;
+  auto& audioData = project.getAudioData();
+  audioData.originalWaveform.setSize(1, sourceFrames * HOP_SIZE);
+  audioData.waveform.setSize(1, sourceFrames * HOP_SIZE);
+  for (int i = 0; i < sourceFrames * HOP_SIZE; ++i)
+  {
+    audioData.originalWaveform.setSample(0, i,
+                                         static_cast<float>(i % 97) / 97.0f);
+  }
+
+  resizeEditedData(project.getEditedData(), 6);
+  project.getNotes().front().setStartFrame(0);
+  project.getNotes().front().setEndFrame(6);
+  project.composeGlobalWaveform();
+  expect(audioData.waveform.getNumSamples() == 6 * HOP_SIZE,
+         "compose waveform grows to warped endpoint");
+
+  resizeEditedData(project.getEditedData(), 3);
+  project.getNotes().front().setEndFrame(3);
+  project.composeGlobalWaveform();
+  expect(audioData.waveform.getNumSamples() == 3 * HOP_SIZE,
+         "compose waveform shrinks to warped endpoint");
+}
 } // namespace
 
 int main()
@@ -334,6 +542,11 @@ int main()
   testValidation();
   testStretchEditedData();
   testWarpEndpoints();
+  testNormalizePreservesEndpointOutputLength();
+  testRecomputeFromMarkersIsIdempotent();
+  testPreviewRecomputeCanAdvanceAndCancel();
+  testRefreshNoteCachesUsesNonRestAnalysisSegments();
+  testComposeWaveformFollowsOutputFrameCount();
 
   if (failures != 0)
   {
