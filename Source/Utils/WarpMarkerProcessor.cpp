@@ -1,9 +1,6 @@
 #include "WarpMarkerProcessor.h"
 #include "../Audio/Synthesis/StretchProcessor.h"
 #include "../Utils/Constants.h"
-#include "../Utils/CurveResampler.h"
-#include "../Utils/HNSepCurveProcessor.h"
-#include "../Utils/PitchCurveProcessor.h"
 #include <algorithm>
 #include <cmath>
 
@@ -52,53 +49,6 @@ namespace
                                  }),
                      result.end());
         return result;
-    }
-
-    std::vector<float> fitFloatCurve(const std::vector<float>& source,
-                                     int targetLength,
-                                     float defaultValue)
-    {
-        if (targetLength <= 0)
-            return {};
-        if (source.empty())
-        {
-            return std::vector<float>(static_cast<size_t>(targetLength),
-                                      defaultValue);
-        }
-        if (static_cast<int>(source.size()) == targetLength)
-            return source;
-        return CurveResampler::resampleLinear(source, targetLength);
-    }
-
-    std::vector<bool> fitBoolCurve(const std::vector<bool>& source,
-                                   int targetLength)
-    {
-        if (targetLength <= 0)
-            return {};
-        if (source.empty())
-            return std::vector<bool>(static_cast<size_t>(targetLength), false);
-        if (static_cast<int>(source.size()) == targetLength)
-            return source;
-        return CurveResampler::resampleNearest(source, targetLength);
-    }
-
-    std::vector<bool> buildSourceVoicedMask(const std::vector<float>& globalOriginalF0,
-                                            int srcStart,
-                                            int srcEnd)
-    {
-        const int len = srcEnd - srcStart;
-        if (len <= 0 || globalOriginalF0.empty())
-            return {};
-
-        const int globalSize = static_cast<int>(globalOriginalF0.size());
-        std::vector<bool> voiced(static_cast<size_t>(len), false);
-        for (int i = 0; i < len; ++i)
-        {
-            const int gi = srcStart + i;
-            if (gi >= 0 && gi < globalSize)
-                voiced[static_cast<size_t>(i)] = globalOriginalF0[static_cast<size_t>(gi)] > 1.0f;
-        }
-        return voiced;
     }
 
     void rebuildVadMaskFromWaveform(Project& project)
@@ -179,6 +129,54 @@ std::vector<Project::WarpMarker> normalizeMarkers(
         nextOut = result[static_cast<size_t>(i)].outputFrame;
     }
 
+    return result;
+}
+
+std::vector<Project::WarpMarker> buildWarpMapWithEndpoints(
+    const Project& project,
+    const std::vector<Project::WarpMarker>& markers)
+{
+    const int sourceEnd = getSourceFrameLimit(project);
+    if (sourceEnd <= 0)
+        return {};
+
+    int outputEnd = project.getFrameCount();
+    if (outputEnd <= 0)
+        outputEnd = sourceEnd;
+
+    std::vector<Project::WarpMarker> result;
+    result.push_back({0, 0});
+
+    if (outputEnd <= 0)
+        return {};
+
+    if (outputEnd > 1)
+    {
+        const auto sorted = sortedUniqueMarkers(markers);
+        int previousSource = 0;
+        int previousOutput = 0;
+        for (auto marker : sorted)
+        {
+            if (marker.sourceFrame <= previousSource ||
+                marker.sourceFrame >= sourceEnd)
+            {
+                continue;
+            }
+
+            marker.outputFrame = std::clamp(marker.outputFrame, 1, outputEnd - 1);
+            if (marker.outputFrame <= previousOutput ||
+                marker.outputFrame >= outputEnd)
+            {
+                continue;
+            }
+
+            result.push_back(marker);
+            previousSource = marker.sourceFrame;
+            previousOutput = marker.outputFrame;
+        }
+    }
+
+    result.push_back({sourceEnd, outputEnd});
     return result;
 }
 
@@ -350,85 +348,28 @@ void recomputeFromMarkers(Project& project,
                           const std::vector<Project::WarpMarker>& markers,
                           bool updateProjectMarkers)
 {
-    const auto normalizedMarkers = normalizeMarkers(project, markers);
-    if (updateProjectMarkers)
-        project.setWarpMarkers(normalizedMarkers);
-
-    auto& audioData = project.getAudioData();
-    const int totalFrames = getSourceFrameLimit(project);
-    if (totalFrames <= 0)
+    const auto warpMap = buildWarpMapWithEndpoints(project, markers);
+    if (warpMap.size() < 2)
         return;
 
-    std::vector<bool> newVoiced(static_cast<size_t>(totalFrames), false);
+    if (updateProjectMarkers)
+        project.setWarpMarkers(warpMap);
 
-    for (auto& note : project.getNotes())
-    {
-        if (note.isRest())
-            continue;
+    const int newTotalFrames = warpMap.back().outputFrame;
+    auto& editedData = project.getEditedData();
+    StretchProcessor::stretchEditedData(editedData, warpMap, newTotalFrames);
+    StretchProcessor::remapNoteFrames(project.getNotes(), warpMap);
 
-        const int oldStart = note.getStartFrame();
-        const int oldEnd = note.getEndFrame();
-
-        int newStart =
-            mapSourceFrame(project, note.getSrcStartFrame(), normalizedMarkers);
-        int newEnd =
-            mapSourceFrame(project, note.getSrcEndFrame(), normalizedMarkers);
-        newStart = std::clamp(newStart, 0, totalFrames);
-        newEnd = std::clamp(newEnd, newStart + 1, totalFrames);
-
-        note.setStartFrame(newStart);
-        note.setEndFrame(newEnd);
-
-        const int durationFrames = note.getDurationFrames();
-        if (durationFrames <= 0)
-            continue;
-
-        if (oldStart != newStart || oldEnd != newEnd)
-        {
-            note.markDirty();
-            note.markSynthDirty();
-        }
-
-        const auto& sourceDelta = note.hasOriginalDeltaPitch()
-                                      ? note.getOriginalDeltaPitch()
-                                      : note.getDeltaPitch();
-        note.setDeltaPitch(fitFloatCurve(sourceDelta, durationFrames, 0.0f));
-
-        note.setVoicingCurve(fitFloatCurve(note.getVoicingCurve(), durationFrames,
-                                           HNSepCurveProcessor::kDefaultVoicing));
-        note.setBreathCurve(fitFloatCurve(note.getBreathCurve(), durationFrames,
-                                          HNSepCurveProcessor::kDefaultBreath));
-        note.setTensionCurve(fitFloatCurve(note.getTensionCurve(), durationFrames,
-                                           HNSepCurveProcessor::kDefaultTension));
-
-        const auto voicedFrames =
-            fitBoolCurve(
-                buildSourceVoicedMask(project.getAnalysisData().originalF0,
-                                      note.getSrcStartFrame(),
-                                      note.getSrcEndFrame()),
-                durationFrames);
-        for (int i = 0; i < durationFrames && (newStart + i) < totalFrames; ++i)
-        {
-            newVoiced[static_cast<size_t>(newStart + i)] =
-                voicedFrames.empty()
-                    ? true
-                    : voicedFrames[static_cast<size_t>(i)];
-        }
-    }
-
-    project.getEditedData().voicedMask = std::move(newVoiced);
+    auto& audioData = project.getAudioData();
     if (!audioData.melSpectrogram.empty())
     {
         audioData.melSpectrogram =
-            StretchProcessor::stretchMel(audioData.melSpectrogram,
-                                         normalizedMarkers);
+            StretchProcessor::stretchMel(audioData.melSpectrogram, warpMap);
     }
 
-    PitchCurveProcessor::rebuildBaseFromNotes(project);
-    HNSepCurveProcessor::rebuildCurvesFromNotes(project);
+    project.refreshNoteCaches();
     project.composeGlobalWaveform();
     rebuildVadMaskFromWaveform(project);
-    project.refreshNoteCaches();
 
     if (updateProjectMarkers)
         project.setModified(true);

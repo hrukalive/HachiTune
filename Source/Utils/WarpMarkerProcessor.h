@@ -19,6 +19,9 @@ int getSourceFrameLimit(const Project& project);
 std::vector<Project::WarpMarker> normalizeMarkers(
     const Project& project,
     const std::vector<Project::WarpMarker>& markers);
+std::vector<Project::WarpMarker> buildWarpMapWithEndpoints(
+    const Project& project,
+    const std::vector<Project::WarpMarker>& markers);
 std::vector<Boundary> collectBoundaries(Project& project);
 bool hasMarkerAtSourceFrame(const std::vector<Project::WarpMarker>& markers,
                             int sourceFrame);

@@ -74,8 +74,15 @@ void StretchProcessor::remapNoteFrames(
     if (newEnd <= newStart)
       newEnd = newStart + 1;
 
+    const int oldStart = note.getStartFrame();
+    const int oldEnd = note.getEndFrame();
     note.setStartFrame(newStart);
     note.setEndFrame(newEnd);
+    if (oldStart != newStart || oldEnd != newEnd)
+    {
+      note.markDirty();
+      note.markSynthDirty();
+    }
   }
 }
 
