@@ -286,16 +286,45 @@ void ProjectTreeView::updatePropertyItems()
 
   // --- AnalysisData ---
   const auto& ad = project->getAnalysisData();
-  while (analysisCat->getNumSubItems() > 2)
-    analysisCat->removeSubItem(analysisCat->getNumSubItems() - 1);
-  setOrUpdate(analysisCat, 0, "Frames: " + juce::String(ad.getNumFrames()));
-  setOrUpdate(analysisCat, 1, "isEmpty: " + juce::String(ad.isEmpty() ? "yes" : "no"));
+  {
+    int voicedCount = 0;
+    for (auto v : ad.originalVoicedMask) if (v) ++voicedCount;
+    int nonZeroF0 = 0;
+    for (auto v : ad.originalF0) if (v > 0.0f) ++nonZeroF0;
+
+    const int adProps = 5;
+    while (analysisCat->getNumSubItems() > adProps)
+      analysisCat->removeSubItem(analysisCat->getNumSubItems() - 1);
+    setOrUpdate(analysisCat, 0, "Frames: " + juce::String(ad.getNumFrames()));
+    setOrUpdate(analysisCat, 1, "isEmpty: " + juce::String(ad.isEmpty() ? "yes" : "no"));
+    setOrUpdate(analysisCat, 2, "VoicedFrames: " + juce::String(voicedCount));
+    setOrUpdate(analysisCat, 3, "NonZeroF0: " + juce::String(nonZeroF0));
+    setOrUpdate(analysisCat, 4, "NoteSegments: " + juce::String(static_cast<int>(ad.noteSegments.size())));
+  }
 
   // --- EditedData ---
   const auto& ed = project->getEditedData();
-  while (editedCat->getNumSubItems() > 1)
-    editedCat->removeSubItem(editedCat->getNumSubItems() - 1);
-  setOrUpdate(editedCat, 0, "Frames: " + juce::String(ed.getNumFrames()));
+  {
+    int voicedCount = 0;
+    for (auto v : ed.voicedMask) if (v) ++voicedCount;
+    int nonZeroF0 = 0;
+    for (auto v : ed.f0) if (v > 0.0f) ++nonZeroF0;
+    int nonZeroBP = 0;
+    for (auto v : ed.basePitch) if (v != 0.0f) ++nonZeroBP;
+    int nonZeroDP = 0;
+    for (auto v : ed.deltaPitch) if (v != 0.0f) ++nonZeroDP;
+
+    const int edProps = 7;
+    while (editedCat->getNumSubItems() > edProps)
+      editedCat->removeSubItem(editedCat->getNumSubItems() - 1);
+    setOrUpdate(editedCat, 0, "Frames: " + juce::String(ed.getNumFrames()));
+    setOrUpdate(editedCat, 1, "isEmpty: " + juce::String(ed.isEmpty() ? "yes" : "no"));
+    setOrUpdate(editedCat, 2, "VoicedFrames: " + juce::String(voicedCount));
+    setOrUpdate(editedCat, 3, "NonZeroF0: " + juce::String(nonZeroF0));
+    setOrUpdate(editedCat, 4, "NonZeroBasePitch: " + juce::String(nonZeroBP));
+    setOrUpdate(editedCat, 5, "NonZeroDeltaPitch: " + juce::String(nonZeroDP));
+    setOrUpdate(editedCat, 6, "VoicingCurve size: " + juce::String(static_cast<int>(ed.voicingCurve.size())));
+  }
 
   // --- AudioData ---
   const auto& audioData = project->getAudioData();
@@ -309,7 +338,9 @@ void ProjectTreeView::updatePropertyItems()
 
   // --- WarpMarkers ---
   const auto& markers = project->getWarpMarkers();
-  markersCat->setName("WarpMarkers (" + juce::String(static_cast<int>(markers.size())) + ")");
+  bool stretchActive = markers.size() > 0;
+  markersCat->setName("WarpMarkers (" + juce::String(static_cast<int>(markers.size())) +
+                       ")" + (stretchActive ? " [STRETCH ACTIVE]" : ""));
 
   // Adjust marker count
   while (markersCat->getNumSubItems() > static_cast<int>(markers.size()))
@@ -331,8 +362,16 @@ void ProjectTreeView::updateNoteItems()
 
   const auto& notes = project->getNotes();
   const int noteCount = static_cast<int>(notes.size());
+  int dirtyCount = 0, selectedCount = 0;
+  for (const auto& n : notes)
+  {
+    if (n.isDirty()) ++dirtyCount;
+    if (n.isSelected()) ++selectedCount;
+  }
 
-  notesCat->setName("Notes (" + juce::String(noteCount) + ")");
+  notesCat->setName("Notes (" + juce::String(noteCount) +
+                     ", " + juce::String(dirtyCount) + " dirty, " +
+                     juce::String(selectedCount) + " sel)");
 
   // Remove excess items
   while (notesCat->getNumSubItems() > noteCount)
