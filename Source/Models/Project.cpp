@@ -117,24 +117,36 @@ Project::FrameDataValidation Project::validateFrameData() const
 
     const int analysisFrames = analysisData.getNumFrames();
     auto checkAnalysisFloat = [&](const std::vector<float>& values,
-                                  const char* name) {
+                                  const char* name,
+                                  bool required) {
+        if (required && values.empty())
+            result.messages.push_back(juce::String(name) + " is empty");
         if (!values.empty() && static_cast<int>(values.size()) != analysisFrames)
             result.messages.push_back(juce::String(name) + " size mismatch");
     };
     auto checkAnalysisBool = [&](const std::vector<bool>& values,
-                                 const char* name) {
+                                 const char* name,
+                                 bool required) {
+        if (required && values.empty())
+            result.messages.push_back(juce::String(name) + " is empty");
         if (!values.empty() && static_cast<int>(values.size()) != analysisFrames)
             result.messages.push_back(juce::String(name) + " size mismatch");
     };
 
-    checkAnalysisFloat(analysisData.originalF0, "analysisData.originalF0");
-    checkAnalysisFloat(analysisData.originalPitch, "analysisData.originalPitch");
+    checkAnalysisFloat(analysisData.originalF0, "analysisData.originalF0", false);
+    const bool requiresAnalysisArrays = analysisFrames > 0;
+    checkAnalysisFloat(analysisData.originalPitch,
+                       "analysisData.originalPitch",
+                       requiresAnalysisArrays);
     checkAnalysisFloat(analysisData.originalDeltaPitch,
-                       "analysisData.originalDeltaPitch");
+                       "analysisData.originalDeltaPitch",
+                       requiresAnalysisArrays);
     checkAnalysisBool(analysisData.originalVoicedMask,
-                      "analysisData.originalVoicedMask");
+                      "analysisData.originalVoicedMask",
+                      requiresAnalysisArrays);
     checkAnalysisBool(analysisData.originalVADMask,
-                      "analysisData.originalVADMask");
+                      "analysisData.originalVADMask",
+                      requiresAnalysisArrays);
 
     const int projectFrames = getFrameCount();
     int nonRestNotes = 0;

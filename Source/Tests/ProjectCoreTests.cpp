@@ -135,6 +135,11 @@ void testValidation()
   expect(!result.isValid(), "missing analyzed note segments fails validation");
 
   project = makeProject();
+  project.getAnalysisData().originalPitch.clear();
+  result = project.validateFrameData();
+  expect(!result.isValid(), "missing required analysis arrays fail validation");
+
+  project = makeProject();
   project.getAnalysisData().clear();
   project.getNotes()[0].setSrcStartFrame(-1);
   project.getNotes()[0].setSrcEndFrame(0);
