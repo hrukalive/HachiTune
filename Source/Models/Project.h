@@ -175,6 +175,12 @@ public:
         int outputFrame = 0;
     };
 
+    struct FrameDataValidation
+    {
+        std::vector<juce::String> messages;
+        bool isValid() const { return messages.empty(); }
+    };
+
     Project();
     ~Project() = default;
 
@@ -264,6 +270,9 @@ public:
 
     // Get adjusted F0 with all modifications applied
     std::vector<float> getAdjustedF0() const;
+    int getFrameCount() const;
+    float getBaseF0ForFrame(int frame) const;
+    FrameDataValidation validateFrameData() const;
 
     // Get adjusted F0 for a specific frame range
     std::vector<float> getAdjustedF0ForRange(int startFrame, int endFrame) const;

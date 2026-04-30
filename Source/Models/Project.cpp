@@ -51,6 +51,128 @@ Project::Project()
 {
 }
 
+int Project::getFrameCount() const
+{
+    if (!editedData.f0.empty())
+        return static_cast<int>(editedData.f0.size());
+    if (!audioData.melSpectrogram.empty())
+        return static_cast<int>(audioData.melSpectrogram.size());
+    return audioData.getNumFrames();
+}
+
+float Project::getBaseF0ForFrame(int frame) const
+{
+    if (frame < 0 || frame >= static_cast<int>(editedData.basePitch.size()))
+        return 0.0f;
+    return midiToFreq(editedData.basePitch[static_cast<size_t>(frame)]);
+}
+
+Project::FrameDataValidation Project::validateFrameData() const
+{
+    FrameDataValidation result;
+    const int editedFrames = editedData.getNumFrames();
+
+    auto checkFloat = [&](const std::vector<float>& values,
+                          const char* name,
+                          bool required) {
+        if (required && values.empty())
+            result.messages.push_back(juce::String(name) + " is empty");
+        if (!values.empty() && static_cast<int>(values.size()) != editedFrames)
+            result.messages.push_back(juce::String(name) + " size mismatch");
+    };
+
+    auto checkBool = [&](const std::vector<bool>& values,
+                         const char* name,
+                         bool required) {
+        if (required && values.empty())
+            result.messages.push_back(juce::String(name) + " is empty");
+        if (!values.empty() && static_cast<int>(values.size()) != editedFrames)
+            result.messages.push_back(juce::String(name) + " size mismatch");
+    };
+
+    if (editedFrames > 0)
+    {
+        checkFloat(editedData.basePitch, "editedData.basePitch", true);
+        checkFloat(editedData.deltaPitch, "editedData.deltaPitch", true);
+        checkFloat(editedData.f0, "editedData.f0", true);
+        checkBool(editedData.voicedMask, "editedData.voicedMask", true);
+        checkBool(editedData.vadMask, "editedData.vadMask", true);
+        checkFloat(editedData.voicingCurve, "editedData.voicingCurve", true);
+        checkFloat(editedData.breathCurve, "editedData.breathCurve", true);
+        checkFloat(editedData.tensionCurve, "editedData.tensionCurve", true);
+    }
+
+    const int analysisFrames = analysisData.getNumFrames();
+    auto checkAnalysisFloat = [&](const std::vector<float>& values,
+                                  const char* name) {
+        if (!values.empty() && static_cast<int>(values.size()) != analysisFrames)
+            result.messages.push_back(juce::String(name) + " size mismatch");
+    };
+    auto checkAnalysisBool = [&](const std::vector<bool>& values,
+                                 const char* name) {
+        if (!values.empty() && static_cast<int>(values.size()) != analysisFrames)
+            result.messages.push_back(juce::String(name) + " size mismatch");
+    };
+
+    checkAnalysisFloat(analysisData.originalF0, "analysisData.originalF0");
+    checkAnalysisFloat(analysisData.originalPitch, "analysisData.originalPitch");
+    checkAnalysisFloat(analysisData.originalDeltaPitch,
+                       "analysisData.originalDeltaPitch");
+    checkAnalysisBool(analysisData.originalVoicedMask,
+                      "analysisData.originalVoicedMask");
+    checkAnalysisBool(analysisData.originalVADMask,
+                      "analysisData.originalVADMask");
+
+    const int projectFrames = getFrameCount();
+    int nonRestNotes = 0;
+    for (const auto& note : notes)
+    {
+        if (!note.isRest())
+            ++nonRestNotes;
+
+        if (note.getStartFrame() < 0 ||
+            note.getEndFrame() <= note.getStartFrame() ||
+            (projectFrames > 0 && note.getEndFrame() > projectFrames))
+            result.messages.push_back("invalid note output range");
+
+        if (!note.isRest() && analysisFrames > 0 &&
+            (note.getSrcStartFrame() < 0 ||
+             note.getSrcEndFrame() <= note.getSrcStartFrame() ||
+             note.getSrcEndFrame() > analysisFrames))
+            result.messages.push_back("invalid note source range");
+    }
+
+    if (!analysisData.noteSegments.empty() &&
+        static_cast<int>(analysisData.noteSegments.size()) != nonRestNotes)
+        result.messages.push_back("analysisData.noteSegments count mismatch");
+
+    if (!audioData.melSpectrogram.empty())
+    {
+        const auto bins = audioData.melSpectrogram.front().size();
+        for (const auto& row : audioData.melSpectrogram)
+        {
+            if (row.size() != bins)
+            {
+                result.messages.push_back("audioData.melSpectrogram ragged rows");
+                break;
+            }
+        }
+    }
+
+    int prevSource = -1;
+    int prevOutput = -1;
+    for (const auto& marker : warpMarkers)
+    {
+        if (marker.sourceFrame <= prevSource ||
+            marker.outputFrame <= prevOutput)
+            result.messages.push_back("warpMarkers are not strictly increasing");
+        prevSource = marker.sourceFrame;
+        prevOutput = marker.outputFrame;
+    }
+
+    return result;
+}
+
 Note *Project::getNoteAtFrame(int frame)
 {
     for (auto &note : notes)
