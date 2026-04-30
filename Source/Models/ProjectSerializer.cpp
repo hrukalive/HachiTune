@@ -2,6 +2,7 @@
 #include "../Utils/CurveResampler.h"
 #include "../Utils/HNSepCurveProcessor.h"
 #include "../Utils/PitchCurveProcessor.h"
+#include "../Utils/WarpMarkerProcessor.h"
 
 #include <algorithm>
 
@@ -72,7 +73,10 @@ juce::var ProjectSerializer::toJson(const Project& project) {
     obj->setProperty("notes", notesArray);
 
     juce::Array<juce::var> warpMarkersArray;
-    for (const auto& marker : project.getWarpMarkers()) {
+    const auto markersToSave =
+        WarpMarkerProcessor::buildWarpMapWithEndpoints(
+            project, project.getWarpMarkers());
+    for (const auto& marker : markersToSave) {
         auto* markerObj = new juce::DynamicObject();
         markerObj->setProperty("sourceFrame", marker.sourceFrame);
         markerObj->setProperty("outputFrame", marker.outputFrame);
@@ -227,6 +231,21 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
         }
     }
 
+    int segIndex = 0;
+    for (auto& note : project.getNotes())
+    {
+        if (note.isRest())
+            continue;
+        if (segIndex < static_cast<int>(project.getAnalysisData().noteSegments.size()))
+        {
+            const auto& seg =
+                project.getAnalysisData().noteSegments[static_cast<size_t>(segIndex)];
+            note.setSrcStartFrame(seg.srcStartFrame);
+            note.setSrcEndFrame(seg.srcEndFrame);
+        }
+        ++segIndex;
+    }
+
     // Rebuild curves if needed
     auto& editedData2 = project.getEditedData();
     if (!editedData2.f0.empty() && (editedData2.basePitch.empty() || editedData2.deltaPitch.empty())) {
@@ -313,12 +332,6 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
     obj->setProperty("startFrame", note.getStartFrame());
     obj->setProperty("endFrame", note.getEndFrame());
 
-    // Only save src frames if they differ from output frames (stretch applied)
-    if (note.getSrcStartFrame() != note.getStartFrame())
-        obj->setProperty("srcStartFrame", note.getSrcStartFrame());
-    if (note.getSrcEndFrame() != note.getEndFrame())
-        obj->setProperty("srcEndFrame", note.getSrcEndFrame());
-
     obj->setProperty("midiNote", note.getMidiNote());
     obj->setProperty("pitchOffset", note.getPitchOffset());
     obj->setProperty("volumeDb", note.getVolumeDb());
@@ -350,21 +363,12 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
     obj->setProperty("smoothLeftFrames", note.getSmoothLeftFrames());
     obj->setProperty("smoothRightFrames", note.getSmoothRightFrames());
 
-    // Per-note original delta pitch (pristine curve from analysis)
-    if (note.hasOriginalDeltaPitch())
-        obj->setProperty("originalDeltaPitch", floatArrayToString(note.getOriginalDeltaPitch(), 4));
-
-    // Filter strengths (always serialize)
-    obj->setProperty("highPassFilterStrength", note.getHighPassFilterStrength());
-    obj->setProperty("lowPassFilterStrength", note.getLowPassFilterStrength());
-
-    // Harmonic-noise separation curves (voicing/breath/tension)
-    if (note.hasVoicingCurve())
-        obj->setProperty("voicingCurve", floatArrayToString(note.getVoicingCurve(), 2));
-    if (note.hasBreathCurve())
-        obj->setProperty("breathCurve", floatArrayToString(note.getBreathCurve(), 2));
-    if (note.hasTensionCurve())
-        obj->setProperty("tensionCurve", floatArrayToString(note.getTensionCurve(), 2));
+    if (std::abs(note.getHighPassFilterStrength()) > 0.0001f)
+        obj->setProperty("highPassFilterStrength",
+                         note.getHighPassFilterStrength());
+    if (std::abs(note.getLowPassFilterStrength()) > 0.0001f)
+        obj->setProperty("lowPassFilterStrength",
+                         note.getLowPassFilterStrength());
 
     return juce::var(obj);
 }

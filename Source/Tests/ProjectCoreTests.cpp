@@ -111,6 +111,67 @@ void testSerializerOmitsNoteCaches()
   expect(!hasProperty(json.getProperty("editedData", juce::var()),
                       "f0EditedMask"),
          "f0EditedMask remains absent");
+
+  project = makeProject();
+  project.getNotes()[0].setHighPassFilterStrength(0.25f);
+  project.getNotes()[0].setLowPassFilterStrength(-0.5f);
+  const auto filterJson = ProjectSerializer::toJson(project);
+  const auto filterNotes = filterJson.getProperty("notes", juce::var());
+  require(filterNotes.isArray(), "filter notes is an array");
+  require(filterNotes.size() == 1, "one filter note serialized");
+  expect(hasProperty(filterNotes[0], "highPassFilterStrength"),
+         "non-zero highPassFilterStrength is saved");
+  expect(hasProperty(filterNotes[0], "lowPassFilterStrength"),
+         "non-zero lowPassFilterStrength is saved");
+}
+
+void testSerializerRestoresSourceRangesFromAnalysisSegments()
+{
+  auto* root = new juce::DynamicObject();
+  root->setProperty("name", "SourceRangeLoad");
+  root->setProperty("sampleRate", 44100);
+
+  juce::Array<juce::var> notes;
+  auto* note = new juce::DynamicObject();
+  note->setProperty("startFrame", 10);
+  note->setProperty("endFrame", 20);
+  note->setProperty("srcStartFrame", 100);
+  note->setProperty("srcEndFrame", 120);
+  note->setProperty("midiNote", 60.0);
+  note->setProperty("rest", false);
+  notes.add(juce::var(note));
+  root->setProperty("notes", notes);
+
+  auto* analysis = new juce::DynamicObject();
+  analysis->setProperty("originalF0", "100 110 120 130");
+  analysis->setProperty("originalPitch", "60 61 62 63");
+  analysis->setProperty("originalDeltaPitch", "0 0.1 0.2 0.3");
+  analysis->setProperty("originalVoicedMask", "1111");
+  analysis->setProperty("originalVADMask", "1111");
+  juce::var segments;
+  auto* segment = new juce::DynamicObject();
+  segment->setProperty("srcStartFrame", 2);
+  segment->setProperty("srcEndFrame", 6);
+  segments.append(juce::var(segment));
+  analysis->setProperty("noteSegments", segments);
+  root->setProperty("analysisData", juce::var(analysis));
+
+  auto* edited = new juce::DynamicObject();
+  edited->setProperty("basePitch", "60 60 60 60");
+  edited->setProperty("deltaPitch", "0 0 0 0");
+  edited->setProperty("f0", "100 110 120 130");
+  edited->setProperty("voicedMask", "1111");
+  edited->setProperty("vadMask", "1111");
+  root->setProperty("editedData", juce::var(edited));
+
+  Project project;
+  require(ProjectSerializer::fromJson(project, juce::var(root)),
+          "project loads from source range json");
+  require(project.getNotes().size() == 1, "source range project has one note");
+  expect(project.getNotes()[0].getSrcStartFrame() == 2,
+         "source start restored from analysis segment");
+  expect(project.getNotes()[0].getSrcEndFrame() == 6,
+         "source end restored from analysis segment");
 }
 
 void testValidation()
@@ -192,6 +253,7 @@ void testWarpEndpoints()
 int main()
 {
   testSerializerOmitsNoteCaches();
+  testSerializerRestoresSourceRangesFromAnalysisSegments();
   testValidation();
   testStretchEditedData();
   testWarpEndpoints();
