@@ -70,7 +70,20 @@ float Project::getBaseF0ForFrame(int frame) const
 Project::FrameDataValidation Project::validateFrameData() const
 {
     FrameDataValidation result;
-    const int editedFrames = editedData.getNumFrames();
+    int editedFrames = 0;
+    auto useEditedFrameCount = [&](size_t size) {
+        if (editedFrames == 0 && size > 0)
+            editedFrames = static_cast<int>(size);
+    };
+
+    useEditedFrameCount(editedData.f0.size());
+    useEditedFrameCount(editedData.basePitch.size());
+    useEditedFrameCount(editedData.deltaPitch.size());
+    useEditedFrameCount(editedData.voicedMask.size());
+    useEditedFrameCount(editedData.vadMask.size());
+    useEditedFrameCount(editedData.voicingCurve.size());
+    useEditedFrameCount(editedData.breathCurve.size());
+    useEditedFrameCount(editedData.tensionCurve.size());
 
     auto checkFloat = [&](const std::vector<float>& values,
                           const char* name,
@@ -135,14 +148,20 @@ Project::FrameDataValidation Project::validateFrameData() const
             (projectFrames > 0 && note.getEndFrame() > projectFrames))
             result.messages.push_back("invalid note output range");
 
-        if (!note.isRest() && analysisFrames > 0 &&
-            (note.getSrcStartFrame() < 0 ||
-             note.getSrcEndFrame() <= note.getSrcStartFrame() ||
-             note.getSrcEndFrame() > analysisFrames))
-            result.messages.push_back("invalid note source range");
+        if (!note.isRest())
+        {
+            const bool invalidSourceRange =
+                note.getSrcStartFrame() < 0 ||
+                note.getSrcEndFrame() <= note.getSrcStartFrame();
+            const bool exceedsAnalysisRange =
+                analysisFrames > 0 && note.getSrcEndFrame() > analysisFrames;
+            if (invalidSourceRange || exceedsAnalysisRange)
+                result.messages.push_back("invalid note source range");
+        }
     }
 
-    if (!analysisData.noteSegments.empty() &&
+    if (((analysisFrames > 0 && nonRestNotes > 0) ||
+         !analysisData.noteSegments.empty()) &&
         static_cast<int>(analysisData.noteSegments.size()) != nonRestNotes)
         result.messages.push_back("analysisData.noteSegments count mismatch");
 

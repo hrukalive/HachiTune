@@ -123,6 +123,23 @@ void testValidation()
   result = project.validateFrameData();
   expect(!result.isValid(), "mismatched editedData fails validation");
   expect(!result.messages.empty(), "validation reports messages");
+
+  project = makeProject();
+  project.getEditedData().f0.clear();
+  result = project.validateFrameData();
+  expect(!result.isValid(), "empty editedData.f0 with other arrays fails validation");
+
+  project = makeProject();
+  project.getAnalysisData().noteSegments.clear();
+  result = project.validateFrameData();
+  expect(!result.isValid(), "missing analyzed note segments fails validation");
+
+  project = makeProject();
+  project.getAnalysisData().clear();
+  project.getNotes()[0].setSrcStartFrame(-1);
+  project.getNotes()[0].setSrcEndFrame(0);
+  result = project.validateFrameData();
+  expect(!result.isValid(), "invalid source range fails without analysis frames");
 }
 
 void testStretchEditedData()
