@@ -30,11 +30,10 @@ public:
 
   void undo() override
   {
-    auto& audioData = project.getAudioData();
-    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, beforeF0);
-    SnapshotHelper::restoreFloatRange(audioData.deltaPitch, startFrame, beforeDelta);
-    SnapshotHelper::restoreBoolRange(audioData.voicedMask, startFrame, beforeVoiced);
-    SnapshotHelper::restoreBoolRange(audioData.f0EditedMask, startFrame, beforeEdited);
+    auto& editedData = project.getEditedData();
+    SnapshotHelper::restoreFloatRange(editedData.f0, startFrame, beforeF0);
+    SnapshotHelper::restoreFloatRange(editedData.deltaPitch, startFrame, beforeDelta);
+    SnapshotHelper::restoreBoolRange(editedData.voicedMask, startFrame, beforeVoiced);
     SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
     if (onChanged)
       onChanged(startFrame, endFrame);
@@ -42,11 +41,10 @@ public:
 
   void redo() override
   {
-    auto& audioData = project.getAudioData();
-    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, afterF0);
-    SnapshotHelper::restoreFloatRange(audioData.deltaPitch, startFrame, afterDelta);
-    SnapshotHelper::restoreBoolRange(audioData.voicedMask, startFrame, afterVoiced);
-    SnapshotHelper::restoreBoolRange(audioData.f0EditedMask, startFrame, afterEdited);
+    auto& editedData = project.getEditedData();
+    SnapshotHelper::restoreFloatRange(editedData.f0, startFrame, afterF0);
+    SnapshotHelper::restoreFloatRange(editedData.deltaPitch, startFrame, afterDelta);
+    SnapshotHelper::restoreBoolRange(editedData.voicedMask, startFrame, afterVoiced);
     SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
     if (onChanged)
       onChanged(startFrame, endFrame);

@@ -136,7 +136,7 @@ std::vector<float> captureNoteSourceCurve(Project* project, Note* note) {
     return CurveResampler::resampleLinear(storedCurve, durationFrames);
   }
 
-  const auto& denseDelta = project->getAudioData().deltaPitch;
+  const auto& denseDelta = project->getEditedData().deltaPitch;
   std::vector<float> curve(static_cast<size_t>(durationFrames), 0.0f);
   for (int i = 0; i < durationFrames; ++i) {
     const int globalFrame = note->getStartFrame() + i;

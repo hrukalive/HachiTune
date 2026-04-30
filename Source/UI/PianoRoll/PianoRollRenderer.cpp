@@ -33,6 +33,7 @@ void PianoRollRenderer::drawBackgroundWaveform(
     return;
 
   const auto &audioData = project->getAudioData();
+  const auto &editedData = project->getEditedData();
   if (audioData.waveform.getNumSamples() == 0)
     return;
 
@@ -247,6 +248,7 @@ void PianoRollRenderer::drawNotes(juce::Graphics &g, double visibleStartTime,
     return;
 
   const auto &audioData = project->getAudioData();
+  const auto &editedData = project->getEditedData();
   const float *samples = audioData.waveform.getNumSamples() > 0
                              ? audioData.waveform.getReadPointer(0)
                              : nullptr;
@@ -406,12 +408,13 @@ void PianoRollRenderer::drawPitchCurves(juce::Graphics &g,
     return;
 
   const auto &audioData = project->getAudioData();
-  if (audioData.f0.empty())
+  const auto &editedData = project->getEditedData();
+  if (editedData.f0.empty())
     return;
 
   g.setColour(APP_COLOR_PITCH_CURVE);
 
-  const auto &voicedMask = audioData.voicedMask;
+  const auto &voicedMask = editedData.voicedMask;
   const juce::PathStrokeType stroke(2.0f);
 
   for (const auto &note : project->getNotes()) {
@@ -423,7 +426,7 @@ void PianoRollRenderer::drawPitchCurves(juce::Graphics &g,
 
     int startFrame = note.getStartFrame();
     int endFrame =
-        std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
+        std::min(note.getEndFrame(), static_cast<int>(editedData.f0.size()));
 
     for (int i = startFrame; i < endFrame; ++i) {
       auto idx = static_cast<size_t>(i);
@@ -446,15 +449,15 @@ void PianoRollRenderer::drawPitchCurves(juce::Graphics &g,
       // applyDragBasePreview / rebuildBaseFromNotesForDrag during drag,
       // or by rebuildBaseFromNotes after commit).  Do NOT add it again.
       float baseMidi =
-          (i < static_cast<int>(audioData.basePitch.size()))
-              ? audioData.basePitch[idx]
-              : ((i < static_cast<int>(audioData.f0.size()) &&
-                  audioData.f0[idx] > 0.0f)
-                     ? freqToMidi(audioData.f0[idx])
+          (i < static_cast<int>(editedData.basePitch.size()))
+              ? editedData.basePitch[idx]
+              : ((i < static_cast<int>(editedData.f0.size()) &&
+                  editedData.f0[idx] > 0.0f)
+                     ? freqToMidi(editedData.f0[idx])
                      : 0.0f);
 
-      float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))
-                            ? audioData.deltaPitch[idx]
+      float deltaMidi = (i < static_cast<int>(editedData.deltaPitch.size()))
+                            ? editedData.deltaPitch[idx]
                             : 0.0f;
 
       float finalMidi = baseMidi + deltaMidi + globalPitchOffset;
@@ -551,7 +554,8 @@ void PianoRollRenderer::updateBasePitchCacheIfNeeded() {
 
   const auto &notes = project->getNotes();
   const auto &audioData = project->getAudioData();
-  int totalFrames = static_cast<int>(audioData.f0.size());
+  const auto &editedData = project->getEditedData();
+  int totalFrames = static_cast<int>(editedData.f0.size());
 
   size_t currentNoteCount = 0;
   for (const auto &note : notes) {

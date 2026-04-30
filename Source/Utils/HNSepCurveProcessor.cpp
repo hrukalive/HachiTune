@@ -9,19 +9,19 @@
 
 namespace
 {
-    void ensureCurveSizes(AudioData& audioData, int totalFrames)
+    void ensureCurveSizes(EditedData& editedData, int totalFrames)
     {
         if (totalFrames <= 0)
             return;
 
-        if (audioData.voicingCurve.size() != static_cast<size_t>(totalFrames))
-            audioData.voicingCurve.assign(static_cast<size_t>(totalFrames),
+        if (editedData.voicingCurve.size() != static_cast<size_t>(totalFrames))
+            editedData.voicingCurve.assign(static_cast<size_t>(totalFrames),
                                           HNSepCurveProcessor::kDefaultVoicing);
-        if (audioData.breathCurve.size() != static_cast<size_t>(totalFrames))
-            audioData.breathCurve.assign(static_cast<size_t>(totalFrames),
+        if (editedData.breathCurve.size() != static_cast<size_t>(totalFrames))
+            editedData.breathCurve.assign(static_cast<size_t>(totalFrames),
                                          HNSepCurveProcessor::kDefaultBreath);
-        if (audioData.tensionCurve.size() != static_cast<size_t>(totalFrames))
-            audioData.tensionCurve.assign(static_cast<size_t>(totalFrames),
+        if (editedData.tensionCurve.size() != static_cast<size_t>(totalFrames))
+            editedData.tensionCurve.assign(static_cast<size_t>(totalFrames),
                                           HNSepCurveProcessor::kDefaultTension);
     }
 
@@ -59,15 +59,6 @@ namespace
             dest[static_cast<size_t>(clampedStart + i)] = fitted[static_cast<size_t>(i)];
     }
 
-    void syncHNSepToEditedData(Project& project)
-    {
-        auto& audioData = project.getAudioData();
-        auto& ed = project.getEditedData();
-        ed.voicingCurve = audioData.voicingCurve;
-        ed.breathCurve = audioData.breathCurve;
-        ed.tensionCurve = audioData.tensionCurve;
-    }
-
     bool curveDiffersFrom(const std::vector<float>& curve,
                           int startFrame,
                           int endFrame,
@@ -89,9 +80,9 @@ namespace HNSepCurveProcessor
 {
     void initializeCurves(Project& project)
     {
-        auto& audioData = project.getAudioData();
-        const int totalFrames = audioData.getNumFrames();
-        ensureCurveSizes(audioData, totalFrames);
+        auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
+        ensureCurveSizes(editedData, totalFrames);
 
         for (auto& note : project.getNotes())
         {
@@ -110,11 +101,11 @@ namespace HNSepCurveProcessor
             {
                 if (sliceLength > 0 &&
                     startFrame >= 0 &&
-                    endFrame <= static_cast<int>(audioData.voicingCurve.size()))
+                    endFrame <= static_cast<int>(editedData.voicingCurve.size()))
                 {
                     note.setVoicingCurve(std::vector<float>(
-                        audioData.voicingCurve.begin() + startFrame,
-                        audioData.voicingCurve.begin() + endFrame));
+                        editedData.voicingCurve.begin() + startFrame,
+                        editedData.voicingCurve.begin() + endFrame));
                 }
                 else
                 {
@@ -127,11 +118,11 @@ namespace HNSepCurveProcessor
             {
                 if (sliceLength > 0 &&
                     startFrame >= 0 &&
-                    endFrame <= static_cast<int>(audioData.breathCurve.size()))
+                    endFrame <= static_cast<int>(editedData.breathCurve.size()))
                 {
                     note.setBreathCurve(std::vector<float>(
-                        audioData.breathCurve.begin() + startFrame,
-                        audioData.breathCurve.begin() + endFrame));
+                        editedData.breathCurve.begin() + startFrame,
+                        editedData.breathCurve.begin() + endFrame));
                 }
                 else
                 {
@@ -144,11 +135,11 @@ namespace HNSepCurveProcessor
             {
                 if (sliceLength > 0 &&
                     startFrame >= 0 &&
-                    endFrame <= static_cast<int>(audioData.tensionCurve.size()))
+                    endFrame <= static_cast<int>(editedData.tensionCurve.size()))
                 {
                     note.setTensionCurve(std::vector<float>(
-                        audioData.tensionCurve.begin() + startFrame,
-                        audioData.tensionCurve.begin() + endFrame));
+                        editedData.tensionCurve.begin() + startFrame,
+                        editedData.tensionCurve.begin() + endFrame));
                 }
                 else
                 {
@@ -159,20 +150,19 @@ namespace HNSepCurveProcessor
         }
 
         rebuildCurvesFromNotes(project);
-        // initializeCurves sync handled by rebuildCurvesFromNotes
     }
 
     void rebuildCurvesFromNotes(Project& project)
     {
-        auto& audioData = project.getAudioData();
-        const int totalFrames = audioData.getNumFrames();
-        ensureCurveSizes(audioData, totalFrames);
+        auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
+        ensureCurveSizes(editedData, totalFrames);
 
-        std::fill(audioData.voicingCurve.begin(), audioData.voicingCurve.end(),
+        std::fill(editedData.voicingCurve.begin(), editedData.voicingCurve.end(),
                   kDefaultVoicing);
-        std::fill(audioData.breathCurve.begin(), audioData.breathCurve.end(),
+        std::fill(editedData.breathCurve.begin(), editedData.breathCurve.end(),
                   kDefaultBreath);
-        std::fill(audioData.tensionCurve.begin(), audioData.tensionCurve.end(),
+        std::fill(editedData.tensionCurve.begin(), editedData.tensionCurve.end(),
                   kDefaultTension);
 
         for (const auto& note : project.getNotes())
@@ -180,39 +170,37 @@ namespace HNSepCurveProcessor
             if (note.isRest())
                 continue;
 
-            writeCurveRange(audioData.voicingCurve, note.getVoicingCurve(),
+            writeCurveRange(editedData.voicingCurve, note.getVoicingCurve(),
                             note.getStartFrame(), note.getEndFrame(),
                             kDefaultVoicing);
-            writeCurveRange(audioData.breathCurve, note.getBreathCurve(),
+            writeCurveRange(editedData.breathCurve, note.getBreathCurve(),
                             note.getStartFrame(), note.getEndFrame(),
                             kDefaultBreath);
-            writeCurveRange(audioData.tensionCurve, note.getTensionCurve(),
+            writeCurveRange(editedData.tensionCurve, note.getTensionCurve(),
                             note.getStartFrame(), note.getEndFrame(),
                             kDefaultTension);
         }
-
-        syncHNSepToEditedData(project);
 
         project.notifyListeners(ProjectChangeType::NoteCurveChanged);
     }
 
     void rebuildCurvesForRange(Project& project, int startFrame, int endFrame)
     {
-        auto& audioData = project.getAudioData();
-        const int totalFrames = audioData.getNumFrames();
-        ensureCurveSizes(audioData, totalFrames);
+        auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
+        ensureCurveSizes(editedData, totalFrames);
 
         const int clampedStart = std::max(0, startFrame);
         const int clampedEnd = std::min(totalFrames, endFrame);
         if (clampedEnd <= clampedStart)
             return;
 
-        std::fill(audioData.voicingCurve.begin() + clampedStart,
-                  audioData.voicingCurve.begin() + clampedEnd, kDefaultVoicing);
-        std::fill(audioData.breathCurve.begin() + clampedStart,
-                  audioData.breathCurve.begin() + clampedEnd, kDefaultBreath);
-        std::fill(audioData.tensionCurve.begin() + clampedStart,
-                  audioData.tensionCurve.begin() + clampedEnd, kDefaultTension);
+        std::fill(editedData.voicingCurve.begin() + clampedStart,
+                  editedData.voicingCurve.begin() + clampedEnd, kDefaultVoicing);
+        std::fill(editedData.breathCurve.begin() + clampedStart,
+                  editedData.breathCurve.begin() + clampedEnd, kDefaultBreath);
+        std::fill(editedData.tensionCurve.begin() + clampedStart,
+                  editedData.tensionCurve.begin() + clampedEnd, kDefaultTension);
 
         for (const auto& note : project.getNotes())
         {
@@ -229,34 +217,32 @@ namespace HNSepCurveProcessor
                 continue;
 
             const auto voicing = fitCurveToLength(note.getVoicingCurve(),
-                                                  noteLength, kDefaultVoicing);
+                                                   noteLength, kDefaultVoicing);
             const auto breath = fitCurveToLength(note.getBreathCurve(),
-                                                 noteLength, kDefaultBreath);
+                                                  noteLength, kDefaultBreath);
             const auto tension = fitCurveToLength(note.getTensionCurve(),
-                                                  noteLength, kDefaultTension);
+                                                   noteLength, kDefaultTension);
 
             for (int frame = overlapStart; frame < overlapEnd; ++frame)
             {
                 const int localFrame = frame - note.getStartFrame();
-                audioData.voicingCurve[static_cast<size_t>(frame)] =
+                editedData.voicingCurve[static_cast<size_t>(frame)] =
                     voicing[static_cast<size_t>(localFrame)];
-                audioData.breathCurve[static_cast<size_t>(frame)] =
+                editedData.breathCurve[static_cast<size_t>(frame)] =
                     breath[static_cast<size_t>(localFrame)];
-                audioData.tensionCurve[static_cast<size_t>(frame)] =
+                editedData.tensionCurve[static_cast<size_t>(frame)] =
                     tension[static_cast<size_t>(localFrame)];
             }
         }
-
-        syncHNSepToEditedData(project);
 
         project.notifyListeners(ProjectChangeType::NoteCurveChanged, -1, startFrame, endFrame);
     }
 
     void extractNoteCurvesFromMaster(Project& project)
     {
-        auto& audioData = project.getAudioData();
-        const int totalFrames = audioData.getNumFrames();
-        ensureCurveSizes(audioData, totalFrames);
+        auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
+        ensureCurveSizes(editedData, totalFrames);
 
         for (auto& note : project.getNotes())
         {
@@ -270,27 +256,25 @@ namespace HNSepCurveProcessor
                 continue;
 
             note.setVoicingCurve(std::vector<float>(
-                audioData.voicingCurve.begin() + startFrame,
-                audioData.voicingCurve.begin() + endFrame));
+                editedData.voicingCurve.begin() + startFrame,
+                editedData.voicingCurve.begin() + endFrame));
             note.setBreathCurve(std::vector<float>(
-                audioData.breathCurve.begin() + startFrame,
-                audioData.breathCurve.begin() + endFrame));
+                editedData.breathCurve.begin() + startFrame,
+                editedData.breathCurve.begin() + endFrame));
             note.setTensionCurve(std::vector<float>(
-                audioData.tensionCurve.begin() + startFrame,
-                audioData.tensionCurve.begin() + endFrame));
+                editedData.tensionCurve.begin() + startFrame,
+                editedData.tensionCurve.begin() + endFrame));
         }
-
-        syncHNSepToEditedData(project);
     }
 
     bool hasActiveEdits(const Project& project, int startFrame, int endFrame)
     {
-        const auto& audioData = project.getAudioData();
-        return curveDiffersFrom(audioData.voicingCurve, startFrame, endFrame,
+        const auto& editedData = project.getEditedData();
+        return curveDiffersFrom(editedData.voicingCurve, startFrame, endFrame,
                                 kDefaultVoicing) ||
-               curveDiffersFrom(audioData.breathCurve, startFrame, endFrame,
+               curveDiffersFrom(editedData.breathCurve, startFrame, endFrame,
                                 kDefaultBreath) ||
-               curveDiffersFrom(audioData.tensionCurve, startFrame, endFrame,
+               curveDiffersFrom(editedData.tensionCurve, startFrame, endFrame,
                                 kDefaultTension);
     }
 
@@ -342,6 +326,7 @@ namespace HNSepCurveProcessor
     void recomputeMelForRange(Project& project, int startFrame, int endFrame)
     {
         auto& audioData = project.getAudioData();
+        const auto& editedData = project.getEditedData();
         if (audioData.melSpectrogram.empty())
             return;
 
@@ -350,8 +335,8 @@ namespace HNSepCurveProcessor
             audioData.noiseWaveform.getNumSamples() > 0;
         if (!hasGlobalHNSep)
             return;
-        if (audioData.voicingCurve.empty() || audioData.breathCurve.empty() ||
-            audioData.tensionCurve.empty())
+        if (editedData.voicingCurve.empty() || editedData.breathCurve.empty() ||
+            editedData.tensionCurve.empty())
             return;
         if (!hasActiveEdits(project, startFrame, endFrame))
             return;
@@ -454,7 +439,5 @@ namespace HNSepCurveProcessor
                 }
             }
         }
-
-        syncHNSepToEditedData(project);
     }
 } // namespace HNSepCurveProcessor

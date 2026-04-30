@@ -56,10 +56,8 @@ IncrementalSynthesizer::computeResynthRange()
   // 4-5. Expand to VAD=0 boundaries
   const auto& vadMask = project->getEditedData().vadMask;
 
-  // If editedData.vadMask is empty, fall back to audioData.vadMask
-  const auto& effectiveVadMask = vadMask.empty()
-      ? project->getAudioData().vadMask
-      : vadMask;
+  // If editedData.vadMask is empty, fall back to empty
+  const auto& effectiveVadMask = vadMask;
   const int effectiveTotal = static_cast<int>(effectiveVadMask.size());
 
   if (effectiveTotal == 0)
@@ -127,8 +125,8 @@ IncrementalSynthesizer::computeSynthesisRange(int dirtyStart, int dirtyEnd) {
   if (!project)
     return {dirtyStart, dirtyEnd};
 
-  auto &voicedMask = project->getAudioData().voicedMask;
-  auto &vadMask = project->getAudioData().vadMask;
+  auto &voicedMask = project->getEditedData().voicedMask;
+  auto &vadMask = project->getEditedData().vadMask;
   const int totalFrames = static_cast<int>(voicedMask.size());
   const int totalVadFrames = static_cast<int>(vadMask.size());
   if (totalFrames == 0)
@@ -240,7 +238,7 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
   }
 
   auto &audioData = project->getAudioData();
-  if (audioData.melSpectrogram.empty() || audioData.f0.empty()) {
+  if (audioData.melSpectrogram.empty() || project->getEditedData().f0.empty()) {
     if (onComplete)
       onComplete(false);
     return;
@@ -328,11 +326,11 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
   // If curve edits need mel update, recompute mel in global melSpectrogram
   const bool hasGlobalHNSep = audioData.harmonicWaveform.getNumSamples() > 0 &&
-                              audioData.noiseWaveform.getNumSamples() > 0;
+                               audioData.noiseWaveform.getNumSamples() > 0;
   if (hasGlobalHNSep &&
-      !audioData.voicingCurve.empty() &&
-      !audioData.breathCurve.empty() &&
-      !audioData.tensionCurve.empty() &&
+      !project->getEditedData().voicingCurve.empty() &&
+      !project->getEditedData().breathCurve.empty() &&
+      !project->getEditedData().tensionCurve.empty() &&
       HNSepCurveProcessor::hasActiveEdits(*project, startFrame, endFrame))
   {
     HNSepCurveProcessor::recomputeMelForRange(*project, startFrame, endFrame);

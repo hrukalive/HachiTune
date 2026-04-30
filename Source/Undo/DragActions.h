@@ -81,9 +81,9 @@ public:
 
   void undo() override
   {
-    auto& audioData = project.getAudioData();
-    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, beforeF0);
-    SnapshotHelper::restoreFloatRange(audioData.basePitch, startFrame, beforeBasePitch);
+    auto& editedData = project.getEditedData();
+    SnapshotHelper::restoreFloatRange(editedData.f0, startFrame, beforeF0);
+    SnapshotHelper::restoreFloatRange(editedData.basePitch, startFrame, beforeBasePitch);
     auto& notes = project.getNotes();
     if (noteIndex >= 0 && noteIndex < static_cast<int>(notes.size()))
     {
@@ -98,9 +98,9 @@ public:
 
   void redo() override
   {
-    auto& audioData = project.getAudioData();
-    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, afterF0);
-    SnapshotHelper::restoreFloatRange(audioData.basePitch, startFrame, afterBasePitch);
+    auto& editedData = project.getEditedData();
+    SnapshotHelper::restoreFloatRange(editedData.f0, startFrame, afterF0);
+    SnapshotHelper::restoreFloatRange(editedData.basePitch, startFrame, afterBasePitch);
     auto& notes = project.getNotes();
     if (noteIndex >= 0 && noteIndex < static_cast<int>(notes.size()))
     {
@@ -154,9 +154,9 @@ public:
 
   void undo() override
   {
-    auto& audioData = project.getAudioData();
-    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, beforeF0);
-    SnapshotHelper::restoreFloatRange(audioData.basePitch, startFrame, beforeBasePitch);
+    auto& editedData = project.getEditedData();
+    SnapshotHelper::restoreFloatRange(editedData.f0, startFrame, beforeF0);
+    SnapshotHelper::restoreFloatRange(editedData.basePitch, startFrame, beforeBasePitch);
     auto& notes = project.getNotes();
     for (size_t i = 0; i < noteIndices.size() && i < oldMidis.size(); ++i)
     {
@@ -175,9 +175,9 @@ public:
 
   void redo() override
   {
-    auto& audioData = project.getAudioData();
-    SnapshotHelper::restoreFloatRange(audioData.f0, startFrame, afterF0);
-    SnapshotHelper::restoreFloatRange(audioData.basePitch, startFrame, afterBasePitch);
+    auto& editedData = project.getEditedData();
+    SnapshotHelper::restoreFloatRange(editedData.f0, startFrame, afterF0);
+    SnapshotHelper::restoreFloatRange(editedData.basePitch, startFrame, afterBasePitch);
     auto& notes = project.getNotes();
     for (size_t i = 0; i < noteIndices.size() && i < oldMidis.size(); ++i)
     {

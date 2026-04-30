@@ -18,15 +18,15 @@ namespace
         return freqToMidi(freq);
     }
 
-    void ensureSizes(AudioData& audioData, int totalFrames)
+    void ensureSizes(EditedData& editedData, int totalFrames)
     {
         if (totalFrames <= 0)
             return;
 
-        if (audioData.basePitch.size() != static_cast<size_t>(totalFrames))
-            audioData.basePitch.assign(static_cast<size_t>(totalFrames), 0.0f);
-        if (audioData.deltaPitch.size() != static_cast<size_t>(totalFrames))
-            audioData.deltaPitch.assign(static_cast<size_t>(totalFrames), 0.0f);
+        if (editedData.basePitch.size() != static_cast<size_t>(totalFrames))
+            editedData.basePitch.assign(static_cast<size_t>(totalFrames), 0.0f);
+        if (editedData.deltaPitch.size() != static_cast<size_t>(totalFrames))
+            editedData.deltaPitch.assign(static_cast<size_t>(totalFrames), 0.0f);
     }
 
     std::vector<float> getNoteSourceDelta(const Note& note)
@@ -429,30 +429,18 @@ namespace
     void applyBoundarySmoothing(Project& project,
                                 const std::vector<float>& rawDelta)
     {
-        auto& audioData = project.getAudioData();
-        const int totalFrames = audioData.getNumFrames();
+        auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
         if (totalFrames <= 0 ||
             static_cast<int>(rawDelta.size()) != totalFrames)
         {
             return;
         }
 
-        // Preserve hand-drawn delta values before overwriting.
-        // Frames with f0EditedMask==true were drawn by the user and must
-        // not be overwritten by the note-tool rebuild pipeline.
-        const bool hasEditedFrames =
-            !audioData.f0EditedMask.empty() &&
-            static_cast<int>(audioData.f0EditedMask.size()) >= totalFrames;
-        std::vector<float> savedDrawnDelta;
-        if (hasEditedFrames)
-        {
-            savedDrawnDelta = audioData.deltaPitch;
-        }
-
-        audioData.deltaPitch = rawDelta;
+        editedData.deltaPitch = rawDelta;
 
         const auto segments = buildBoundarySmoothingSegments(
-            project, audioData.basePitch);
+            project, editedData.basePitch);
         if (!segments.empty())
         {
             std::vector<float> idealDeltaSum(static_cast<size_t>(totalFrames), 0.0f);
@@ -465,7 +453,7 @@ namespace
                     const int frame = segment.frames[i];
                     const float idealDelta =
                         segment.idealMidiValues[i] -
-                        audioData.basePitch[static_cast<size_t>(frame)];
+                        editedData.basePitch[static_cast<size_t>(frame)];
                     const float weight = segment.weights[i];
                     idealDeltaSum[static_cast<size_t>(frame)] +=
                         idealDelta * weight;
@@ -482,24 +470,10 @@ namespace
                 const float idealDelta =
                     idealDeltaSum[static_cast<size_t>(frame)] / weight;
                 const float blend = std::min(weight, 1.0f);
-                audioData.deltaPitch[static_cast<size_t>(frame)] =
+                editedData.deltaPitch[static_cast<size_t>(frame)] =
                     lerp(rawDelta[static_cast<size_t>(frame)],
                          idealDelta,
                          blend);
-            }
-        }
-
-        // Restore hand-drawn frames so they survive the rebuild.
-        if (hasEditedFrames &&
-            static_cast<int>(savedDrawnDelta.size()) >= totalFrames)
-        {
-            for (int frame = 0; frame < totalFrames; ++frame)
-            {
-                if (audioData.f0EditedMask[static_cast<size_t>(frame)])
-                {
-                    audioData.deltaPitch[static_cast<size_t>(frame)] =
-                        savedDrawnDelta[static_cast<size_t>(frame)];
-                }
             }
         }
     }
@@ -606,16 +580,16 @@ namespace PitchCurveProcessor
     std::vector<SmoothingDebugSegment> collectIdealSmoothingDebugSegments(
         const Project& project)
     {
-        const auto& audioData = project.getAudioData();
-        const int totalFrames = audioData.getNumFrames();
+        const auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
         if (totalFrames <= 0 ||
-            static_cast<int>(audioData.basePitch.size()) != totalFrames)
+            static_cast<int>(editedData.basePitch.size()) != totalFrames)
         {
             return {};
         }
 
         const auto segments = buildBoundarySmoothingSegments(
-            project, audioData.basePitch);
+            project, editedData.basePitch);
 
         std::vector<SmoothingDebugSegment> debugSegments;
         debugSegments.reserve(segments.size());
@@ -715,40 +689,40 @@ namespace PitchCurveProcessor
     void rebuildCurvesFromSource(Project& project,
                                  const std::vector<float>& sourcePitchHz)
     {
-        auto& audioData = project.getAudioData();
+        auto& editedData = project.getEditedData();
         const int totalFrames = static_cast<int>(sourcePitchHz.size());
-        ensureSizes(audioData, totalFrames);
+        ensureSizes(editedData, totalFrames);
 
         // Ensure delta is built from a dense F0 source that includes UV
         // head/tail fill (same behavior expectation as F0 interpolation).
         std::vector<float> denseSource = sourcePitchHz;
-        if (!audioData.voicedMask.empty() &&
-            audioData.voicedMask.size() == sourcePitchHz.size())
+        if (!editedData.voicedMask.empty() &&
+            editedData.voicedMask.size() == sourcePitchHz.size())
         {
-            denseSource = interpolateWithUvMask(sourcePitchHz, audioData.voicedMask);
+            denseSource = interpolateWithUvMask(sourcePitchHz, editedData.voicedMask);
         }
 
         auto segments = collectNoteSegments(project.getNotes());
         if (!segments.empty())
         {
-            audioData.basePitch = BasePitchCurve::generateForNotes(segments, totalFrames);
+            editedData.basePitch = BasePitchCurve::generateForNotes(segments, totalFrames);
         }
 
-        if (audioData.basePitch.size() != static_cast<size_t>(totalFrames))
+        if (editedData.basePitch.size() != static_cast<size_t>(totalFrames))
         {
             // Fallback: derive base from source pitch directly
-            audioData.basePitch.assign(static_cast<size_t>(totalFrames), 0.0f);
+            editedData.basePitch.assign(static_cast<size_t>(totalFrames), 0.0f);
             for (int i = 0; i < totalFrames; ++i)
-                audioData.basePitch[static_cast<size_t>(i)] = safeFreqToMidi(denseSource[i]);
+                editedData.basePitch[static_cast<size_t>(i)] = safeFreqToMidi(denseSource[i]);
         }
 
         // Dense delta: midi(source) - base
-        audioData.deltaPitch.assign(static_cast<size_t>(totalFrames), 0.0f);
+        editedData.deltaPitch.assign(static_cast<size_t>(totalFrames), 0.0f);
         for (int i = 0; i < totalFrames; ++i)
         {
-            const float base = audioData.basePitch[static_cast<size_t>(i)];
+            const float base = editedData.basePitch[static_cast<size_t>(i)];
             const float midi = safeFreqToMidi(denseSource[i]);
-            audioData.deltaPitch[static_cast<size_t>(i)] = midi - base;
+            editedData.deltaPitch[static_cast<size_t>(i)] = midi - base;
         }
 
         // Initialize originalDeltaPitch in each note from computed deltaPitch.
@@ -774,7 +748,7 @@ namespace PitchCurveProcessor
             {
                 const int globalIdx = startFrame + i;
                 if (globalIdx >= 0 && globalIdx < totalFrames)
-                    outDelta[static_cast<size_t>(i)] = audioData.deltaPitch[static_cast<size_t>(globalIdx)];
+                    outDelta[static_cast<size_t>(i)] = editedData.deltaPitch[static_cast<size_t>(globalIdx)];
             }
 
             // Resample to source duration if the note is stretched
@@ -790,39 +764,29 @@ namespace PitchCurveProcessor
             }
         }
 
-        // Cache base F0 (Hz) for backwards compatibility
-        audioData.baseF0.resize(static_cast<size_t>(totalFrames));
-        for (int i = 0; i < totalFrames; ++i)
-            audioData.baseF0[static_cast<size_t>(i)] = midiToFreq(audioData.basePitch[static_cast<size_t>(i)]);
-
         composeF0InPlace(project, /*applyUvMask=*/false);
     }
 
     void rebuildBaseFromNotes(Project& project)
     {
-        auto& audioData = project.getAudioData();
-        const int totalFrames = audioData.getNumFrames();
-        ensureSizes(audioData, totalFrames);
+        auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
+        ensureSizes(editedData, totalFrames);
 
         auto segments = collectNoteSegments(project.getNotes());
         if (!segments.empty())
         {
-            audioData.basePitch = BasePitchCurve::generateForNotes(segments, totalFrames);
+            editedData.basePitch = BasePitchCurve::generateForNotes(segments, totalFrames);
         }
 
-        if (audioData.basePitch.size() != static_cast<size_t>(totalFrames))
+        if (editedData.basePitch.size() != static_cast<size_t>(totalFrames))
         {
-            audioData.basePitch.assign(static_cast<size_t>(totalFrames), 0.0f);
+            editedData.basePitch.assign(static_cast<size_t>(totalFrames), 0.0f);
         }
 
         const auto rawDelta = composeRawDeltaFromNotes(
-            project, audioData.basePitch, totalFrames);
+            project, editedData.basePitch, totalFrames);
         applyBoundarySmoothing(project, rawDelta);
-
-        // Update cached baseF0
-        audioData.baseF0.resize(static_cast<size_t>(totalFrames));
-        for (int i = 0; i < totalFrames; ++i)
-            audioData.baseF0[static_cast<size_t>(i)] = midiToFreq(audioData.basePitch[static_cast<size_t>(i)]);
 
         composeF0InPlace(project, /*applyUvMask=*/false);
 
@@ -867,19 +831,19 @@ namespace PitchCurveProcessor
                                  bool applyUvMask,
                                  float globalPitchOffset)
     {
-        const auto& audioData = project.getAudioData();
-        const int totalFrames = static_cast<int>(audioData.basePitch.size());
+        const auto& editedData = project.getEditedData();
+        const int totalFrames = static_cast<int>(editedData.basePitch.size());
         std::vector<float> result(static_cast<size_t>(totalFrames), 0.0f);
 
         for (int i = 0; i < totalFrames; ++i)
         {
-            bool isVoiced = (i < static_cast<int>(audioData.voicedMask.size())) ? audioData.voicedMask[i] : true;
+            bool isVoiced = (i < static_cast<int>(editedData.voicedMask.size())) ? editedData.voicedMask[i] : true;
             if (applyUvMask && !isVoiced)
                 continue;
 
-            const float base = audioData.basePitch[static_cast<size_t>(i)];
-            const float delta = (i < static_cast<int>(audioData.deltaPitch.size()))
-                                    ? audioData.deltaPitch[static_cast<size_t>(i)]
+            const float base = editedData.basePitch[static_cast<size_t>(i)];
+            const float delta = (i < static_cast<int>(editedData.deltaPitch.size()))
+                                    ? editedData.deltaPitch[static_cast<size_t>(i)]
                                     : 0.0f;
             const float midi = base + delta + globalPitchOffset;
             result[static_cast<size_t>(i)] = midiToFreq(midi);
@@ -893,14 +857,8 @@ namespace PitchCurveProcessor
                           float globalPitchOffset)
     {
         auto composed = composeF0(project, applyUvMask, globalPitchOffset);
-        auto& audioData = project.getAudioData();
-        audioData.f0 = std::move(composed);
-
-        // Sync pitch data to EditedData
-        auto& ed = project.getEditedData();
-        ed.basePitch = audioData.basePitch;
-        ed.deltaPitch = audioData.deltaPitch;
-        ed.f0 = audioData.f0;
+        auto& editedData = project.getEditedData();
+        editedData.f0 = std::move(composed);
 
         project.notifyListeners(ProjectChangeType::EditedDataChanged);
     }

@@ -46,7 +46,7 @@ void refreshDirtyRanges(Project* project)
   const auto dirtyRange = project->getDirtyFrameRange();
   if (dirtyRange.first >= 0 && dirtyRange.second > dirtyRange.first)
   {
-    const int f0Size = static_cast<int>(project->getAudioData().f0.size());
+    const int f0Size = static_cast<int>(project->getEditedData().f0.size());
     project->setF0DirtyRange(std::max(0, dirtyRange.first - 60),
                              std::min(f0Size, dirtyRange.second + 60));
     project->setParamDirtyRange(dirtyRange.first, dirtyRange.second);

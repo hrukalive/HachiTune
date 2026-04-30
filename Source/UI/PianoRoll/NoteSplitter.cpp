@@ -83,7 +83,7 @@ void refreshProjectAfterSplit(Project* project,
 
     if (dirtyEndFrame > dirtyStartFrame)
     {
-        const int f0Size = static_cast<int>(project->getAudioData().f0.size());
+        const int f0Size = static_cast<int>(project->getEditedData().f0.size());
         if (f0Size > 0)
         {
             const int smoothStart = std::max(0, dirtyStartFrame - 60);

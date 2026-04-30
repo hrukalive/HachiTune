@@ -215,19 +215,6 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
         // New format
         analysisDataFromJson(project.getAnalysisData(), analysisDataVar);
         editedDataFromJson(project.getEditedData(), editedDataVar);
-
-        // Sync to AudioData for backward compat with existing code paths
-        auto& ad = project.getAudioData();
-        const auto& ed = project.getEditedData();
-        ad.f0 = ed.f0;
-        ad.baseF0 = ed.f0;
-        ad.basePitch = ed.basePitch;
-        ad.deltaPitch = ed.deltaPitch;
-        ad.voicingCurve = ed.voicingCurve;
-        ad.breathCurve = ed.breathCurve;
-        ad.tensionCurve = ed.tensionCurve;
-        ad.voicedMask = ed.voicedMask;
-        ad.vadMask = ed.vadMask;
     }
     else
     {
@@ -241,8 +228,9 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
     }
 
     // Rebuild curves if needed
-    if (!audioData.f0.empty() && (audioData.basePitch.empty() || audioData.deltaPitch.empty())) {
-        PitchCurveProcessor::rebuildCurvesFromSource(project, audioData.f0);
+    auto& editedData2 = project.getEditedData();
+    if (!editedData2.f0.empty() && (editedData2.basePitch.empty() || editedData2.deltaPitch.empty())) {
+        PitchCurveProcessor::rebuildCurvesFromSource(project, editedData2.f0);
     }
 
     // Ensure every note has originalDeltaPitch populated.
@@ -258,7 +246,7 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
     // extract from the note's output region then resample back to the
     // source length when the note is stretched.
     {
-        const int totalFrames = static_cast<int>(audioData.deltaPitch.size());
+        const int totalFrames = static_cast<int>(editedData2.deltaPitch.size());
         for (auto& note : project.getNotes())
         {
             if (note.isRest() || note.hasOriginalDeltaPitch())
@@ -277,7 +265,7 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
             {
                 const int globalIdx = outStart + i;
                 if (globalIdx >= 0 && globalIdx < totalFrames)
-                    outDelta[static_cast<size_t>(i)] = audioData.deltaPitch[static_cast<size_t>(globalIdx)];
+                    outDelta[static_cast<size_t>(i)] = editedData2.deltaPitch[static_cast<size_t>(globalIdx)];
             }
 
             // originalDeltaPitch should represent the source-length curve.
@@ -296,9 +284,9 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
     }
 
     const bool hasMasterHNSep =
-        !audioData.voicingCurve.empty() ||
-        !audioData.breathCurve.empty() ||
-        !audioData.tensionCurve.empty();
+        !editedData2.voicingCurve.empty() ||
+        !editedData2.breathCurve.empty() ||
+        !editedData2.tensionCurve.empty();
     const bool hasNoteHNSep = std::any_of(project.getNotes().begin(),
                                           project.getNotes().end(),
                                           [](const Note& note)
@@ -336,8 +324,10 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
     vibrato->setProperty("depthSemitones", note.getVibratoDepthSemitones());
     vibrato->setProperty("phaseRadians", note.getVibratoPhaseRadians());
     vibrato->setProperty("mix", note.getVibratoMix());
-    vibrato->setProperty("fadeInMs", note.getVibratoFadeInMs());
-    vibrato->setProperty("fadeOutMs", note.getVibratoFadeOutMs());
+    vibrato->setProperty("startFrame", note.getVibratoStartFrame());
+    vibrato->setProperty("lengthFrames", note.getVibratoLengthFrames());
+    vibrato->setProperty("fadeInFrames", note.getVibratoFadeInFrames());
+    vibrato->setProperty("fadeOutFrames", note.getVibratoFadeOutFrames());
     obj->setProperty("vibrato", juce::var(vibrato));
 
     // Lyric/Phoneme
@@ -398,8 +388,10 @@ bool ProjectSerializer::noteFromJson(Note& note, const juce::var& json) {
         note.setVibratoDepthSemitones(static_cast<float>(vibratoVar.getProperty("depthSemitones", 0.0)));
         note.setVibratoPhaseRadians(static_cast<float>(vibratoVar.getProperty("phaseRadians", 0.0)));
         note.setVibratoMix(static_cast<float>(vibratoVar.getProperty("mix", 0.0)));
-        note.setVibratoFadeInMs(static_cast<float>(vibratoVar.getProperty("fadeInMs", 0.0)));
-        note.setVibratoFadeOutMs(static_cast<float>(vibratoVar.getProperty("fadeOutMs", 0.0)));
+        note.setVibratoStartFrame(static_cast<int>(vibratoVar.getProperty("startFrame", 0)));
+        note.setVibratoLengthFrames(static_cast<int>(vibratoVar.getProperty("lengthFrames", 0)));
+        note.setVibratoFadeInFrames(static_cast<int>(vibratoVar.getProperty("fadeInFrames", 0)));
+        note.setVibratoFadeOutFrames(static_cast<int>(vibratoVar.getProperty("fadeOutFrames", 0)));
     }
 
     // Lyric/Phoneme
@@ -552,17 +544,7 @@ bool ProjectSerializer::legacyPitchDataFromJson(AudioData& audioData,
     editedData.voicedMask = stringToBoolArray(json.getProperty("voicedMask", "").toString());
     editedData.vadMask = stringToBoolArray(json.getProperty("vadMask", "").toString());
 
-    // Also populate AudioData for backward compat with existing code paths
-    audioData.f0 = editedData.f0;
-    audioData.baseF0 = editedData.f0;
-    audioData.basePitch = editedData.basePitch;
-    audioData.deltaPitch = editedData.deltaPitch;
-    audioData.voicingCurve = editedData.voicingCurve;
-    audioData.breathCurve = editedData.breathCurve;
-    audioData.tensionCurve = editedData.tensionCurve;
-    audioData.voicedMask = editedData.voicedMask;
-    audioData.vadMask = editedData.vadMask;
-    audioData.f0EditedMask = stringToBoolArray(json.getProperty("f0EditedMask", "").toString());
+    // Legacy audioData fields removed — data now lives only in editedData
 
     // For legacy files, analysis data = initial edited data (best we can do)
     analysisData.originalF0 = editedData.f0;

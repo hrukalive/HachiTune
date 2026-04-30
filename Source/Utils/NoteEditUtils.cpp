@@ -69,25 +69,11 @@ void resetNoteToOriginal(Project& project, Note& note)
   // 4. Clear working deltaPitch so rebuild picks up from restored originalDeltaPitch
   note.setDeltaPitch({});
 
-  // 5. Clear f0EditedMask for this note's frame range
-  auto& audioData = project.getAudioData();
-  if (!audioData.f0EditedMask.empty())
-  {
-    for (int i = startFrame;
-         i < endFrame &&
-         i < static_cast<int>(audioData.f0EditedMask.size());
-         ++i)
-    {
-      if (i >= 0)
-        audioData.f0EditedMask[static_cast<size_t>(i)] = false;
-    }
-  }
-
-  // 6. Mark dirty for resynthesis
+  // 5. Mark dirty for resynthesis
   note.markDirty();
   note.markSynthDirty();
 
-  // 7. Rebuild global pitch curves from notes
+  // 6. Rebuild global pitch curves from notes
   PitchCurveProcessor::rebuildBaseFromNotes(project);
 }
 

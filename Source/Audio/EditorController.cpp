@@ -113,10 +113,10 @@ bool EditorController::runHNSepSeparation(Project &proj)
 
     // Cache STFT of harmonic and noise for TensionProcessor
     {
-      TensionProcessor tempProc;
       const int hopSize = 512;
       const int fftSize = 2048;
       const int fftBin = fftSize / 2 + 1;
+      juce::dsp::FFT stftFFT(11); // log2(2048) = 11
 
       auto computeSTFT = [&](const juce::AudioBuffer<float>& buffer) -> std::vector<float> {
         if (buffer.getNumSamples() == 0)
@@ -132,28 +132,27 @@ bool EditorController::runHNSepSeparation(Project &proj)
               static_cast<float>(0.5 * (1.0 - std::cos(twoPi * n / fftSize)));
 
         std::vector<float> stft(static_cast<size_t>(numSTFTFrames * fftBin * 2), 0.0f);
-        std::vector<float> frame(static_cast<size_t>(fftSize), 0.0f);
-        std::vector<float> fftReal(static_cast<size_t>(fftBin));
-        std::vector<float> fftImag(static_cast<size_t>(fftBin));
+        std::vector<float> fftBuf(static_cast<size_t>(fftSize * 2), 0.0f);
 
         for (int f = 0; f < numSTFTFrames; ++f)
         {
           const int center = f * hopSize;
           const int frameStart = center - fftSize / 2;
+          std::fill(fftBuf.begin(), fftBuf.end(), 0.0f);
           for (int n = 0; n < fftSize; ++n)
           {
             const int idx = frameStart + n;
             float sample = (idx >= 0 && idx < nSamples) ? data[idx] : 0.0f;
-            frame[static_cast<size_t>(n)] = sample * hannWin[static_cast<size_t>(n)];
+            fftBuf[static_cast<size_t>(n)] = sample * hannWin[static_cast<size_t>(n)];
           }
 
-          tempProc.forwardFFT(frame.data(), fftReal.data(), fftImag.data());
+          stftFFT.performRealOnlyForwardTransform(fftBuf.data());
 
           const int offset = f * fftBin * 2;
           for (int k = 0; k < fftBin; ++k)
           {
-            stft[static_cast<size_t>(offset + k * 2)] = fftReal[static_cast<size_t>(k)];
-            stft[static_cast<size_t>(offset + k * 2 + 1)] = fftImag[static_cast<size_t>(k)];
+            stft[static_cast<size_t>(offset + k * 2)] = fftBuf[static_cast<size_t>(k * 2)];
+            stft[static_cast<size_t>(offset + k * 2 + 1)] = fftBuf[static_cast<size_t>(k * 2 + 1)];
           }
         }
         return stft;
@@ -604,8 +603,8 @@ void EditorController::renderProcessedAudioAsync(
   isRenderingFlag = false;
   cancelRenderFlag = false;
 
-  auto f0Snapshot = project.getAudioData().f0;
-  auto voicedMaskSnapshot = project.getAudioData().voicedMask;
+  auto f0Snapshot = project.getEditedData().f0;
+  auto voicedMaskSnapshot = project.getEditedData().voicedMask;
   auto melSpecSnapshot = project.getAudioData().melSpectrogram;
   Vocoder *voc = vocoder.get();
 
@@ -682,7 +681,7 @@ void EditorController::resynthesizeIncrementalAsync(
   }
 
   auto &audioData = project.getAudioData();
-  if (audioData.melSpectrogram.empty() || audioData.f0.empty())
+  if (audioData.melSpectrogram.empty() || project.getEditedData().f0.empty())
   {
     if (onComplete)
       onComplete(false);
@@ -779,6 +778,7 @@ void EditorController::analyzeAudio(
     std::function<void()> onComplete)
 {
   auto &audioData = targetProject.getAudioData();
+  auto &editedData = targetProject.getEditedData();
   if (audioData.waveform.getNumSamples() == 0)
     return;
 
@@ -885,7 +885,7 @@ void EditorController::analyzeAudio(
   }
 
   {
-    audioData.f0.resize(targetFrames);
+    editedData.f0.resize(targetFrames);
 
     const double neuralFrameTime = 160.0 / 16000.0;
     const double vocoderFrameTime =
@@ -909,35 +909,35 @@ void EditorController::analyzeAudio(
           float logF0_a = std::log(f0_a);
           float logF0_b = std::log(f0_b);
           float logF0_interp = logF0_a * (1.0 - frac) + logF0_b * frac;
-          audioData.f0[i] = std::exp(logF0_interp);
+          editedData.f0[i] = std::exp(logF0_interp);
         }
         else if (f0_a > 0.0f)
         {
-          audioData.f0[i] = f0_a;
+          editedData.f0[i] = f0_a;
         }
         else if (f0_b > 0.0f)
         {
-          audioData.f0[i] = f0_b;
+          editedData.f0[i] = f0_b;
         }
         else
         {
-          audioData.f0[i] = 0.0f;
+          editedData.f0[i] = 0.0f;
         }
       }
       else if (srcIdx < static_cast<int>(extractedF0.size()))
       {
-        audioData.f0[i] = extractedF0[srcIdx];
+        editedData.f0[i] = extractedF0[srcIdx];
       }
       else
       {
-        audioData.f0[i] = extractedF0.back() > 0.0f ? extractedF0.back() : 0.0f;
+        editedData.f0[i] = extractedF0.back() > 0.0f ? extractedF0.back() : 0.0f;
       }
     }
 
-    audioData.voicedMask.resize(audioData.f0.size());
-    for (size_t i = 0; i < audioData.f0.size(); ++i)
+    editedData.voicedMask.resize(editedData.f0.size());
+    for (size_t i = 0; i < editedData.f0.size(); ++i)
     {
-      audioData.voicedMask[i] = audioData.f0[i] > 0;
+      editedData.voicedMask[i] = editedData.f0[i] > 0;
     }
 
     // Compute energy-based VAD mask (captures consonants)
@@ -945,29 +945,29 @@ void EditorController::analyzeAudio(
       constexpr float kVadThreshold = 0.008f;
       const float *vadSamples = audioData.waveform.getReadPointer(0);
       const int vadNumSamples = audioData.waveform.getNumSamples();
-      const int vadNumFrames = static_cast<int>(audioData.f0.size());
-      audioData.vadMask.resize(vadNumFrames);
+      const int vadNumFrames = static_cast<int>(editedData.f0.size());
+      editedData.vadMask.resize(vadNumFrames);
       for (int vi = 0; vi < vadNumFrames; ++vi)
       {
         int ss = vi * HOP_SIZE;
         int se = std::min(ss + HOP_SIZE, vadNumSamples);
         if (ss >= vadNumSamples)
         {
-          audioData.vadMask[vi] = false;
+          editedData.vadMask[vi] = false;
           continue;
         }
         float sumSq = 0.0f;
         for (int vj = ss; vj < se; ++vj)
           sumSq += vadSamples[vj] * vadSamples[vj];
         float rms = std::sqrt(sumSq / static_cast<float>(se - ss));
-        audioData.vadMask[vi] = rms > kVadThreshold;
+        editedData.vadMask[vi] = rms > kVadThreshold;
       }
     }
 
     onProgress(0.65, TR("progress.smoothing_pitch"));
-    audioData.f0 = F0Smoother::smoothF0(audioData.f0, audioData.voicedMask);
-    audioData.f0 = PitchCurveProcessor::interpolateWithUvMask(
-        audioData.f0, audioData.voicedMask);
+    editedData.f0 = F0Smoother::smoothF0(editedData.f0, editedData.voicedMask);
+    editedData.f0 = PitchCurveProcessor::interpolateWithUvMask(
+        editedData.f0, editedData.voicedMask);
   }
 
   // -----------------------------------------------------------------------
@@ -1048,16 +1048,16 @@ void EditorController::analyzeAudio(
   onProgress(0.90, TR("progress.segmenting_notes"));
   segmentIntoNotes(targetProject);
 
-  PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
+  PitchCurveProcessor::rebuildCurvesFromSource(targetProject, editedData.f0);
   HNSepCurveProcessor::initializeCurves(targetProject);
 
   // Populate AnalysisData (immutable copy of initial analysis)
   auto& analysis = targetProject.getAnalysisData();
-  analysis.originalF0 = audioData.f0;
-  analysis.originalPitch = audioData.basePitch;
-  analysis.originalDeltaPitch = audioData.deltaPitch;
-  analysis.originalVoicedMask = audioData.voicedMask;
-  analysis.originalVADMask = audioData.vadMask;
+  analysis.originalF0 = editedData.f0;
+  analysis.originalPitch = editedData.basePitch;
+  analysis.originalDeltaPitch = editedData.deltaPitch;
+  analysis.originalVoicedMask = editedData.voicedMask;
+  analysis.originalVADMask = editedData.vadMask;
   analysis.noteSegments.clear();
   for (const auto& note : targetProject.getNotes())
   {
@@ -1067,14 +1067,14 @@ void EditorController::analyzeAudio(
 
   // Initialize EditedData as copy of analysis
   auto& edited = targetProject.getEditedData();
-  edited.basePitch = audioData.basePitch;
-  edited.deltaPitch = audioData.deltaPitch;
-  edited.f0 = audioData.f0;
-  edited.voicedMask = audioData.voicedMask;
-  edited.vadMask = audioData.vadMask;
-  edited.voicingCurve = audioData.voicingCurve;
-  edited.breathCurve = audioData.breathCurve;
-  edited.tensionCurve = audioData.tensionCurve;
+  edited.basePitch = editedData.basePitch;
+  edited.deltaPitch = editedData.deltaPitch;
+  edited.f0 = editedData.f0;
+  edited.voicedMask = editedData.voicedMask;
+  edited.vadMask = editedData.vadMask;
+  edited.voicingCurve = editedData.voicingCurve;
+  edited.breathCurve = editedData.breathCurve;
+  edited.tensionCurve = editedData.tensionCurve;
 
   // Refresh note caches after segmentation
   targetProject.refreshNoteCaches();
@@ -1106,23 +1106,23 @@ void EditorController::analyzeAudioAsync(
 
       project->getAudioData().melSpectrogram =
           projectCopy->getAudioData().melSpectrogram;
-      project->getAudioData().f0 = projectCopy->getAudioData().f0;
-      project->getAudioData().voicedMask =
-          projectCopy->getAudioData().voicedMask;
-      project->getAudioData().vadMask =
-          projectCopy->getAudioData().vadMask;
+      project->getEditedData().f0 = projectCopy->getEditedData().f0;
+      project->getEditedData().voicedMask =
+          projectCopy->getEditedData().voicedMask;
+      project->getEditedData().vadMask =
+          projectCopy->getEditedData().vadMask;
       project->getAudioData().originalWaveform.makeCopyOf(
           projectCopy->getAudioData().originalWaveform);
-      project->getAudioData().basePitch =
-          projectCopy->getAudioData().basePitch;
-      project->getAudioData().deltaPitch =
-          projectCopy->getAudioData().deltaPitch;
-      project->getAudioData().voicingCurve =
-          projectCopy->getAudioData().voicingCurve;
-      project->getAudioData().breathCurve =
-          projectCopy->getAudioData().breathCurve;
-      project->getAudioData().tensionCurve =
-          projectCopy->getAudioData().tensionCurve;
+      project->getEditedData().basePitch =
+          projectCopy->getEditedData().basePitch;
+      project->getEditedData().deltaPitch =
+          projectCopy->getEditedData().deltaPitch;
+      project->getEditedData().voicingCurve =
+          projectCopy->getEditedData().voicingCurve;
+      project->getEditedData().breathCurve =
+          projectCopy->getEditedData().breathCurve;
+      project->getEditedData().tensionCurve =
+          projectCopy->getEditedData().tensionCurve;
       project->getAudioData().harmonicWaveform.makeCopyOf(
           projectCopy->getAudioData().harmonicWaveform);
       project->getAudioData().noiseWaveform.makeCopyOf(
@@ -1170,12 +1170,13 @@ void EditorController::segmentIntoNotes(Project &targetProject,
                                         std::function<void()> onStreamingUpdate)
 {
   auto &audioData = targetProject.getAudioData();
+  auto &editedData = targetProject.getEditedData();
   auto &notes = targetProject.getNotes();
   notes.clear();
   audioData.segmentChunkRanges.clear();
   audioData.segmentDebugChunks.clear();
 
-  if (audioData.f0.empty())
+  if (editedData.f0.empty())
     return;
 
   // -----------------------------------------------------------------------
@@ -1287,7 +1288,7 @@ void EditorController::segmentIntoNotes(Project &targetProject,
 
     const float *samples = audioData.waveform.getReadPointer(0);
     int numSamples = audioData.waveform.getNumSamples();
-    const int f0Size = static_cast<int>(audioData.f0.size());
+    const int f0Size = static_cast<int>(editedData.f0.size());
 
     auto gameNotes = gameDetector->detectNotesWithProgress(
         samples, numSamples, GAMEDetector::SAMPLE_RATE, nullptr);
@@ -1360,7 +1361,7 @@ void EditorController::segmentIntoNotes(Project &targetProject,
     // VAD + GAME rest-guided boundary refinement:
     // expand note heads/tails into energetic consonant regions so note lengths
     // better cover pre/post-consonants.
-    if (!notes.empty() && !audioData.vadMask.empty())
+    if (!notes.empty() && !editedData.vadMask.empty())
     {
       struct RestRange
       {
@@ -1382,16 +1383,16 @@ void EditorController::segmentIntoNotes(Project &targetProject,
 
       auto vadRatioInRange = [&](int s, int e) -> float
       {
-        if (e <= s || audioData.vadMask.empty())
+        if (e <= s || editedData.vadMask.empty())
           return 0.0f;
         s = std::max(0, s);
-        e = std::min(e, static_cast<int>(audioData.vadMask.size()));
+        e = std::min(e, static_cast<int>(editedData.vadMask.size()));
         if (e <= s)
           return 0.0f;
         int voiced = 0;
         for (int i = s; i < e; ++i)
         {
-          if (audioData.vadMask[static_cast<size_t>(i)])
+          if (editedData.vadMask[static_cast<size_t>(i)])
             ++voiced;
         }
         return static_cast<float>(voiced) / static_cast<float>(e - s);
@@ -1403,7 +1404,7 @@ void EditorController::segmentIntoNotes(Project &targetProject,
       constexpr int kMaxRestAttach = 18;       // max attached rest length
       constexpr float kVadAttachRatio = 0.30f; // energetic enough to attach
 
-      const int f0Size = static_cast<int>(audioData.f0.size());
+      const int f0Size = static_cast<int>(editedData.f0.size());
 
       for (size_t ni = 0; ni < notes.size(); ++ni)
       {
@@ -1416,7 +1417,7 @@ void EditorController::segmentIntoNotes(Project &targetProject,
         int prevEnd = 0;
         if (ni > 0)
           prevEnd = notes[ni - 1].getEndFrame();
-        int nextStart = static_cast<int>(audioData.vadMask.size());
+        int nextStart = static_cast<int>(editedData.vadMask.size());
         if (ni + 1 < notes.size())
           nextStart = notes[ni + 1].getStartFrame();
 
@@ -1425,8 +1426,8 @@ void EditorController::segmentIntoNotes(Project &targetProject,
         for (int i = start - 1; i >= std::max(prevEnd, start - kMaxHeadFrames);
              --i)
         {
-          if (i >= 0 && i < static_cast<int>(audioData.vadMask.size()) &&
-              audioData.vadMask[static_cast<size_t>(i)])
+          if (i >= 0 && i < static_cast<int>(editedData.vadMask.size()) &&
+              editedData.vadMask[static_cast<size_t>(i)])
             newStart = i;
           else
             break;
@@ -1435,8 +1436,8 @@ void EditorController::segmentIntoNotes(Project &targetProject,
         int newEnd = end;
         for (int i = end; i < std::min(nextStart, end + kMaxTailFrames); ++i)
         {
-          if (i >= 0 && i < static_cast<int>(audioData.vadMask.size()) &&
-              audioData.vadMask[static_cast<size_t>(i)])
+          if (i >= 0 && i < static_cast<int>(editedData.vadMask.size()) &&
+              editedData.vadMask[static_cast<size_t>(i)])
             newEnd = i + 1;
           else
             break;
@@ -1489,8 +1490,8 @@ void EditorController::segmentIntoNotes(Project &targetProject,
     sliceSourceMelClips();
     sliceHNSepClips();
 
-    if (!audioData.f0.empty())
-      PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
+    if (!editedData.f0.empty())
+      PitchCurveProcessor::rebuildCurvesFromSource(targetProject, editedData.f0);
     HNSepCurveProcessor::initializeCurves(targetProject);
 
     targetProject.notifyListeners(ProjectChangeType::NoteListChanged);
@@ -1507,10 +1508,10 @@ void EditorController::segmentIntoNotes(Project &targetProject,
     int midiCount = 0;
     for (int j = start; j < end; ++j)
     {
-      if (j < static_cast<int>(audioData.voicedMask.size()) &&
-          audioData.voicedMask[j] && audioData.f0[j] > 0)
+      if (j < static_cast<int>(editedData.voicedMask.size()) &&
+          editedData.voicedMask[j] && editedData.f0[j] > 0)
       {
-        midiSum += freqToMidi(audioData.f0[j]);
+        midiSum += freqToMidi(editedData.f0[j]);
         midiCount++;
       }
     }
@@ -1534,16 +1535,16 @@ void EditorController::segmentIntoNotes(Project &targetProject,
   int pitchChangeStart = 0;
   int unvoicedCount = 0;
 
-  for (size_t i = 0; i < audioData.f0.size(); ++i)
+  for (size_t i = 0; i < editedData.f0.size(); ++i)
   {
-    bool voiced = i < audioData.voicedMask.size() && audioData.voicedMask[i];
+    bool voiced = i < editedData.voicedMask.size() && editedData.voicedMask[i];
 
     if (voiced && !inNote)
     {
       inNote = true;
       noteStart = static_cast<int>(i);
       currentMidiNote =
-          static_cast<int>(std::round(freqToMidi(audioData.f0[i])));
+          static_cast<int>(std::round(freqToMidi(editedData.f0[i])));
       pitchChangeCount = 0;
       unvoicedCount = 0;
     }
@@ -1551,7 +1552,7 @@ void EditorController::segmentIntoNotes(Project &targetProject,
     {
       unvoicedCount = 0;
 
-      float currentMidi = freqToMidi(audioData.f0[i]);
+      float currentMidi = freqToMidi(editedData.f0[i]);
       int quantizedMidi = static_cast<int>(std::round(currentMidi));
 
       if (quantizedMidi != currentMidiNote &&
@@ -1590,15 +1591,15 @@ void EditorController::segmentIntoNotes(Project &targetProject,
 
   if (inNote)
   {
-    finalizeNote(noteStart, static_cast<int>(audioData.f0.size()));
+    finalizeNote(noteStart, static_cast<int>(editedData.f0.size()));
   }
 
   // Slice harmonic/noise waveforms into per-note clips (fallback path)
   sliceSourceMelClips();
   sliceHNSepClips();
 
-  if (!audioData.f0.empty())
-    PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);
+  if (!editedData.f0.empty())
+    PitchCurveProcessor::rebuildCurvesFromSource(targetProject, editedData.f0);
   HNSepCurveProcessor::initializeCurves(targetProject);
 
   targetProject.notifyListeners(ProjectChangeType::NoteListChanged);

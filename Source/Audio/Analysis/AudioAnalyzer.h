@@ -92,19 +92,15 @@ public:
 
 private:
   // Extract F0 using RMVPE
-  void extractF0WithRMVPE(AudioData &audioData, int targetFrames);
+  void extractF0WithRMVPE(Project &project, int targetFrames);
 
-  // Extract F0 using FCPE
-  void extractF0WithFCPE(AudioData &audioData, int targetFrames);
+  void extractF0WithFCPE(Project &project, int targetFrames);
 
-  // Segment notes using GAME model
+  void computeVadMask(Project &project);
+
+  // Note segmentation strategies
   void segmentWithGAME(Project &project);
-
-  // Fallback segmentation based on F0 changes
   void segmentFallback(Project &project);
-
-  // Compute energy-based VAD mask from waveform
-  void computeVadMask(AudioData &audioData);
 
   // Extend note start frames backward to capture consonant onsets using VAD
   void extendNoteBoundariesWithVad(Project &project);

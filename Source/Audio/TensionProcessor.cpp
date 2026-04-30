@@ -9,12 +9,13 @@
 // ---------------------------------------------------------------------------
 
 TensionProcessor::TensionProcessor()
+    : fft(11) // log2(2048) = 11
 {
-  hannWindow.resize(static_cast<size_t>(kWinSize));
+  windowTable.resize(static_cast<size_t>(kWinSize));
   const double twoPi = 2.0 * 3.14159265358979323846;
   for (int n = 0; n < kWinSize; ++n)
   {
-    hannWindow[static_cast<size_t>(n)] =
+    windowTable[static_cast<size_t>(n)] =
         static_cast<float>(0.5 * (1.0 - std::cos(twoPi * n / kWinSize)));
   }
 }
@@ -127,10 +128,7 @@ std::vector<float> TensionProcessor::preEmphasisBaseTensionSegment(
 
   std::vector<float> output(static_cast<size_t>(paddedLen), 0.0f);
   std::vector<float> windowSum(static_cast<size_t>(paddedLen), 0.0f);
-  std::vector<float> frame(static_cast<size_t>(kFFTSize), 0.0f);
-  std::vector<float> fftReal(static_cast<size_t>(kFFTBin), 0.0f);
-  std::vector<float> fftImag(static_cast<size_t>(kFFTBin), 0.0f);
-  std::vector<float> outFrame(static_cast<size_t>(kFFTSize), 0.0f);
+  std::vector<float> fftBuf(static_cast<size_t>(kFFTSize * 2), 0.0f);
 
   float maxAmpCorrection = 1.0f;
   float maxTiltDb = 12.0f;
@@ -147,27 +145,30 @@ std::vector<float> TensionProcessor::preEmphasisBaseTensionSegment(
         maxAmpCorrection,
         juce::jlimit(0.0f, 0.33f, b / -15.0f) + 1.0f);
 
+    // Zero the FFT buffer and fill with windowed frame
+    std::fill(fftBuf.begin(), fftBuf.end(), 0.0f);
     for (int n = 0; n < kFFTSize; ++n)
     {
       const int idx = frameStart + n;
-      frame[static_cast<size_t>(n)] =
+      fftBuf[static_cast<size_t>(n)] =
           idx < paddedLen ? padded[static_cast<size_t>(idx)] *
-                                hannWindow[static_cast<size_t>(n)]
-                          : 0.0f;
+                               windowTable[static_cast<size_t>(n)]
+                         : 0.0f;
     }
 
-    forwardFFT(frame.data(), fftReal.data(), fftImag.data());
+    fft.performRealOnlyForwardTransform(fftBuf.data());
 
+    // Apply spectral tilt in interleaved format
     for (int k = 0; k < kFFTBin; ++k)
     {
       float filterDb = (-b / x0) * static_cast<float>(k) + b;
       filterDb = juce::jlimit(-maxTiltDb, maxTiltDb, filterDb);
       const float filterGain = std::pow(10.0f, filterDb / 20.0f);
-      fftReal[static_cast<size_t>(k)] *= filterGain;
-      fftImag[static_cast<size_t>(k)] *= filterGain;
+      fftBuf[static_cast<size_t>(k * 2)] *= filterGain;
+      fftBuf[static_cast<size_t>(k * 2 + 1)] *= filterGain;
     }
 
-    inverseFFT(fftReal.data(), fftImag.data(), outFrame.data());
+    fft.performRealOnlyInverseTransform(fftBuf.data());
 
     for (int n = 0; n < kFFTSize; ++n)
     {
@@ -175,8 +176,8 @@ std::vector<float> TensionProcessor::preEmphasisBaseTensionSegment(
       if (idx >= paddedLen)
         continue;
 
-      const float w = hannWindow[static_cast<size_t>(n)];
-      output[static_cast<size_t>(idx)] += outFrame[static_cast<size_t>(n)] * w;
+      const float w = windowTable[static_cast<size_t>(n)];
+      output[static_cast<size_t>(idx)] += fftBuf[static_cast<size_t>(n)] * w;
       windowSum[static_cast<size_t>(idx)] += w * w;
     }
   }
@@ -256,9 +257,7 @@ TensionProcessor::TensionResult TensionProcessor::processSegmentFromSTFT(
   std::vector<float> noiseOut(static_cast<size_t>(paddedLen), 0.0f);
   std::vector<float> windowSum(static_cast<size_t>(paddedLen), 0.0f);
 
-  std::vector<float> fftReal(static_cast<size_t>(kFFTBin));
-  std::vector<float> fftImag(static_cast<size_t>(kFFTBin));
-  std::vector<float> outFrame(static_cast<size_t>(kFFTSize));
+  std::vector<float> fftBuf(static_cast<size_t>(kFFTSize * 2));
 
   const int binsPerFrame = kFFTBin * 2; // interleaved real/imag
 
@@ -285,6 +284,7 @@ TensionProcessor::TensionResult TensionProcessor::processSegmentFromSTFT(
     const int stftOffset = globalFrame * binsPerFrame;
 
     // --- Process harmonic: apply voicing + tension tilt ---
+    std::fill(fftBuf.begin(), fftBuf.end(), 0.0f);
     for (int k = 0; k < kFFTBin; ++k)
     {
       float re = harmonicSTFT[static_cast<size_t>(stftOffset + k * 2)];
@@ -304,41 +304,42 @@ TensionProcessor::TensionResult TensionProcessor::processSegmentFromSTFT(
         im *= filterGain;
       }
 
-      fftReal[static_cast<size_t>(k)] = re;
-      fftImag[static_cast<size_t>(k)] = im;
+      fftBuf[static_cast<size_t>(k * 2)] = re;
+      fftBuf[static_cast<size_t>(k * 2 + 1)] = im;
     }
 
-    inverseFFT(fftReal.data(), fftImag.data(), outFrame.data());
+    fft.performRealOnlyInverseTransform(fftBuf.data());
 
     const int frameStart = f * kHopSize;
     for (int n = 0; n < kFFTSize; ++n)
     {
       const int idx = frameStart + n;
       if (idx >= paddedLen) continue;
-      const float w = hannWindow[static_cast<size_t>(n)];
-      harmonicOut[static_cast<size_t>(idx)] += outFrame[static_cast<size_t>(n)] * w;
+      const float w = windowTable[static_cast<size_t>(n)];
+      harmonicOut[static_cast<size_t>(idx)] += fftBuf[static_cast<size_t>(n)] * w;
       windowSum[static_cast<size_t>(idx)] += w * w;
     }
 
     // --- Process noise: apply breath scale ---
+    std::fill(fftBuf.begin(), fftBuf.end(), 0.0f);
     for (int k = 0; k < kFFTBin; ++k)
     {
       float re = noiseSTFT[static_cast<size_t>(stftOffset + k * 2)];
       float im = noiseSTFT[static_cast<size_t>(stftOffset + k * 2 + 1)];
       re *= (breathPct / 100.0f);
       im *= (breathPct / 100.0f);
-      fftReal[static_cast<size_t>(k)] = re;
-      fftImag[static_cast<size_t>(k)] = im;
+      fftBuf[static_cast<size_t>(k * 2)] = re;
+      fftBuf[static_cast<size_t>(k * 2 + 1)] = im;
     }
 
-    inverseFFT(fftReal.data(), fftImag.data(), outFrame.data());
+    fft.performRealOnlyInverseTransform(fftBuf.data());
 
     for (int n = 0; n < kFFTSize; ++n)
     {
       const int idx = frameStart + n;
       if (idx >= paddedLen) continue;
-      const float w = hannWindow[static_cast<size_t>(n)];
-      noiseOut[static_cast<size_t>(idx)] += outFrame[static_cast<size_t>(n)] * w;
+      const float w = windowTable[static_cast<size_t>(n)];
+      noiseOut[static_cast<size_t>(idx)] += fftBuf[static_cast<size_t>(n)] * w;
       // windowSum already accumulated from harmonic pass
     }
   }
@@ -369,140 +370,4 @@ TensionProcessor::TensionResult TensionProcessor::processSegmentFromSTFT(
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// Simple DFT / IDFT (radix-2 Cooley-Tukey FFT)
-// ---------------------------------------------------------------------------
 
-static int bitReverse(int x, int log2n)
-{
-  int result = 0;
-  for (int i = 0; i < log2n; ++i)
-  {
-    result = (result << 1) | (x & 1);
-    x >>= 1;
-  }
-  return result;
-}
-
-void TensionProcessor::forwardFFT(const float *frame,
-                                  float *outReal, float *outImag) const
-{
-  const int N = kFFTSize;
-  const int log2N = static_cast<int>(std::round(std::log2(static_cast<double>(N))));
-
-  std::vector<float> re(static_cast<size_t>(N));
-  std::vector<float> im(static_cast<size_t>(N), 0.0f);
-
-  for (int i = 0; i < N; ++i)
-  {
-    const int j = bitReverse(i, log2N);
-    re[static_cast<size_t>(j)] = frame[i];
-  }
-
-  for (int s = 1; s <= log2N; ++s)
-  {
-    const int m = 1 << s;
-    const int halfM = m >> 1;
-    const double angle = -2.0 * 3.14159265358979323846 / m;
-    const float wRe = static_cast<float>(std::cos(angle));
-    const float wIm = static_cast<float>(std::sin(angle));
-
-    for (int k = 0; k < N; k += m)
-    {
-      float tRe = 1.0f;
-      float tIm = 0.0f;
-      for (int j = 0; j < halfM; ++j)
-      {
-        const size_t u = static_cast<size_t>(k + j);
-        const size_t v = static_cast<size_t>(k + j + halfM);
-
-        const float tmpRe = tRe * re[v] - tIm * im[v];
-        const float tmpIm = tRe * im[v] + tIm * re[v];
-
-        re[v] = re[u] - tmpRe;
-        im[v] = im[u] - tmpIm;
-        re[u] = re[u] + tmpRe;
-        im[u] = im[u] + tmpIm;
-
-        const float newTRe = tRe * wRe - tIm * wIm;
-        const float newTIm = tRe * wIm + tIm * wRe;
-        tRe = newTRe;
-        tIm = newTIm;
-      }
-    }
-  }
-
-  for (int k = 0; k < kFFTBin; ++k)
-  {
-    outReal[k] = re[static_cast<size_t>(k)];
-    outImag[k] = im[static_cast<size_t>(k)];
-  }
-}
-
-void TensionProcessor::inverseFFT(const float *inReal, const float *inImag,
-                                  float *outFrame) const
-{
-  const int N = kFFTSize;
-  const int log2N = static_cast<int>(std::round(std::log2(static_cast<double>(N))));
-
-  std::vector<float> re(static_cast<size_t>(N), 0.0f);
-  std::vector<float> im(static_cast<size_t>(N), 0.0f);
-
-  for (int k = 0; k < kFFTBin; ++k)
-  {
-    re[static_cast<size_t>(k)] = inReal[k];
-    im[static_cast<size_t>(k)] = -inImag[k];
-  }
-
-  for (int k = 1; k < kFFTBin - 1; ++k)
-  {
-    re[static_cast<size_t>(N - k)] = inReal[k];
-    im[static_cast<size_t>(N - k)] = inImag[k];
-  }
-
-  std::vector<float> reP(static_cast<size_t>(N), 0.0f);
-  std::vector<float> imP(static_cast<size_t>(N), 0.0f);
-  for (int i = 0; i < N; ++i)
-  {
-    const int j = bitReverse(i, log2N);
-    reP[static_cast<size_t>(j)] = re[static_cast<size_t>(i)];
-    imP[static_cast<size_t>(j)] = im[static_cast<size_t>(i)];
-  }
-
-  for (int s = 1; s <= log2N; ++s)
-  {
-    const int m = 1 << s;
-    const int halfM = m >> 1;
-    const double angle = -2.0 * 3.14159265358979323846 / m;
-    const float wRe = static_cast<float>(std::cos(angle));
-    const float wIm = static_cast<float>(std::sin(angle));
-
-    for (int k = 0; k < N; k += m)
-    {
-      float tRe = 1.0f;
-      float tIm = 0.0f;
-      for (int j = 0; j < halfM; ++j)
-      {
-        const size_t u = static_cast<size_t>(k + j);
-        const size_t v = static_cast<size_t>(k + j + halfM);
-
-        const float tmpRe = tRe * reP[v] - tIm * imP[v];
-        const float tmpIm = tRe * imP[v] + tIm * reP[v];
-
-        reP[v] = reP[u] - tmpRe;
-        imP[v] = imP[u] - tmpIm;
-        reP[u] = reP[u] + tmpRe;
-        imP[u] = imP[u] + tmpIm;
-
-        const float newTRe = tRe * wRe - tIm * wIm;
-        const float newTIm = tRe * wIm + tIm * wRe;
-        tRe = newTRe;
-        tIm = newTIm;
-      }
-    }
-  }
-
-  const float invN = 1.0f / static_cast<float>(N);
-  for (int i = 0; i < N; ++i)
-    outFrame[i] = reP[static_cast<size_t>(i)] * invN;
-}

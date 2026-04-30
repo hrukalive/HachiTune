@@ -34,6 +34,7 @@ void OverviewPanel::paint(juce::Graphics &g) {
     return;
 
   const auto &audioData = project->getAudioData();
+  const auto &editedData = project->getEditedData();
   const int numSamples = audioData.waveform.getNumSamples();
   if (numSamples <= 0 || audioData.sampleRate <= 0)
     return;
@@ -186,9 +187,9 @@ void OverviewPanel::paint(juce::Graphics &g) {
         }
       }
 
-      const auto &f0 = audioData.f0;
+      const auto &f0 = editedData.f0;
       if (!f0.empty()) {
-        const auto &voiced = audioData.voicedMask;
+        const auto &voiced = editedData.voicedMask;
         const int widthPx = static_cast<int>(content.getWidth());
         juce::Path f0Path;
         bool hasSegment = false;

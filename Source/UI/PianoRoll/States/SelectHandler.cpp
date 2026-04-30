@@ -147,6 +147,7 @@ bool SelectHandler::mouseDown(const juce::MouseEvent &e, float worldX,
 
       // Capture delta slice from global dense deltaPitch for this note
       auto &audioData = project->getAudioData();
+      auto &editedData = project->getEditedData();
       int startFrame = note->getStartFrame();
       int endFrame = note->getEndFrame();
       int numFrames = endFrame - startFrame;
@@ -157,9 +158,9 @@ bool SelectHandler::mouseDown(const juce::MouseEvent &e, float worldX,
         int globalFrame = startFrame + i;
         if (globalFrame >= 0 &&
             globalFrame <
-                static_cast<int>(audioData.deltaPitch.size()))
+                static_cast<int>(editedData.deltaPitch.size()))
           delta[i] =
-              audioData.deltaPitch[static_cast<size_t>(globalFrame)];
+              editedData.deltaPitch[static_cast<size_t>(globalFrame)];
       }
       note->setDeltaPitch(std::move(delta));
 
@@ -171,21 +172,21 @@ bool SelectHandler::mouseDown(const juce::MouseEvent &e, float worldX,
       originalMidiNote = note->getMidiNote();
 
       // Save boundary F0 values and original F0 for undo
-      int f0Size = static_cast<int>(audioData.f0.size());
+      int f0Size = static_cast<int>(editedData.f0.size());
 
       boundaryF0Start = (startFrame > 0 && startFrame - 1 < f0Size)
-                            ? audioData.f0[startFrame - 1]
+                            ? editedData.f0[startFrame - 1]
                             : 0.0f;
       boundaryF0End =
-          (endFrame < f0Size) ? audioData.f0[endFrame] : 0.0f;
+          (endFrame < f0Size) ? editedData.f0[endFrame] : 0.0f;
 
       // Save original F0 values for undo
       originalF0Values.clear();
       for (int i = startFrame; i < endFrame && i < f0Size; ++i)
-        originalF0Values.push_back(audioData.f0[i]);
+        originalF0Values.push_back(editedData.f0[i]);
 
       dragBeforeBasePitch = SnapshotHelper::captureFloatRange(
-          audioData.basePitch, startFrame, endFrame);
+          editedData.basePitch, startFrame, endFrame);
 
       prepareDragBasePreview();
     }
@@ -375,7 +376,8 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
       int startFrame = draggedNote->getStartFrame();
       int endFrame = draggedNote->getEndFrame();
       auto &audioData = project->getAudioData();
-      int f0Size = static_cast<int>(audioData.f0.size());
+      auto &editedData = project->getEditedData();
+      int f0Size = static_cast<int>(editedData.f0.size());
 
       // Update note's midiNote with final offset
       const float finalMidiNote = originalMidiNote + newOffset;
@@ -418,9 +420,9 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
       if (owner_.undoManager)
       {
         auto afterF0 = SnapshotHelper::captureFloatRange(
-            audioData.f0, startFrame, endFrame);
+            editedData.f0, startFrame, endFrame);
         auto afterBasePitch = SnapshotHelper::captureFloatRange(
-            audioData.basePitch, startFrame, endFrame);
+            editedData.basePitch, startFrame, endFrame);
 
         int noteIdx = project->getNoteIndex(draggedNote);
 
@@ -1158,12 +1160,13 @@ void SelectHandler::prepareDragBasePreview()
     return;
 
   auto &audioData = project->getAudioData();
-  if (audioData.basePitch.empty() || audioData.f0.empty())
+      auto &editedData = project->getEditedData();
+  if (editedData.basePitch.empty() || editedData.f0.empty())
     return;
 
   auto range = computeBasePitchPreviewRange(
       project->getNotes(),
-      static_cast<int>(audioData.basePitch.size()),
+      static_cast<int>(editedData.basePitch.size()),
       [this](const Note &note)
       { return &note == draggedNote; });
 
@@ -1185,9 +1188,9 @@ void SelectHandler::prepareDragBasePreview()
   {
     const int frame = dragPreviewStartFrame + i;
     dragBasePitchSnapshot[static_cast<size_t>(i)] =
-        audioData.basePitch[static_cast<size_t>(frame)];
+        editedData.basePitch[static_cast<size_t>(frame)];
     dragF0Snapshot[static_cast<size_t>(i)] =
-        audioData.f0[static_cast<size_t>(frame)];
+        editedData.f0[static_cast<size_t>(frame)];
   }
 
   lastDragPitchOffset = 0.0f;
@@ -1206,14 +1209,13 @@ void SelectHandler::applyDragBasePreview(float pitchOffsetSemitones)
     return;
 
   auto &audioData = project->getAudioData();
+      auto &editedData = project->getEditedData();
   const int count = dragPreviewEndFrame - dragPreviewStartFrame;
 
-  if (audioData.basePitch.size() <
+  if (editedData.basePitch.size() <
       static_cast<size_t>(dragPreviewEndFrame))
     return;
 
-  if (audioData.baseF0.size() < audioData.basePitch.size())
-    audioData.baseF0.resize(audioData.basePitch.size(), 0.0f);
 
   for (int i = 0; i < count; ++i)
   {
@@ -1222,22 +1224,21 @@ void SelectHandler::applyDragBasePreview(float pitchOffsetSemitones)
         dragBasePitchSnapshot[static_cast<size_t>(i)] +
         pitchOffsetSemitones *
             dragPreviewWeights[static_cast<size_t>(i)];
-    audioData.basePitch[static_cast<size_t>(frame)] = baseMidi;
-    audioData.baseF0[static_cast<size_t>(frame)] =
+    editedData.basePitch[static_cast<size_t>(frame)] = baseMidi;
         midiToFreq(baseMidi);
 
     const float deltaMidi =
-        (frame < static_cast<int>(audioData.deltaPitch.size()))
-            ? audioData.deltaPitch[static_cast<size_t>(frame)]
+        (frame < static_cast<int>(editedData.deltaPitch.size()))
+            ? editedData.deltaPitch[static_cast<size_t>(frame)]
             : 0.0f;
-    if (frame < static_cast<int>(audioData.voicedMask.size()) &&
-        !audioData.voicedMask[static_cast<size_t>(frame)])
+    if (frame < static_cast<int>(editedData.voicedMask.size()) &&
+        !editedData.voicedMask[static_cast<size_t>(frame)])
     {
-      audioData.f0[static_cast<size_t>(frame)] = 0.0f;
+      editedData.f0[static_cast<size_t>(frame)] = 0.0f;
     }
     else
     {
-      audioData.f0[static_cast<size_t>(frame)] =
+      editedData.f0[static_cast<size_t>(frame)] =
           midiToFreq(baseMidi + deltaMidi);
     }
   }
@@ -1252,20 +1253,18 @@ void SelectHandler::restoreDragBasePreview()
     return;
 
   auto &audioData = project->getAudioData();
+      auto &editedData = project->getEditedData();
   const int count = dragPreviewEndFrame - dragPreviewStartFrame;
-  if (audioData.basePitch.size() <
+  if (editedData.basePitch.size() <
       static_cast<size_t>(dragPreviewEndFrame))
     return;
 
   for (int i = 0; i < count; ++i)
   {
     const int frame = dragPreviewStartFrame + i;
-    audioData.basePitch[static_cast<size_t>(frame)] =
+    editedData.basePitch[static_cast<size_t>(frame)] =
         dragBasePitchSnapshot[static_cast<size_t>(i)];
-    if (frame < static_cast<int>(audioData.baseF0.size()))
-      audioData.baseF0[static_cast<size_t>(frame)] = midiToFreq(
-          audioData.basePitch[static_cast<size_t>(frame)]);
-    audioData.f0[static_cast<size_t>(frame)] =
+    editedData.f0[static_cast<size_t>(frame)] =
         dragF0Snapshot[static_cast<size_t>(i)];
   }
   lastDragPitchOffset = 0.0f;

@@ -1,4 +1,4 @@
-﻿#include "PianoRollComponent.h"
+#include "PianoRollComponent.h"
 #include "../Utils/BasePitchCurve.h"
 #include "../Utils/CurveResampler.h"
 #include "../Utils/Constants.h"
@@ -600,6 +600,7 @@ void PianoRollComponent::drawBackgroundWaveform(
     return;
 
   const auto &audioData = project->getAudioData();
+  auto &editedData = project->getEditedData();
   if (audioData.waveform.getNumSamples() == 0)
     return;
 
@@ -897,6 +898,7 @@ void PianoRollComponent::drawGameChunksDebugOverlay(juce::Graphics &g)
     return;
 
   const auto &audioData = project->getAudioData();
+  const auto &editedData = project->getEditedData();
   if (audioData.segmentChunkRanges.empty())
     return;
 
@@ -942,11 +944,12 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
     return;
 
   const auto &audioData = project->getAudioData();
+  const auto &editedData = project->getEditedData();
   const auto &debugInfo = audioData.incrementalDebug;
 
   const int totalFrames = std::max(
-      {audioData.getNumFrames(), static_cast<int>(audioData.vadMask.size()),
-       static_cast<int>(audioData.voicedMask.size()),
+      {audioData.getNumFrames(), static_cast<int>(editedData.vadMask.size()),
+       static_cast<int>(editedData.voicedMask.size()),
        debugInfo.dirtyEndFrame, debugInfo.synthesisEndFrame});
   if (audioData.sampleRate <= 0 || totalFrames <= 0)
     return;
@@ -1029,8 +1032,8 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
         [&](int frame)
         {
           return frame >= 0 &&
-                 frame < static_cast<int>(audioData.vadMask.size()) &&
-                 static_cast<bool>(audioData.vadMask[static_cast<size_t>(frame)]);
+                 frame < static_cast<int>(editedData.vadMask.size()) &&
+                 static_cast<bool>(editedData.vadMask[static_cast<size_t>(frame)]);
         },
         juce::Colours::limegreen.withAlpha(0.50f),
         juce::Colours::limegreen.withAlpha(0.88f));
@@ -1046,9 +1049,9 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
         [&](int frame)
         {
           return frame >= 0 &&
-                 frame < static_cast<int>(audioData.voicedMask.size()) &&
+                 frame < static_cast<int>(editedData.voicedMask.size()) &&
                  static_cast<bool>(
-                     audioData.voicedMask[static_cast<size_t>(frame)]);
+                     editedData.voicedMask[static_cast<size_t>(frame)]);
         },
         juce::Colour(0xCC8A6BFFu), juce::Colour(0xFFB299FFu));
     lanes.push_back(std::move(lane));
@@ -1139,10 +1142,11 @@ void PianoRollComponent::drawGameValuesDebugOverlay(juce::Graphics &g)
     return;
 
   const auto &audioData = project->getAudioData();
+  const auto &editedData = project->getEditedData();
   if (audioData.segmentDebugChunks.empty())
     return;
 
-  const int totalFrames = static_cast<int>(audioData.f0.size());
+  const int totalFrames = static_cast<int>(editedData.f0.size());
   if (totalFrames <= 0)
     return;
 
@@ -1585,6 +1589,7 @@ void PianoRollComponent::drawNotes(juce::Graphics &g, NoteRenderPass pass)
   };
 
   const auto &audioData = project->getAudioData();
+  const auto &editedData = project->getEditedData();
   const float *globalSamples =
       drawBodies && audioData.waveform.getNumSamples() > 0
           ? audioData.waveform.getReadPointer(0)
@@ -1944,7 +1949,8 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
     return;
 
   const auto &audioData = project->getAudioData();
-  if (audioData.f0.empty())
+  const auto &editedData = project->getEditedData();
+  if (editedData.f0.empty())
     return;
 
   // Get global pitch offset (applied to display only)
@@ -1962,7 +1968,7 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
           0,
           static_cast<int>(visibleStartTime * audioData.sampleRate / HOP_SIZE));
       const int visEndFrame = std::min(
-          static_cast<int>(audioData.f0.size()),
+          static_cast<int>(editedData.f0.size()),
           static_cast<int>(visibleEndTime * audioData.sampleRate / HOP_SIZE) + 1);
 
       const auto &chunkRanges = audioData.segmentChunkRanges;
@@ -1989,14 +1995,14 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
         }
 
         float baseMidi =
-            (i < static_cast<int>(audioData.basePitch.size()))
-                ? audioData.basePitch[static_cast<size_t>(i)]
-                : ((i < static_cast<int>(audioData.f0.size()) &&
-                    audioData.f0[static_cast<size_t>(i)] > 0.0f)
-                       ? freqToMidi(audioData.f0[static_cast<size_t>(i)])
+            (i < static_cast<int>(editedData.basePitch.size()))
+                ? editedData.basePitch[static_cast<size_t>(i)]
+                : ((i < static_cast<int>(editedData.f0.size()) &&
+                    editedData.f0[static_cast<size_t>(i)] > 0.0f)
+                       ? freqToMidi(editedData.f0[static_cast<size_t>(i)])
                        : 0.0f);
-        float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))
-                              ? audioData.deltaPitch[static_cast<size_t>(i)]
+        float deltaMidi = (i < static_cast<int>(editedData.deltaPitch.size()))
+                              ? editedData.deltaPitch[static_cast<size_t>(i)]
                               : 0.0f;
         float finalMidi = baseMidi + deltaMidi + globalOffset;
 
@@ -2032,7 +2038,7 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
 
         int startFrame = note.getStartFrame();
         int endFrame =
-            std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
+            std::min(note.getEndFrame(), static_cast<int>(editedData.f0.size()));
 
         for (int i = startFrame; i < endFrame; ++i)
         {
@@ -2040,15 +2046,15 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
           // applyDragBasePreview / rebuildBaseFromNotesForDrag during drag,
           // or by rebuildBaseFromNotes after commit).  Do NOT add it again.
           float baseMidi =
-              (i < static_cast<int>(audioData.basePitch.size()))
-                  ? audioData.basePitch[static_cast<size_t>(i)]
-                  : ((i < static_cast<int>(audioData.f0.size()) &&
-                      audioData.f0[static_cast<size_t>(i)] > 0.0f)
-                         ? freqToMidi(audioData.f0[static_cast<size_t>(i)])
+              (i < static_cast<int>(editedData.basePitch.size()))
+                  ? editedData.basePitch[static_cast<size_t>(i)]
+                  : ((i < static_cast<int>(editedData.f0.size()) &&
+                      editedData.f0[static_cast<size_t>(i)] > 0.0f)
+                         ? freqToMidi(editedData.f0[static_cast<size_t>(i)])
                          : 0.0f);
 
-          float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))
-                                ? audioData.deltaPitch[static_cast<size_t>(i)]
+          float deltaMidi = (i < static_cast<int>(editedData.deltaPitch.size()))
+                                ? editedData.deltaPitch[static_cast<size_t>(i)]
                                 : 0.0f;
           float finalMidi = baseMidi + deltaMidi + globalOffset;
 
@@ -2083,7 +2089,7 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
         0,
         static_cast<int>(visibleStartTime * audioData.sampleRate / HOP_SIZE));
     const int visEndFrame = std::min(
-        static_cast<int>(audioData.f0.size()),
+        static_cast<int>(editedData.f0.size()),
         static_cast<int>(visibleEndTime * audioData.sampleRate / HOP_SIZE) + 1);
 
     g.setColour(juce::Colours::gold.withAlpha(0.92f));
@@ -2135,7 +2141,7 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
         std::max(0, static_cast<int>(visibleStartTime * audioData.sampleRate /
                                      HOP_SIZE));
     const int visEndFrame = std::min(
-        static_cast<int>(audioData.f0.size()),
+        static_cast<int>(editedData.f0.size()),
         static_cast<int>(visibleEndTime * audioData.sampleRate / HOP_SIZE) + 1);
 
     g.setColour(juce::Colours::aqua.withAlpha(0.90f));
@@ -2144,7 +2150,7 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
 
     for (int i = visStartFrame; i < visEndFrame; ++i)
     {
-      const float f0 = audioData.f0[static_cast<size_t>(i)];
+      const float f0 = editedData.f0[static_cast<size_t>(i)];
       if (f0 <= 0.0f)
       {
         if (pathStarted)
@@ -2186,7 +2192,7 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
     }
 
     const auto &basePitchCurve =
-        useLiveBasePreview ? audioData.basePitch : cachedBasePitch;
+        useLiveBasePreview ? editedData.basePitch : cachedBasePitch;
     if (!basePitchCurve.empty())
     {
       // Calculate visible frame range
@@ -3080,7 +3086,7 @@ bool PianoRollComponent::nudgeSelectedNotesBySemitones(int semitoneDelta)
     PitchCurveProcessor::rebuildBaseFromNotes(*project);
     invalidateBasePitchCache();
 
-    const int f0Size = static_cast<int>(project->getAudioData().f0.size());
+    const int f0Size = static_cast<int>(project->getEditedData().f0.size());
     if (f0Size > 0 && dirtyStartFrame <= dirtyEndFrame)
     {
       const int smoothStart = std::max(0, dirtyStartFrame - 60);
@@ -3617,7 +3623,8 @@ void PianoRollComponent::updateBasePitchCacheIfNeeded()
 
   const auto &notes = project->getNotes();
   const auto &audioData = project->getAudioData();
-  int totalFrames = static_cast<int>(audioData.f0.size());
+  const auto &editedData = project->getEditedData();
+  int totalFrames = static_cast<int>(editedData.f0.size());
 
   // Check if cache is valid
   size_t currentNoteCount = 0;
@@ -3685,20 +3692,21 @@ void PianoRollComponent::reapplyBasePitchForNote(Note *note)
     return;
 
   auto &audioData = project->getAudioData();
+  auto &editedData = project->getEditedData();
   int startFrame = note->getStartFrame();
   int endFrame = note->getEndFrame();
-  int f0Size = static_cast<int>(audioData.f0.size());
+  int f0Size = static_cast<int>(editedData.f0.size());
 
   // Reapply base + delta from dense curves
   for (int i = startFrame; i < endFrame && i < f0Size; ++i)
   {
-    float base = (i < static_cast<int>(audioData.basePitch.size()))
-                     ? audioData.basePitch[static_cast<size_t>(i)]
+    float base = (i < static_cast<int>(editedData.basePitch.size()))
+                     ? editedData.basePitch[static_cast<size_t>(i)]
                      : 0.0f;
-    float delta = (i < static_cast<int>(audioData.deltaPitch.size()))
-                      ? audioData.deltaPitch[static_cast<size_t>(i)]
+    float delta = (i < static_cast<int>(editedData.deltaPitch.size()))
+                      ? editedData.deltaPitch[static_cast<size_t>(i)]
                       : 0.0f;
-    audioData.f0[i] = midiToFreq(base + delta);
+    editedData.f0[i] = midiToFreq(base + delta);
   }
 
   // Always set F0 dirty range for synthesis (needed for undo/redo to trigger

@@ -82,6 +82,7 @@ void MainComponent::openProjectFile(const juce::File &file) {
                 projectToUse->setAudioSha256(currentAudioSha);
 
                 auto &audioData = projectToUse->getAudioData();
+                auto &editedData = projectToUse->getEditedData();
                 audioData.waveform = std::move(buffer);
                 audioData.sampleRate = sampleRate;
                 audioData.originalWaveform.makeCopyOf(audioData.waveform);
@@ -96,16 +97,16 @@ void MainComponent::openProjectFile(const juce::File &file) {
                       melComputer.compute(samples, numSamples);
                 }
 
-                if (audioData.voicedMask.empty() && !audioData.f0.empty()) {
-                  audioData.voicedMask.resize(audioData.f0.size(), false);
-                  for (size_t i = 0; i < audioData.f0.size(); ++i)
-                    audioData.voicedMask[i] = audioData.f0[i] > 0.0f;
+                if (editedData.voicedMask.empty() && !editedData.f0.empty()) {
+                  editedData.voicedMask.resize(editedData.f0.size(), false);
+                  for (size_t i = 0; i < editedData.f0.size(); ++i)
+                    editedData.voicedMask[i] = editedData.f0[i] > 0.0f;
                 }
 
-                if (audioData.basePitch.empty() || audioData.deltaPitch.empty()) {
-                  if (!audioData.f0.empty()) {
+                if (editedData.basePitch.empty() || editedData.deltaPitch.empty()) {
+                  if (!editedData.f0.empty()) {
                     PitchCurveProcessor::rebuildCurvesFromSource(*projectToUse,
-                                                                 audioData.f0);
+                                                                 editedData.f0);
                   } else if (!audioData.melSpectrogram.empty()) {
                     // Legacy project fallback: rebuild base from notes and use
                     // zero delta so reopening can still synthesize edited notes.
@@ -210,8 +211,8 @@ void MainComponent::openProjectFile(const juce::File &file) {
                 // Skip full re-analysis; run vocoder from loaded edits.
                 const int totalFrames = std::max(
                     static_cast<int>(activeAudioData.melSpectrogram.size()),
-                    std::max(static_cast<int>(activeAudioData.f0.size()),
-                             static_cast<int>(activeAudioData.basePitch.size())));
+                    std::max(static_cast<int>(project->getEditedData().f0.size()),
+                             static_cast<int>(project->getEditedData().basePitch.size())));
                 if (totalFrames > 0) {
                   project->setF0DirtyRange(0, totalFrames);
 
@@ -360,6 +361,7 @@ void MainComponent::loadAudioFile(const juce::File &file) {
         safeThis->toolbar.setLoopEnabled(project->getLoopRange().enabled);
 
         auto &audioData = project->getAudioData();
+  auto &editedData = project->getEditedData();
 
         if (safeThis->isPluginMode()) {
           // plugin mode: no audio engine
@@ -378,7 +380,7 @@ void MainComponent::loadAudioFile(const juce::File &file) {
           }
         }
 
-        const auto &f0 = audioData.f0;
+        const auto &f0 = editedData.f0;
         if (!f0.empty()) {
           float minF0 = 10000.0f, maxF0 = 0.0f;
           for (float freq : f0) {

@@ -3,7 +3,6 @@
 #include "../JuceHeader.h"
 #include <vector>
 #include <cmath>
-#include <complex>
 
 /**
  * Segment-level hnsep timbre processor.
@@ -98,15 +97,6 @@ public:
                       const float *tensionCurve,
                       int numFrames) const;
 
-  /**
-   * Compute forward FFT of a real-valued windowed frame.
-   * @param frame     Input frame (kFFTSize samples)
-   * @param outReal   Real part of FFT (kFFTBin values)
-   * @param outImag   Imaginary part of FFT (kFFTBin values)
-   */
-  void forwardFFT(const float *frame,
-                  float *outReal, float *outImag) const;
-
 private:
   // STFT parameters
   static constexpr int kFFTSize = 2048;
@@ -115,22 +105,16 @@ private:
   static constexpr int kSampleRate = 44100;
   static constexpr int kFFTBin = kFFTSize / 2 + 1;
 
-  // Pre-computed Hann window
-  std::vector<float> hannWindow;
+  // Pre-computed Hann window (for per-sample access in overlap-add)
+  std::vector<float> windowTable;
+
+  // JUCE FFT engine
+  juce::dsp::FFT fft;
 
   std::vector<float> preEmphasisBaseTensionSegment(
       const std::vector<float> &scaledHarmonic,
       const float *tensionCurve,
       int numFrames) const;
-
-  /**
-   * Compute inverse FFT from complex spectrum back to real signal.
-   * @param inReal    Real part of spectrum (kFFTBin values)
-   * @param inImag    Imaginary part of spectrum (kFFTBin values)
-   * @param outFrame  Output frame (kFFTSize samples)
-   */
-  void inverseFFT(const float *inReal, const float *inImag,
-                  float *outFrame) const;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TensionProcessor)
 };

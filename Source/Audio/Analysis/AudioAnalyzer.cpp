@@ -83,6 +83,7 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
                             CompleteCallback onComplete)
 {
   auto &audioData = project.getAudioData();
+  auto &editedData = project.getEditedData();
   if (audioData.waveform.getNumSamples() == 0)
     return;
 
@@ -110,12 +111,12 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
   // Try selected detector first
   if (detectorType == PitchDetectorType::RMVPE && isRMVPEAvailable())
   {
-    extractF0WithRMVPE(audioData, targetFrames);
+    extractF0WithRMVPE(project, targetFrames);
     extracted = true;
   }
   else if (detectorType == PitchDetectorType::FCPE && isFCPEAvailable())
   {
-    extractF0WithFCPE(audioData, targetFrames);
+    extractF0WithFCPE(project, targetFrames);
     extracted = true;
   }
 
@@ -124,11 +125,11 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
   {
     if (isRMVPEAvailable())
     {
-      extractF0WithRMVPE(audioData, targetFrames);
+    extractF0WithRMVPE(project, targetFrames);
     }
     else if (isFCPEAvailable())
     {
-      extractF0WithFCPE(audioData, targetFrames);
+    extractF0WithFCPE(project, targetFrames);
     }
   }
 
@@ -138,15 +139,15 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
   // Smooth F0
   if (onProgress)
     onProgress(0.65, "Smoothing pitch curve...");
-  audioData.f0 = F0Smoother::smoothF0(audioData.f0, audioData.voicedMask);
-  audioData.f0 = PitchCurveProcessor::interpolateWithUvMask(
-      audioData.f0, audioData.voicedMask);
+  editedData.f0 = F0Smoother::smoothF0(editedData.f0, editedData.voicedMask);
+  editedData.f0 = PitchCurveProcessor::interpolateWithUvMask(
+      editedData.f0, editedData.voicedMask);
 
   if (cancelFlag.load())
     return;
 
   // Compute energy-based VAD mask (captures consonants that F0 detectors miss)
-  computeVadMask(audioData);
+  computeVadMask(project);
 
   // Segment into notes
   if (onProgress)
@@ -165,7 +166,7 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
   }
 
   // Build dense base/delta curves
-  PitchCurveProcessor::rebuildCurvesFromSource(project, audioData.f0);
+  PitchCurveProcessor::rebuildCurvesFromSource(project, editedData.f0);
   HNSepCurveProcessor::initializeCurves(project);
 
   if (onComplete)
@@ -200,8 +201,10 @@ void AudioAnalyzer::analyzeAsync(std::shared_ptr<Project> project,
       });
 }
 
-void AudioAnalyzer::extractF0WithRMVPE(AudioData &audioData, int targetFrames)
+void AudioAnalyzer::extractF0WithRMVPE(Project &project, int targetFrames)
 {
+  auto &audioData = project.getAudioData();
+  auto &editedData = project.getEditedData();
   const float *samples = audioData.waveform.getReadPointer(0);
   int numSamples = audioData.waveform.getNumSamples();
 
@@ -211,7 +214,7 @@ void AudioAnalyzer::extractF0WithRMVPE(AudioData &audioData, int targetFrames)
 
   if (!rmvpeF0.empty() && targetFrames > 0)
   {
-    audioData.f0.resize(targetFrames);
+    editedData.f0.resize(targetFrames);
 
     // Time per frame for each system
     const double rmvpeFrameTime = 160.0 / 16000.0; // 0.01 seconds
@@ -237,46 +240,48 @@ void AudioAnalyzer::extractF0WithRMVPE(AudioData &audioData, int targetFrames)
           float logF0_a = std::log(f0_a);
           float logF0_b = std::log(f0_b);
           float logF0_interp = logF0_a * (1.0 - frac) + logF0_b * frac;
-          audioData.f0[i] = std::exp(logF0_interp);
+          editedData.f0[i] = std::exp(logF0_interp);
         }
         else if (f0_a > 0.0f)
         {
-          audioData.f0[i] = f0_a;
+          editedData.f0[i] = f0_a;
         }
         else if (f0_b > 0.0f)
         {
-          audioData.f0[i] = f0_b;
+          editedData.f0[i] = f0_b;
         }
         else
         {
-          audioData.f0[i] = 0.0f;
+          editedData.f0[i] = 0.0f;
         }
       }
       else if (srcIdx < static_cast<int>(rmvpeF0.size()))
       {
-        audioData.f0[i] = rmvpeF0[srcIdx];
+        editedData.f0[i] = rmvpeF0[srcIdx];
       }
       else
       {
-        audioData.f0[i] = rmvpeF0.back() > 0.0f ? rmvpeF0.back() : 0.0f;
+        editedData.f0[i] = rmvpeF0.back() > 0.0f ? rmvpeF0.back() : 0.0f;
       }
     }
   }
   else
   {
-    audioData.f0.clear();
+    editedData.f0.clear();
   }
 
   // Create voiced mask
-  audioData.voicedMask.resize(audioData.f0.size());
-  for (size_t i = 0; i < audioData.f0.size(); ++i)
+  editedData.voicedMask.resize(editedData.f0.size());
+  for (size_t i = 0; i < editedData.f0.size(); ++i)
   {
-    audioData.voicedMask[i] = audioData.f0[i] > 0;
+    editedData.voicedMask[i] = editedData.f0[i] > 0;
   }
 }
 
-void AudioAnalyzer::extractF0WithFCPE(AudioData &audioData, int targetFrames)
+void AudioAnalyzer::extractF0WithFCPE(Project &project, int targetFrames)
 {
+  auto &audioData = project.getAudioData();
+  auto &editedData = project.getEditedData();
   const float *samples = audioData.waveform.getReadPointer(0);
   int numSamples = audioData.waveform.getNumSamples();
 
@@ -286,7 +291,7 @@ void AudioAnalyzer::extractF0WithFCPE(AudioData &audioData, int targetFrames)
 
   if (!fcpeF0.empty() && targetFrames > 0)
   {
-    audioData.f0.resize(targetFrames);
+    editedData.f0.resize(targetFrames);
 
     // Time per frame for each system
     const double fcpeFrameTime = 160.0 / 16000.0; // 0.01 seconds
@@ -312,51 +317,52 @@ void AudioAnalyzer::extractF0WithFCPE(AudioData &audioData, int targetFrames)
           float logF0_a = std::log(f0_a);
           float logF0_b = std::log(f0_b);
           float logF0_interp = logF0_a * (1.0 - frac) + logF0_b * frac;
-          audioData.f0[i] = std::exp(logF0_interp);
+          editedData.f0[i] = std::exp(logF0_interp);
         }
         else if (f0_a > 0.0f)
         {
-          audioData.f0[i] = f0_a;
+          editedData.f0[i] = f0_a;
         }
         else if (f0_b > 0.0f)
         {
-          audioData.f0[i] = f0_b;
+          editedData.f0[i] = f0_b;
         }
         else
         {
-          audioData.f0[i] = 0.0f;
+          editedData.f0[i] = 0.0f;
         }
       }
       else if (srcIdx < static_cast<int>(fcpeF0.size()))
       {
-        audioData.f0[i] = fcpeF0[srcIdx];
+        editedData.f0[i] = fcpeF0[srcIdx];
       }
       else
       {
-        audioData.f0[i] = fcpeF0.back() > 0.0f ? fcpeF0.back() : 0.0f;
+        editedData.f0[i] = fcpeF0.back() > 0.0f ? fcpeF0.back() : 0.0f;
       }
     }
   }
   else
   {
-    audioData.f0.clear();
+    editedData.f0.clear();
   }
 
   // Create voiced mask
-  audioData.voicedMask.resize(audioData.f0.size());
-  for (size_t i = 0; i < audioData.f0.size(); ++i)
+  editedData.voicedMask.resize(editedData.f0.size());
+  for (size_t i = 0; i < editedData.f0.size(); ++i)
   {
-    audioData.voicedMask[i] = audioData.f0[i] > 0;
+    editedData.voicedMask[i] = editedData.f0[i] > 0;
   }
 }
 
 void AudioAnalyzer::segmentIntoNotes(Project &project)
 {
   auto &audioData = project.getAudioData();
+  auto &editedData = project.getEditedData();
   auto &notes = project.getNotes();
   notes.clear();
 
-  if (audioData.f0.empty())
+  if (editedData.f0.empty())
     return;
 
   // Try GAME model first
@@ -375,11 +381,12 @@ void AudioAnalyzer::segmentIntoNotes(Project &project)
 void AudioAnalyzer::segmentWithGAME(Project &project)
 {
   auto &audioData = project.getAudioData();
+  auto &editedData = project.getEditedData();
   auto &notes = project.getNotes();
 
   const float *samples = audioData.waveform.getReadPointer(0);
   int numSamples = audioData.waveform.getNumSamples();
-  const int f0Size = static_cast<int>(audioData.f0.size());
+  const int f0Size = static_cast<int>(editedData.f0.size());
   const int melSize = static_cast<int>(audioData.melSpectrogram.size());
 
   auto *detector = gameDetector ? gameDetector.get() : externalGAMEDetector;
@@ -404,10 +411,10 @@ void AudioAnalyzer::segmentWithGAME(Project &project)
     int midiCount = 0;
     for (int j = f0Start; j < f0End; ++j)
     {
-      if (j < static_cast<int>(audioData.voicedMask.size()) &&
-          audioData.voicedMask[j] && audioData.f0[j] > 0)
+      if (j < static_cast<int>(editedData.voicedMask.size()) &&
+          editedData.voicedMask[j] && editedData.f0[j] > 0)
       {
-        midiSum += freqToMidi(audioData.f0[j]);
+        midiSum += freqToMidi(editedData.f0[j]);
         midiCount++;
       }
     }
@@ -437,14 +444,15 @@ void AudioAnalyzer::segmentWithGAME(Project &project)
     notes.push_back(note);
   }
 
-  if (!audioData.f0.empty())
-    PitchCurveProcessor::rebuildCurvesFromSource(project, audioData.f0);
+  if (!editedData.f0.empty())
+    PitchCurveProcessor::rebuildCurvesFromSource(project, editedData.f0);
   HNSepCurveProcessor::initializeCurves(project);
 }
 
 void AudioAnalyzer::segmentFallback(Project &project)
 {
   auto &audioData = project.getAudioData();
+  auto &editedData = project.getEditedData();
   auto &notes = project.getNotes();
   const int melSize = static_cast<int>(audioData.melSpectrogram.size());
 
@@ -457,10 +465,10 @@ void AudioAnalyzer::segmentFallback(Project &project)
     int midiCount = 0;
     for (int j = start; j < end; ++j)
     {
-      if (j < static_cast<int>(audioData.voicedMask.size()) &&
-          audioData.voicedMask[j] && audioData.f0[j] > 0)
+      if (j < static_cast<int>(editedData.voicedMask.size()) &&
+          editedData.voicedMask[j] && editedData.f0[j] > 0)
       {
-        midiSum += freqToMidi(audioData.f0[j]);
+        midiSum += freqToMidi(editedData.f0[j]);
         midiCount++;
       }
     }
@@ -498,23 +506,23 @@ void AudioAnalyzer::segmentFallback(Project &project)
   int pitchChangeStart = 0;
   int unvoicedCount = 0;
 
-  for (size_t i = 0; i < audioData.f0.size(); ++i)
+  for (size_t i = 0; i < editedData.f0.size(); ++i)
   {
-    bool voiced = i < audioData.voicedMask.size() && audioData.voicedMask[i];
+    bool voiced = i < editedData.voicedMask.size() && editedData.voicedMask[i];
 
     if (voiced && !inNote)
     {
       inNote = true;
       noteStart = static_cast<int>(i);
       currentMidiNote =
-          static_cast<int>(std::round(freqToMidi(audioData.f0[i])));
+          static_cast<int>(std::round(freqToMidi(editedData.f0[i])));
       pitchChangeCount = 0;
       unvoicedCount = 0;
     }
     else if (voiced && inNote)
     {
       unvoicedCount = 0;
-      float currentMidi = freqToMidi(audioData.f0[i]);
+      float currentMidi = freqToMidi(editedData.f0[i]);
       int quantizedMidi = static_cast<int>(std::round(currentMidi));
 
       if (quantizedMidi != currentMidiNote &&
@@ -552,20 +560,22 @@ void AudioAnalyzer::segmentFallback(Project &project)
 
   if (inNote)
   {
-    finalizeNote(noteStart, static_cast<int>(audioData.f0.size()));
+    finalizeNote(noteStart, static_cast<int>(editedData.f0.size()));
   }
 
-  if (!audioData.f0.empty())
-    PitchCurveProcessor::rebuildCurvesFromSource(project, audioData.f0);
+  if (!editedData.f0.empty())
+    PitchCurveProcessor::rebuildCurvesFromSource(project, editedData.f0);
   HNSepCurveProcessor::initializeCurves(project);
 }
 
-void AudioAnalyzer::computeVadMask(AudioData &audioData)
+void AudioAnalyzer::computeVadMask(Project &project)
 {
+  auto &audioData = project.getAudioData();
+  auto &editedData = project.getEditedData();
   const int numFrames = audioData.getNumFrames();
   if (numFrames <= 0 || audioData.waveform.getNumSamples() == 0)
   {
-    audioData.vadMask.assign(numFrames > 0 ? numFrames : 0, false);
+    editedData.vadMask.assign(numFrames > 0 ? numFrames : 0, false);
     return;
   }
 
@@ -576,14 +586,14 @@ void AudioAnalyzer::computeVadMask(AudioData &audioData)
   const float *samples = audioData.waveform.getReadPointer(0);
   const int numSamples = audioData.waveform.getNumSamples();
 
-  audioData.vadMask.resize(numFrames);
+  editedData.vadMask.resize(numFrames);
   for (int i = 0; i < numFrames; ++i)
   {
     int sampleStart = i * HOP_SIZE;
     int sampleEnd = std::min(sampleStart + HOP_SIZE, numSamples);
     if (sampleStart >= numSamples)
     {
-      audioData.vadMask[i] = false;
+      editedData.vadMask[i] = false;
       continue;
     }
 
@@ -592,20 +602,21 @@ void AudioAnalyzer::computeVadMask(AudioData &audioData)
       sumSq += samples[j] * samples[j];
     float rms =
         std::sqrt(sumSq / static_cast<float>(sampleEnd - sampleStart));
-    audioData.vadMask[i] = rms > kVadThreshold;
+    editedData.vadMask[i] = rms > kVadThreshold;
   }
 }
 
 void AudioAnalyzer::extendNoteBoundariesWithVad(Project &project)
 {
   auto &audioData = project.getAudioData();
+  auto &editedData = project.getEditedData();
   auto &notes = project.getNotes();
 
-  if (notes.empty() || audioData.vadMask.empty())
+  if (notes.empty() || editedData.vadMask.empty())
     return;
 
-  const int totalFrames = static_cast<int>(audioData.vadMask.size());
-  const int f0Size = static_cast<int>(audioData.f0.size());
+  const int totalFrames = static_cast<int>(editedData.vadMask.size());
+  const int f0Size = static_cast<int>(editedData.f0.size());
   if (f0Size <= 0)
     return;
 
@@ -635,7 +646,7 @@ void AudioAnalyzer::extendNoteBoundariesWithVad(Project &project)
     int newStart = note.getStartFrame();
     for (int i = note.getStartFrame() - 1; i >= searchStart; --i)
     {
-      if (i < totalFrames && audioData.vadMask[i])
+      if (i < totalFrames && editedData.vadMask[i])
         newStart = i;
       else
         break; // Stop at first silent frame
@@ -654,7 +665,7 @@ void AudioAnalyzer::extendNoteBoundariesWithVad(Project &project)
     searchEnd = std::min(searchEnd, totalFrames);
     for (int i = note.getEndFrame(); i < searchEnd; ++i)
     {
-      if (audioData.vadMask[static_cast<size_t>(i)])
+      if (editedData.vadMask[static_cast<size_t>(i)])
         newEnd = i + 1;
       else
         break;

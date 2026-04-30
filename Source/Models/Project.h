@@ -86,16 +86,6 @@ struct AudioData
 
     // Extracted features
     std::vector<std::vector<float>> melSpectrogram;      // [T, NUM_MELS]
-    std::vector<float> f0;                               // [T] (composed: base + delta, dense)
-    std::vector<float> baseF0;                           // [T] (cached base pitch in Hz)
-    std::vector<float> basePitch;                        // [T] base pitch in MIDI (dense)
-    std::vector<float> deltaPitch;                       // [T] delta pitch in MIDI (dense)
-    std::vector<float> voicingCurve;                     // [T] hnsep harmonic energy in % (dense)
-    std::vector<float> breathCurve;                      // [T] hnsep noise energy in % (dense)
-    std::vector<float> tensionCurve;                     // [T] hnsep spectral tilt control (dense)
-    std::vector<bool> voicedMask;                        // [T] uv mask (true = voiced, F0-based)
-    std::vector<bool> vadMask;                           // [T] energy-based VAD (true = has audio energy, captures consonants)
-    std::vector<bool> f0EditedMask;                      // [T] true = frame was hand-drawn (preserved during rebuild)
     std::vector<std::pair<int, int>> segmentChunkRanges; // [N] GAME slicer chunks in frame range [start, end)
     std::vector<SegmentDebugChunk> segmentDebugChunks;   // raw GAME outputs for debug visualization
     IncrementalSynthesisDebugInfo incrementalDebug;

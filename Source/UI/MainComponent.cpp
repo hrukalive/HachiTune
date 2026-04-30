@@ -1,4 +1,4 @@
-﻿#include "MainComponent.h"
+#include "MainComponent.h"
 #include "Debug/TreeValueMonitor.h"
 #include "Dialogs/PitchFilterDebugWindow.h"
 #include "Main/ExportHelper.h"
@@ -46,7 +46,7 @@ std::vector<float> captureNoteDebugCurve(Project* project, Note* note) {
     return CurveResampler::resampleLinear(storedCurve, durationFrames);
   }
 
-  const auto& denseDelta = project->getAudioData().deltaPitch;
+  const auto& denseDelta = project->getEditedData().deltaPitch;
   std::vector<float> curve(static_cast<size_t>(durationFrames), 0.0f);
   for (int i = 0; i < durationFrames; ++i) {
     const int globalFrame = note->getStartFrame() + i;
@@ -1798,7 +1798,7 @@ void MainComponent::setHostAudio(const juce::AudioBuffer<float> &buffer,
         safeThis->parameterPanel.setProject(project);
         safeThis->toolbar.setTotalTime(project->getAudioData().getDuration());
 
-        const auto &f0 = project->getAudioData().f0;
+        const auto &f0 = project->getEditedData().f0;
         if (!f0.empty())
         {
           float minF0 = 10000.0f, maxF0 = 0.0f;
@@ -1886,7 +1886,8 @@ bool MainComponent::hasAnalyzedProject() const
   if (auto *project = getProject())
   {
     auto &audioData = project->getAudioData();
-    return audioData.waveform.getNumSamples() > 0 && !audioData.f0.empty();
+  auto &editedData = project->getEditedData();
+    return audioData.waveform.getNumSamples() > 0 && !editedData.f0.empty();
   }
   return false;
 }

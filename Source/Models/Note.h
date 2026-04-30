@@ -115,10 +115,14 @@ public:
     void setVibratoPhaseRadians(float radians) { vibratoPhaseRadians = radians; }
     float getVibratoMix() const { return vibratoMix; }
     void setVibratoMix(float mix) { vibratoMix = mix; }
-    float getVibratoFadeInMs() const { return vibratoFadeInMs; }
-    void setVibratoFadeInMs(float ms) { vibratoFadeInMs = ms; }
-    float getVibratoFadeOutMs() const { return vibratoFadeOutMs; }
-    void setVibratoFadeOutMs(float ms) { vibratoFadeOutMs = ms; }
+    int getVibratoStartFrame() const { return vibratoStartFrame; }
+    void setVibratoStartFrame(int frame) { vibratoStartFrame = frame; }
+    int getVibratoLengthFrames() const { return vibratoLengthFrames; }
+    void setVibratoLengthFrames(int frames) { vibratoLengthFrames = frames; }
+    int getVibratoFadeInFrames() const { return vibratoFadeInFrames; }
+    void setVibratoFadeInFrames(int frames) { vibratoFadeInFrames = frames; }
+    int getVibratoFadeOutFrames() const { return vibratoFadeOutFrames; }
+    void setVibratoFadeOutFrames(int frames) { vibratoFadeOutFrames = frames; }
 
     // -----------------------------------------------------------------------
     // Harmonic-Noise Separation (hnsep) parameters
@@ -273,8 +277,10 @@ private:
     float vibratoDepthSemitones = 0.0f;
     float vibratoPhaseRadians = 0.0f;
     float vibratoMix = 0.0f;            // 0..1: 0=pure delta, 1=pure vibrato
-    float vibratoFadeInMs = 0.0f;       // Fade-in duration in ms
-    float vibratoFadeOutMs = 0.0f;      // Fade-out duration in ms
+    int vibratoStartFrame = 0;          // offset from note start (0 = vibrato starts at note start)
+    int vibratoLengthFrames = 0;        // duration of vibrato segment in frames (0 = full note)
+    int vibratoFadeInFrames = 0;        // fade-in within vibrato start
+    int vibratoFadeOutFrames = 0;       // fade-out within vibrato end
 
     std::vector<float> synthWaveform;    // Vocoder output (regenerated when synthDirty)
     int synthPreroll = 0;                // Margin samples prepended before noteStart in synthWaveform
