@@ -216,6 +216,39 @@ void testLegacyLoadClearsAnalysisSegments()
          "legacy source end remains from note json");
 }
 
+void testLoadWithoutPitchPayloadClearsProjectData()
+{
+  auto* root = new juce::DynamicObject();
+  root->setProperty("name", "NoPitchPayloadLoad");
+  root->setProperty("sampleRate", 44100);
+
+  juce::Array<juce::var> notes;
+  auto* note = new juce::DynamicObject();
+  note->setProperty("startFrame", 10);
+  note->setProperty("endFrame", 20);
+  note->setProperty("srcStartFrame", 100);
+  note->setProperty("srcEndFrame", 120);
+  note->setProperty("midiNote", 60.0);
+  note->setProperty("rest", false);
+  notes.add(juce::var(note));
+  root->setProperty("notes", notes);
+
+  Project project = makeProject();
+  require(ProjectSerializer::fromJson(project, juce::var(root)),
+          "project loads without pitch payload");
+  require(project.getNotes().size() == 1, "no-payload project has one note");
+  expect(project.getAnalysisData().noteSegments.empty(),
+         "no-payload load clears stale analysis note segments");
+  expect(project.getEditedData().f0.empty(),
+         "no-payload load clears stale edited f0");
+  expect(project.getEditedData().deltaPitch.empty(),
+         "no-payload load clears stale edited delta pitch");
+  expect(project.getNotes()[0].getSrcStartFrame() == 100,
+         "no-payload source start remains from note json");
+  expect(project.getNotes()[0].getSrcEndFrame() == 120,
+         "no-payload source end remains from note json");
+}
+
 void testValidation()
 {
   auto project = makeProject();
@@ -297,6 +330,7 @@ int main()
   testSerializerOmitsNoteCaches();
   testSerializerRestoresSourceRangesFromAnalysisSegments();
   testLegacyLoadClearsAnalysisSegments();
+  testLoadWithoutPitchPayloadClearsProjectData();
   testValidation();
   testStretchEditedData();
   testWarpEndpoints();

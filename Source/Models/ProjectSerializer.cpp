@@ -213,6 +213,8 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
     // Try new format first
     auto analysisDataVar = json.getProperty("analysisData", juce::var());
     auto editedDataVar = json.getProperty("editedData", juce::var());
+    project.getAnalysisData().clear();
+    project.getEditedData().clear();
 
     if (analysisDataVar.isObject() && editedDataVar.isObject())
     {
