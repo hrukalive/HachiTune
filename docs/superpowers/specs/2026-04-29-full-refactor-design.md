@@ -213,12 +213,14 @@ Each Note contains local caches (not serialized):
     "rest": false,
     "vibrato": {
         "enabled": false,
+        "startFrame": 0,
+        "lengthFrames": 0,
         "rateHz": 5.0,
         "depthSemitones": 0.0,
         "phaseRadians": 0.0,
         "mix": 0.0,
-        "fadeInMs": 0.0,
-        "fadeOutMs": 0.0
+        "fadeInFrames": 0,
+        "fadeOutFrames": 0
     },
     "tiltLeft": 0.0,
     "tiltRight": 0.0,
