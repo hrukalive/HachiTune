@@ -1,427 +1,411 @@
-# HachiTune Full Refactoring Design
+# HachiTune Current Refactor Follow-Up Design
 
-**Date**: 2026-04-29
-**Status**: Draft
-**Approach**: Bottom-up, 4 phases
-
----
-
-## Executive Summary
-
-Decouple core algorithms from GUI, establish EditedData as the single source
-of truth, clean up the synthesis pipeline (mel vs f0 separation), and make key
-modules independently testable. The refactoring proceeds bottom-up: lowest-level
-algorithm modules first, then data model cleanup, then serialization and
-pipeline integration, then UI/Undo adaptation.
+**Date:** 2026-04-30
+**Status:** Regenerated from current `StretchAndDraw` HEAD
+**Audit range:** `6b9b050b1147a8304cea79233766496c24d4b894..HEAD`
 
 ---
 
-## Phase 1: Algorithm Module Extraction and Cleanup
+## Current Code Audit
 
-### 1A. Move WarpMarkerProcessor out of Project.cpp
+The branch has already implemented a meaningful part of the old plan:
 
-**Current state**: `WarpMarkerProcessor` namespace is declared in
-`Source/Utils/WarpMarkerProcessor.h` but its ~300-line implementation lives in
-`Source/Models/Project.cpp` (lines ~1451–1749).
+- `AudioData` no longer stores editable pitch, curve, or mask fields. It now
+  keeps waveform, original waveform, harmonic/noise waveforms, mel cache,
+  sample rate, segmentation debug, and incremental synthesis debug.
+- `EditedData` is the active owner of `basePitch`, `deltaPitch`, `f0`,
+  `voicedMask`, `vadMask`, `voicingCurve`, `breathCurve`, and `tensionCurve`.
+- `WarpMarkerProcessor.cpp` exists and removed the large implementation from
+  `Project.cpp`.
+- `TensionProcessor` uses `juce::dsp::FFT`, but it still owns a hand-built Hann
+  table and still computes mixed waveform plus mel in the same module.
+- The serializer writes `analysisData` and `editedData`, and `FORMAT_VERSION`
+  is now `2`.
+- `TreeValueMonitor` exists and listens to `ProjectListener` events.
 
-**Target**:
-- Move full implementation to `Source/Utils/WarpMarkerProcessor.cpp`.
-- `WarpMarkerProcessor::recomputeFromMarkers()` accepts `Project&` — this
-  dependency on Project is acceptable for orchestration, but all pure algorithm
-  calls should route through `StretchProcessor`.
-- Remove stretch-related code from `Project.cpp`.
+Remaining gaps are concrete:
 
-### 1B. TensionProcessor Rewrite with JUCE DSP
-
-**Current state**: Custom FFT implementation with hand-written Hann window,
-2048-sample FFT, manual overlap-add. Works from precomputed STFT cache stored
-in `Project.harmonicSTFT` / `Project.noiseSTFT`.
-
-**Target**:
-- Replace custom FFT with `juce::dsp::FFT` (size 2048).
-- Replace hand-written Hann with `juce::dsp::WindowingFunction<float>`.
-- Keep the same STFT cache strategy (forward FFT done once at HNSep time,
-  cached as interleaved real/imag pairs in Project).
-- Keep the same API: `processSegmentFromSTFT(harmonicSTFT, noiseSTFT,
-  totalSTFTFrames, startFrame, endFrame, voicingCurve, breathCurve,
-  tensionCurve, numFrames)` → returns output waveform.
-- Internal changes only: same spectral tilt algorithm (per-bin dB ramp ×
-  tension/100 × maxTiltDb=12), same RMS normalization after tilt.
-- `processSegment()` variant (operates from raw waveforms) also uses
-  `juce::dsp::FFT` for forward+inverse.
-
-**Input/Output contract** (unchanged):
-```
-Input:
-  - harmonicSTFT: interleaved [real, imag] × bins × frames
-  - noiseSTFT: same layout
-  - voicingCurve[numFrames]: 0..100 (harmonic gain %)
-  - breathCurve[numFrames]: 0..100 (noise gain %)
-  - tensionCurve[numFrames]: -100..+100 (spectral tilt)
-Output:
-  - std::vector<float> waveform (overlap-add synthesis)
-```
-
-### 1C. StretchProcessor Mel Stretch Fix
-
-**Current state**: `StretchProcessor::stretchMel()` exists and uses linear
-interpolation. However `WarpMarkerProcessor::recomputeFromMarkers()` calls it
-on the global `audioData.melSpectrogram` which at that point may contain
-partially-updated mel from HNSep processing.
-
-**Target pipeline order** (mel generation):
-1. Start from original HNSep decomposition (harmonicWaveform + noiseWaveform).
-2. Apply tension/breath/voicing curves via `TensionProcessor` in source domain.
-3. Compute mel from processed audio (per-note, in source timeline).
-4. Stretch mel to output timeline using warp markers.
-
-This means mel stretch must operate on a **source-domain mel** (before stretch),
-not an output-domain mel that has already been partially written.
-
-**New function**:
-```cpp
-// Builds output mel from per-note source-domain mels + warp markers
-static std::vector<std::vector<float>> StretchProcessor::buildOutputMel(
-    const std::vector<std::vector<float>>& sourceMel,  // [sourceFrames][numMels]
-    const std::vector<WarpMarker>& markers,
-    int outputFrameCount);
-```
-
-The existing `stretchMel()` can be kept as a low-level utility.
+- There is no core test target in `CMakeLists.txt`; `Source/Tests` is empty.
+- `Project::validateFrameData()` and `Project::getFrameCount()` do not exist.
+- New-format note serialization still saves cache-like data:
+  `srcStartFrame`, `srcEndFrame`, `originalDeltaPitch`,
+  `voicingCurve`, `breathCurve`, and `tensionCurve`.
+- Default filter strengths are always saved, although zero/default values
+  should not be written.
+- The warp path does not use `StretchProcessor::stretchEditedData()`.
+  It remaps notes, rebuilds pitch from note caches, and stretches
+  `audioData.melSpectrogram` directly.
+- Warp markers are stored as user markers only. Endpoint markers are not
+  normalized into the saved/project-visible representation.
+- The mel pipeline is still ambiguous. `audioData.melSpectrogram` is both
+  recomputed from raw audio and later stretched or patched by HNSep edits.
+  There is no explicit source-domain mel cache.
+- Incremental synthesis still goes through per-note `synthWaveform` caches and
+  `composeGlobalWaveform()` before copying a region into `auditionBuffer`.
+- `ProjectTreeView` displays only summary counts and no validation result or
+  detailed array sizes.
+- In plugin mode, the editor still owns the `Project` through
+  `EditorController`. Closing and reopening the GUI can discard runtime caches
+  that the processor should preserve.
+- Several comments still reference removed `audioData` pitch/curve fields.
 
 ---
 
-## Phase 2: AudioData Slimming + EditedData as Single Source of Truth
+## Updated Architecture
 
-This phase corresponds to the existing Phase 1 design doc
-(`2026-04-29-project-data-model-phase1-design.md`). Summary:
+The current branch should continue from the code that already exists rather
+than replaying the old phase-one plan.
 
-### 2A. Remove from AudioData
+`Project` remains a C++ domain object with a JUCE-style listener interface.
+It should not be converted wholesale into a `juce::ValueTree` in this refactor.
+Instead, add validation and a debug `ValueTree`/tree-view projection so the
+model can be inspected without making every algorithm depend on JUCE UI state.
 
-Delete these fields from `AudioData`:
-- `f0`, `baseF0`, `basePitch`, `deltaPitch`
-- `voicedMask`, `vadMask`
-- `voicingCurve`, `breathCurve`, `tensionCurve`
-- `f0EditedMask` (abolished — the new reset/bake flow makes it unnecessary)
+The core rule is unchanged:
 
-Retain in `AudioData` (runtime cache only, never serialized):
-- `waveform`, `originalWaveform`
-- `harmonicWaveform`, `noiseWaveform`
-- `melSpectrogram` (source-domain mel, rebuilt from HNSep + tension)
+- `AnalysisData` is the immutable analysis snapshot.
+- `EditedData` is the only editable per-frame source of truth.
+- `AudioData` contains runtime caches only.
+- Note-local pitch and HN curves are UI/edit caches, not save-format state.
+- Synthesis consumes global `EditedData.f0` and the global output mel cache.
+
+`f0EditedMask` stays removed. The current code moved draw-mode behavior toward
+bake-then-write semantics, so a separate transient mask is no longer required.
+Undo actions should remove the leftover placeholder parameters instead of
+reintroducing a mask.
+
+---
+
+## Project Data Contract
+
+### AudioData
+
+Keep:
+
+- `waveform`
+- `originalWaveform`
+- `harmonicWaveform`
+- `noiseWaveform`
+- `melSpectrogram`
 - `sampleRate`
-- `segmentChunkRanges`, `segmentDebugChunks`
+- `segmentChunkRanges`
+- `segmentDebugChunks`
 - `incrementalDebug`
 
-### 2B. Migrate All Callers to EditedData
+Add:
 
-Every read/write of the removed AudioData fields must migrate:
+- `sourceMelSpectrogram`
 
-| Module | Current reads audioData.X | Target reads editedData.X |
-|--------|---------------------------|---------------------------|
-| PitchCurveProcessor | basePitch, deltaPitch, voicedMask | editedData.basePitch, .deltaPitch, .voicedMask |
-| composeF0 / composeF0InPlace | audioData.basePitch + deltaPitch | editedData.basePitch + deltaPitch |
-| IncrementalSynthesizer | audioData.f0, vadMask, voicedMask | editedData.f0, .vadMask, .voicedMask |
-| PitchEditor / DrawHandler | audioData.f0, deltaPitch, f0EditedMask | editedData.f0, .deltaPitch |
-| SelectHandler (drag) | audioData.basePitch, baseF0, f0 | editedData.basePitch, computed baseF0, .f0 |
-| PianoRollRenderer | audioData.f0, basePitch, deltaPitch | editedData.f0, .basePitch, .deltaPitch |
-| Undo actions (F0Actions, DragActions) | audioData.f0, deltaPitch, masks | editedData ranges |
-| HNSepCurveProcessor | audioData.voicingCurve, etc. | editedData.voicingCurve, etc. |
+`sourceMelSpectrogram` is the source-timeline mel after HNSep curve processing.
+`melSpectrogram` is the output-timeline mel consumed by the vocoder.
 
-### 2C. Project Helpers
+### AnalysisData
 
-Add to `Project`:
-- `getFrameCount()`: from `editedData.f0.size()` (or mel length before analysis)
-- `refreshNoteCaches()`: fill note-local caches from EditedData + AnalysisData
-- `refreshNoteCachesForRange(start, end)`: partial refresh
-- `validateFrameData()`: consistency check across all arrays
+Keep:
 
-### 2D. Note Cache Semantics
+- `originalF0`
+- `originalPitch`
+- `originalDeltaPitch`
+- `originalVoicedMask`
+- `originalVADMask`
+- `noteSegments`
 
-Each Note contains local caches (not serialized):
-- `basePitch[]` — slice of editedData.basePitch for this note's range
-- `deltaPitch[]` — slice of editedData.deltaPitch
-- `originalPitch[]` — slice of analysisData.originalPitch
-- `originalDeltaPitch[]` — slice of analysisData.originalDeltaPitch
-- `voicingCurve[]`, `breathCurve[]`, `tensionCurve[]` — slices of editedData curves
+After analysis or legacy load conversion, analysis arrays are not mutated by
+editing tools.
 
-**Edit flow** (non-destructive: tilt, variance, smooth, filter):
-1. Modify note-local deltaPitch (apply transforms on originalDeltaPitch)
-2. Write transformed result into both note-local deltaPitch AND global
-   editedData.deltaPitch[startFrame..endFrame]
-3. Recompose editedData.f0 for affected range
+### EditedData
 
-**Edit flow** (destructive: draw mode):
-1. First bake non-destructive transforms into note's originalDeltaPitch
-   (originalDeltaPitch = current deltaPitch)
-2. Reset non-destructive parameters (tilt=0, variance=1, smooth=0, filter=0)
-3. Draw directly into note.originalDeltaPitch + note.deltaPitch + global editedData
+Keep:
 
-**Reset**:
-1. Copy from analysisData.originalDeltaPitch[noteRange] → note.originalDeltaPitch
-2. Reset all non-destructive parameters
-3. Recompute note.deltaPitch = note.originalDeltaPitch (no transforms)
-4. Write to global editedData.deltaPitch + recompose f0
+- `basePitch`
+- `deltaPitch`
+- `f0`
+- `voicedMask`
+- `vadMask`
+- `voicingCurve`
+- `breathCurve`
+- `tensionCurve`
+
+`EditedData::resize()` and loader normalization must keep all arrays aligned to
+the same frame count unless a field is intentionally empty before analysis.
+
+### Project Helpers
+
+Add:
+
+```cpp
+struct FrameDataValidation
+{
+  std::vector<juce::String> messages;
+  bool isValid() const { return messages.empty(); }
+};
+
+int getFrameCount() const;
+float getBaseF0ForFrame(int frame) const;
+FrameDataValidation validateFrameData() const;
+```
+
+`getFrameCount()` returns `editedData.getNumFrames()` when available, otherwise
+the output mel frame count, otherwise the audio/mel cache frame count.
+
+`validateFrameData()` checks:
+
+- every non-empty `EditedData` array length equals `editedData.getNumFrames()`;
+- every non-empty `AnalysisData` array length equals `analysisData.getNumFrames()`;
+- `analysisData.noteSegments.size()` is compatible with non-rest note count;
+- note output ranges are valid and within project frame count;
+- source ranges are valid and within analysis frame count when analysis exists;
+- every mel row in `audioData.melSpectrogram` has the same mel dimension;
+- warp markers are sorted by source and output frame after normalization.
 
 ---
 
-## Phase 3: Serialization Format Update + Pipeline Integration
+## Save Format
 
-### 3A. Updated Save Format
+The current implementation uses `formatVersion = 2`; keep that version for this
+new schema. Treat version `1` and legacy `pitchData` as load-only compatibility.
+
+Top-level fields:
 
 ```json
 {
-    "formatVersion": 1,
-    "name": "Untitled",
-    "globalPitchOffset": 0.0,
-    "formantShift": 0.0,
-    "volume": 0.0,
-    "scaleMode": -1,
-    "scaleRootNote": -1,
-    "pitchReferenceHz": 440,
-    "showScaleColors": true,
-    "snapToSemitones": false,
-    "doubleClickSnapMode": 0,
-    "timelineDisplayMode": 0,
-    "timelineBeatNumerator": 4,
-    "timelineBeatDenominator": 4,
-    "timelineTempoBpm": 120.0,
-    "timelineGridDivision": 4,
-    "timelineSnapCycle": false,
-    "loop": {
-        "enabled": false,
-        "start": 0.0,
-        "end": 0.0
-    },
-    "audioPath": "...",
-    "audioSha256": "...",
-    "sampleRate": 44100,
-    "notes": [...],
-    "warpMarkers": [...],
-    "analysisData": {...},
-    "editedData": {...}
+  "formatVersion": 2,
+  "name": "Untitled",
+  "globalPitchOffset": 0.0,
+  "formantShift": 0.0,
+  "volume": 0.0,
+  "scaleMode": -1,
+  "scaleRootNote": -1,
+  "pitchReferenceHz": 440,
+  "showScaleColors": true,
+  "snapToSemitones": false,
+  "doubleClickSnapMode": 0,
+  "timelineDisplayMode": 0,
+  "timelineBeatNumerator": 4,
+  "timelineBeatDenominator": 4,
+  "timelineTempoBpm": 120.0,
+  "timelineGridDivision": 4,
+  "timelineSnapCycle": false,
+  "loop": { "enabled": false, "start": 0.0, "end": 0.0 },
+  "audioPath": "...",
+  "audioSha256": "...",
+  "sampleRate": 44100,
+  "notes": [],
+  "warpMarkers": [],
+  "analysisData": {},
+  "editedData": {}
 }
 ```
 
-**Per-note** (saved):
+New-format note fields:
+
 ```json
 {
-    "startFrame": 112,
-    "endFrame": 159,
-    "midiNote": 65.016,
-    "pitchOffset": 0.0,
-    "volumeDb": 0.0,
-    "rest": false,
-    "vibrato": {
-        "enabled": false,
-        "startFrame": 0,
-        "lengthFrames": 0,
-        "rateHz": 5.0,
-        "depthSemitones": 0.0,
-        "phaseRadians": 0.0,
-        "mix": 0.0,
-        "fadeInFrames": 0,
-        "fadeOutFrames": 0
-    },
-    "tiltLeft": 0.0,
-    "tiltRight": 0.0,
-    "varianceScale": 0.0,
-    "smoothLeftFrames": 0,
-    "smoothRightFrames": 0,
-    "highPassFilterStrength": 0,
-    "lowPassFilterStrength": 0
+  "startFrame": 112,
+  "endFrame": 159,
+  "midiNote": 65.016,
+  "pitchOffset": 0.0,
+  "volumeDb": 0.0,
+  "rest": false,
+  "vibrato": {
+    "enabled": false,
+    "startFrame": 0,
+    "lengthFrames": 0,
+    "rateHz": 5.0,
+    "depthSemitones": 0.0,
+    "phaseRadians": 0.0,
+    "mix": 0.0,
+    "fadeInFrames": 0,
+    "fadeOutFrames": 0
+  },
+  "tiltLeft": 0.0,
+  "tiltRight": 0.0,
+  "varianceScale": 0.0,
+  "smoothLeftFrames": 0,
+  "smoothRightFrames": 0
 }
 ```
 
-**NOT saved in notes**: srcStartFrame, srcEndFrame, local pitch arrays, local
-curves, waveform clips, mel clips, deltaScale, deltaOffset.
+Only non-default note properties are saved:
 
-**Always saved** (even at default): highPassFilterStrength, lowPassFilterStrength
-(always serialized, including when zero).
+- `pitchOffset` when non-zero;
+- `volumeDb` when non-zero;
+- `rest` when true;
+- vibrato object when any vibrato parameter is active or non-default;
+- pitch-tool parameters when non-default;
+- `highPassFilterStrength` and `lowPassFilterStrength` only when non-zero.
 
-**vibratoMix**: Retained as a 0..1 blend control between original delta and
-vibrato signal. Serialized in saves under `vibrato.mix`.
+Never save in new-format notes:
 
-### 3B. Synthesis Pipeline (Clarified Order)
+- `srcStartFrame`
+- `srcEndFrame`
+- `originalDeltaPitch`
+- `deltaPitch`
+- `basePitch`
+- `originalPitch`
+- `voicingCurve`
+- `breathCurve`
+- `tensionCurve`
+- `f0Values`
+- `deltaScale`
+- `deltaOffset`
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ MEL PIPELINE (produces mel for vocoder)                     │
-│                                                             │
-│  1. HNSep model → harmonicWaveform, noiseWaveform (source)  │
-│  2. TensionProcessor: apply voicing/breath/tension curves   │
-│     on source-domain H/N clips → processed audio            │
-│  3. Compute mel from processed audio (source timeline)      │
-│  4. StretchProcessor::buildOutputMel() → stretched mel      │
-│                                                             │
-│ F0 PIPELINE (produces f0 for vocoder)                       │
-│                                                             │
-│  editedData.f0 (already composed from basePitch+deltaPitch) │
-│  If stretch: StretchProcessor::stretchEditedData() already  │
-│  handles f0 recomposition after resampling basePitch+delta  │
-│                                                             │
-│ VOCODER                                                     │
-│                                                             │
-│  Input: f0[range] from editedData + mel[range] from cache   │
-│  Output: synthesized waveform segment                       │
-│                                                             │
-│ BLEND                                                       │
-│                                                             │
-│  auditionBuffer = originalWaveform (initially)              │
-│  On synthesis complete:                                     │
-│    1-frame linear crossfade at segment boundaries           │
-│    Overwrite dirty region in auditionBuffer                 │
-└─────────────────────────────────────────────────────────────┘
+Source ranges are restored from `analysisData.noteSegments` first. If a legacy
+file lacks `noteSegments`, load code may read old `srcStartFrame` and
+`srcEndFrame` from notes, then write them into `analysisData.noteSegments`.
+
+`warpMarkers` should save normalized endpoint-inclusive markers:
+
+```json
+[
+  { "sourceFrame": 0, "outputFrame": 0 },
+  { "sourceFrame": 350, "outputFrame": 456 },
+  { "sourceFrame": 1200, "outputFrame": 1330 }
+]
 ```
 
-**Blend simplification**: Current blending uses complex blend masks with smooth
-ramps. Replace with simple 1-frame (hop_size samples = 512) linear crossfade at
-the start and end of each resynthesized segment. Since ResynthRange extends to
-VAD=0 boundaries (silence), crossfade occurs at near-silent regions and
-artifacts are negligible.
-
-### 3C. Dirty Range and Resynthesis Scope
-
-- **Pitch edit** → dirty range = affected note(s) frame range
-- **Pitch smoothing** → dirty range = current note ± 1 neighbor
-- **Tension/breath/voicing edit** → dirty range = affected note's frame range
-- **Stretch** → dirty range = [prevMarker.outputFrame, nextMarker.outputFrame]
-
-In all cases: expand dirty range outward to nearest VAD=0 frame → this is the
-ResynthRange. Resynthesize this range, crossfade into auditionBuffer.
-
-### 3D. Plugin Mode Cache
-
-In plugin mode (`PluginProcessor`):
-- `Project` persists in `PluginProcessor` across GUI open/close.
-- HNSep results (harmonicSTFT, noiseSTFT, harmonicWaveform, noiseWaveform)
-  are cached in Project/AudioData.
-- Reopening GUI does NOT trigger re-analysis.
-- Only explicit user action (re-analyze button) triggers new analysis.
+The final marker is the source/output end frame. Load accepts old files that
+stored only interior markers.
 
 ---
 
-## Phase 4: UI and Undo Adaptation
+## Warp And Stretch
 
-### 4A. Undo System Migration
+All stretch logic should flow through pure functions in `StretchProcessor` and
+orchestration in `WarpMarkerProcessor`.
 
-Replace per-frame F0FrameEdit with range-snapshot undo (already designed in
-`2026-04-29-undo-and-monitor-design.md`):
+Add a shared endpoint-aware marker builder:
 
-- `F0RangeSnapshot`: captures editedData.deltaPitch + .f0 + .voicedMask for
-  [start, end) range.
-- `CurveRangeSnapshot`: captures editedData curves for a range.
-- Remove raw pointer storage; use Project& reference.
-- All undo/redo operates on EditedData ranges + calls refreshNoteCachesForRange.
-
-### 4B. UI Handler Migration
-
-**SelectHandler (drag)**:
-- Read basePitch from editedData, not audioData.
-- Write pitch changes to editedData.basePitch + recompose editedData.f0.
-- Build drag preview from editedData.
-
-**DrawHandler / PitchEditor**:
-- Write to editedData.deltaPitch + .f0 directly.
-- Undo snapshots capture editedData ranges.
-
-**StretchHandler**:
-- Remove custom stretch logic from StretchHandler.
-- StretchHandler only handles mouse interaction and delegates to
-  `WarpMarkerProcessor::recomputeFromMarkers()` which uses the new pipeline.
-- No direct mel manipulation in UI code.
-
-### 4C. TreeValueMonitor Enhancement
-
-Display:
-- Root project properties (editable in monitor for testing)
-- AnalysisData array lengths + non-empty flags
-- EditedData array lengths + first/last few values
-- AudioData cache state (mel shape, waveform length, STFT cached)
-- Per-note: startFrame, endFrame, midiNote, cache sizes, dirty state
-- Warp markers list
-- Validation result from `validateFrameData()`
-- Dirty range indicators
-
-Listens to all ProjectChangeType events and refreshes affected sections.
-
-### 4D. composeF0 and Related Functions
-
-- `PitchCurveProcessor::composeF0()` reads from `editedData` (not audioData).
-- `composeF0InPlace()` writes into `editedData.f0` only.
-- `rebuildBaseFromNotes()` writes into `editedData.basePitch`, then
-  recomposes `editedData.f0`.
-- `rebuildDeltaFromNotes()` writes into `editedData.deltaPitch`, then
-  recomposes `editedData.f0`.
-- `baseF0` is never stored — compute on-the-fly from editedData.basePitch
-  via `midiToFreq()`.
-
----
-
-## Cross-Cutting Concerns
-
-### Thread Safety
-
-- EditedData is only mutated on the message thread (same as current AudioData).
-- Audio playback thread reads `auditionBuffer` (lock-free swap via SpinLock).
-- Synthesis worker reads EditedData snapshot (stack-local copy of range).
-- No change to threading model needed.
-
-### Note Split/Merge
-
-Note splitting is purely a GUI/control concept:
-- Splitting a note creates two notes with updated startFrame/endFrame.
-- Global mel is unaffected.
-- Note-local caches are re-sliced from global editedData.
-- No re-synthesis needed unless pitch parameters differ.
-
-### Backward Compatibility
-
-- Legacy `pitchData` load still supported → populates AnalysisData + EditedData.
-- Old-format notes with `srcStartFrame` → computed from warpMarkers on load.
-- vibratoMix → if present in file, map to vibrato.enabled (mix > 0 → enabled).
-- deltaScale/deltaOffset → silently ignored.
-
----
-
-## Implementation Order (Bottom-Up)
-
-```
-Phase 1A: WarpMarkerProcessor → own .cpp file
-Phase 1B: TensionProcessor → JUCE DSP (FFT + Window)
-Phase 1C: StretchProcessor mel fix + buildOutputMel()
-     ↓
-Phase 2A: Remove AudioData editable fields
-Phase 2B: Migrate all callers to EditedData
-Phase 2C: Project helpers (refreshNoteCaches, validateFrameData)
-Phase 2D: Note cache semantics enforcement
-     ↓
-Phase 3A: Serialization format update
-Phase 3B: Synthesis pipeline integration (new mel flow)
-Phase 3C: Dirty range simplification
-Phase 3D: Plugin mode cache rules
-     ↓
-Phase 4A: Undo system migration
-Phase 4B: UI handler migration
-Phase 4C: TreeValueMonitor enhancement
-Phase 4D: composeF0 and friends final cleanup
+```cpp
+std::vector<Project::WarpMarker> buildWarpMapWithEndpoints(
+    const Project& project,
+    const std::vector<Project::WarpMarker>& markers);
 ```
 
-Each phase should result in a compilable (though possibly partially broken)
-state. Phase boundaries are commit points.
+The returned map:
+
+- includes `{0, 0}`;
+- includes the final source/output frame;
+- is sorted and unique by `sourceFrame`;
+- has strictly increasing `outputFrame`;
+- is safe to pass to `StretchProcessor`.
+
+`WarpMarkerProcessor::recomputeFromMarkers()` should:
+
+1. build the endpoint-aware map;
+2. call `StretchProcessor::stretchEditedData()` for global pitch, masks, and
+   HN curves;
+3. remap note output frames from source frames;
+4. rebuild note-local caches from global data;
+5. rebuild output mel from source mel and the same warp map;
+6. notify `WarpChanged` and `EditedDataChanged`.
+
+It should not stretch an already output-domain `melSpectrogram`.
 
 ---
 
-## Success Criteria (Overall)
+## Mel And HNSep Pipeline
 
-1. AudioData contains ONLY runtime cache (waveform, mel, STFT, segments).
-2. EditedData is the sole source for synthesis f0 and curves.
-3. AnalysisData is immutable after analysis.
-4. TensionProcessor uses juce::dsp::FFT and WindowingFunction.
-5. WarpMarkerProcessor lives in its own .cpp, not in Project.cpp.
-6. Mel pipeline: tension(source) → mel(source) → stretch(output).
-7. Blend is simple 1-frame crossfade at VAD=0 boundaries.
-8. Serialization matches the target format (no dead properties).
-9. TreeValueMonitor displays all data layers with validation.
-10. Undo operates on EditedData ranges via snapshots.
-11. Note-local data is explicitly a cache of global data.
-12. Plugin mode preserves HNSep cache across GUI lifecycle.
+The target pipeline is:
+
+```text
+audio waveform
+  -> HNSepModel
+  -> harmonicWaveform + noiseWaveform
+  -> TensionProcessor with EditedData voicing/breath/tension curves
+  -> processed harmonic/noise waveform or mixed source waveform
+  -> sourceMelSpectrogram
+  -> StretchProcessor::buildOutputMel()
+  -> melSpectrogram
+  -> Vocoder with EditedData.f0
+```
+
+Pitch edits affect only `EditedData.f0`.
+
+HN curve edits affect only source mel and output mel.
+
+Stretch affects both `EditedData` frame arrays and mel mapping.
+
+`TensionProcessor` should not decide dirty ranges, write project state, or mix
+into `auditionBuffer`. It receives slices and returns processed audio data.
+
+---
+
+## Incremental Synthesis
+
+Dirty range rules:
+
+- pitch move, pitch draw, and pitch tools dirty the affected note range;
+- smoothing expands to immediate neighbor notes;
+- HN curve edits dirty the affected note range and mark mel update required;
+- stretch dirties the warped segment between adjacent markers.
+
+Resynthesis range expands dirty range to nearest `vadMask == false` boundary.
+
+The output path should be simplified:
+
+1. initialize `auditionBuffer` from `originalWaveform`;
+2. synthesize the resynthesis range with `EditedData.f0` and output mel;
+3. blend directly into `auditionBuffer` using one hop-length crossfade at each
+   edge;
+4. keep `audioData.waveform` synchronized from `auditionBuffer` for existing
+   playback code until playback is also cleaned up.
+
+Per-note `synthWaveform` should not be required for incremental playback.
+
+---
+
+## Plugin Mode Cache
+
+Plugin runtime ownership should move from the editor to the processor:
+
+- `HachiTuneAudioProcessor` owns the current `Project`.
+- `PluginEditor`/`MainComponent` attaches to the processor-owned project.
+- Closing the editor detaches the view but keeps `Project`, HNSep buffers, STFT
+  cache, mel cache, audition buffer, and `EditedData` alive.
+- Reopening the editor reuses the existing project and does not analyze again.
+- Explicit re-analyze clears and rebuilds analysis/runtime caches.
+
+State serialization still stores only the portable project JSON plus APVTS
+state, not HNSep waveform caches.
+
+---
+
+## TreeValueMonitor
+
+`TreeValueMonitor` should show:
+
+- project metadata and dirty ranges;
+- `validateFrameData()` result and messages;
+- all `AnalysisData` array sizes;
+- all `EditedData` array sizes;
+- `AudioData` runtime cache sizes, including source/output mel dimensions and
+  HNSep/STFT presence;
+- per-note output range, source range, cache sizes, dirty flags, and tool
+  parameters;
+- endpoint-inclusive warp markers.
+
+The monitor already listens to `ProjectListener`; keep that mechanism and make
+updates range-aware where practical.
+
+---
+
+## Success Criteria
+
+1. No production code reads or writes removed pitch/curve/mask fields through
+   `AudioData`.
+2. No current-format note save contains local pitch or HN curve caches.
+3. Default zero filter strengths are not saved.
+4. New saves contain endpoint-inclusive warp markers.
+5. `validateFrameData()` reports mismatched global arrays and invalid ranges.
+6. `StretchProcessor` is the only implementation of frame-array stretching.
+7. `audioData.sourceMelSpectrogram` is source-domain; `audioData.melSpectrogram`
+   is output-domain.
+8. `TensionProcessor` uses JUCE FFT and JUCE windowing and returns processed
+   audio slices without writing project state.
+9. Incremental synthesis reads `EditedData.f0` and output mel only, then blends
+   into `auditionBuffer`.
+10. Plugin editor reopen does not trigger analysis when processor-owned project
+    caches are already available.
+11. Core tests cover serializer schema, validation, stretch, and core HN/mel
+    boundaries.
