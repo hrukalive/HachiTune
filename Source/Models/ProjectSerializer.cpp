@@ -543,6 +543,7 @@ bool ProjectSerializer::legacyPitchDataFromJson(AudioData& audioData,
 {
     if (!json.isObject())
         return false;
+    analysisData.clear();
 
     // Old format stored everything flat in pitchData
     editedData.f0 = stringToFloatArray(json.getProperty("f0", "").toString());

@@ -176,6 +176,46 @@ void testSerializerRestoresSourceRangesFromAnalysisSegments()
          "source end restored from analysis segment");
 }
 
+void testLegacyLoadClearsAnalysisSegments()
+{
+  auto* root = new juce::DynamicObject();
+  root->setProperty("name", "LegacySourceRangeLoad");
+  root->setProperty("sampleRate", 44100);
+
+  juce::Array<juce::var> notes;
+  auto* note = new juce::DynamicObject();
+  note->setProperty("startFrame", 10);
+  note->setProperty("endFrame", 20);
+  note->setProperty("srcStartFrame", 100);
+  note->setProperty("srcEndFrame", 120);
+  note->setProperty("midiNote", 60.0);
+  note->setProperty("rest", false);
+  notes.add(juce::var(note));
+  root->setProperty("notes", notes);
+
+  auto* pitchData = new juce::DynamicObject();
+  pitchData->setProperty("f0", "100 110 120 130");
+  pitchData->setProperty("basePitch", "60 60 60 60");
+  pitchData->setProperty("deltaPitch", "0 0 0 0");
+  pitchData->setProperty("voicingCurve", "100 100 100 100");
+  pitchData->setProperty("breathCurve", "100 100 100 100");
+  pitchData->setProperty("tensionCurve", "0 0 0 0");
+  pitchData->setProperty("voicedMask", "1111");
+  pitchData->setProperty("vadMask", "1111");
+  root->setProperty("pitchData", juce::var(pitchData));
+
+  Project project = makeProject();
+  require(ProjectSerializer::fromJson(project, juce::var(root)),
+          "legacy project loads from source range json");
+  require(project.getNotes().size() == 1, "legacy source range project has one note");
+  expect(project.getAnalysisData().noteSegments.empty(),
+         "legacy load clears stale analysis note segments");
+  expect(project.getNotes()[0].getSrcStartFrame() == 100,
+         "legacy source start remains from note json");
+  expect(project.getNotes()[0].getSrcEndFrame() == 120,
+         "legacy source end remains from note json");
+}
+
 void testValidation()
 {
   auto project = makeProject();
@@ -256,6 +296,7 @@ int main()
 {
   testSerializerOmitsNoteCaches();
   testSerializerRestoresSourceRangesFromAnalysisSegments();
+  testLegacyLoadClearsAnalysisSegments();
   testValidation();
   testStretchEditedData();
   testWarpEndpoints();
