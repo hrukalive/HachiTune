@@ -488,6 +488,7 @@ bool ProjectSerializer::analysisDataFromJson(AnalysisData& data, const juce::var
 {
     if (!json.isObject())
         return false;
+    data.clear();
     data.originalF0 = stringToFloatArray(json.getProperty("originalF0", "").toString());
     data.originalPitch = stringToFloatArray(json.getProperty("originalPitch", "").toString());
     data.originalDeltaPitch = stringToFloatArray(json.getProperty("originalDeltaPitch", "").toString());

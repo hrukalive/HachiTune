@@ -164,10 +164,12 @@ void testSerializerRestoresSourceRangesFromAnalysisSegments()
   edited->setProperty("vadMask", "1111");
   root->setProperty("editedData", juce::var(edited));
 
-  Project project;
+  Project project = makeProject();
   require(ProjectSerializer::fromJson(project, juce::var(root)),
           "project loads from source range json");
   require(project.getNotes().size() == 1, "source range project has one note");
+  expect(project.getAnalysisData().noteSegments.size() == 1,
+         "analysis note segments are replaced on load");
   expect(project.getNotes()[0].getSrcStartFrame() == 2,
          "source start restored from analysis segment");
   expect(project.getNotes()[0].getSrcEndFrame() == 6,
