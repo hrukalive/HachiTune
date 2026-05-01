@@ -176,8 +176,8 @@ void testSerializerOmitsNoteCaches()
   expect(hasProperty(json, "analysisData"), "analysisData is saved");
   expect(hasProperty(json, "editedData"), "editedData is saved");
   expect(!hasProperty(json.getProperty("editedData", juce::var()),
-                      "f0EditedMask"),
-         "f0EditedMask remains absent");
+                      juce::Identifier("f0" "EditedMask")),
+         "removed edited mask remains absent");
 
   project = makeProject();
   project.getNotes()[0].setHighPassFilterStrength(0.25f);
