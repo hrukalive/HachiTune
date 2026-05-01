@@ -1,4 +1,5 @@
 #include "../JuceHeader.h"
+#include "../Audio/TensionProcessor.h"
 #include "../Audio/Synthesis/StretchProcessor.h"
 #include "../Models/Project.h"
 #include "../Models/ProjectSerializer.h"
@@ -607,6 +608,49 @@ void testComposeWaveformFollowsOutputFrameCount()
   expect(audioData.waveform.getNumSamples() == 3 * HOP_SIZE,
          "compose waveform shrinks to warped endpoint");
 }
+
+void testTensionProcessorReturnsSeparateHarmonicAndNoise()
+{
+  const std::vector<float> harmonic = {1.0f, -2.0f, 3.0f, -4.0f};
+  const std::vector<float> noise = {10.0f, -20.0f, 30.0f, -40.0f};
+  const float voicing[] = {50.0f};
+  const float breath[] = {25.0f};
+  const float tension[] = {0.0f};
+
+  const TensionProcessor processor;
+  const auto result = processor.processSegmentHN(
+      harmonic.data(), noise.data(), static_cast<int>(harmonic.size()),
+      voicing, breath, tension, 1);
+
+  expectVectorNear(result.harmonic, {0.5f, -1.0f, 1.5f, -2.0f},
+                   0.0001f,
+                   "tension processor scales harmonic separately");
+  expectVectorNear(result.noise, {2.5f, -5.0f, 7.5f, -10.0f},
+                   0.0001f,
+                   "tension processor scales noise separately");
+}
+
+void testTensionProcessorComputesSTFTCache()
+{
+  juce::AudioBuffer<float> buffer(1, HOP_SIZE + 1);
+  buffer.clear();
+  buffer.setSample(0, HOP_SIZE - 1, 1.0f);
+
+  const auto stft = TensionProcessor::computeSTFT(buffer);
+  const int expectedFrames = 2;
+  const int expectedBins = 1025;
+  expect(stft.size() ==
+             static_cast<size_t>(expectedFrames * expectedBins * 2),
+         "tension processor STFT cache has expected dimensions");
+  const int windowIndex = 2048 / 2 + HOP_SIZE - 1;
+  const float expectedDc =
+      static_cast<float>(0.5 * (1.0 - std::cos(
+          juce::MathConstants<double>::twoPi * windowIndex / 2048.0)));
+  expectNear(stft[0], expectedDc, 0.0001f,
+             "tension processor STFT uses periodic Hann window");
+  expect(TensionProcessor::computeSTFT(juce::AudioBuffer<float>{}).empty(),
+         "tension processor STFT cache is empty for empty input");
+}
 } // namespace
 
 int main()
@@ -625,6 +669,8 @@ int main()
   testPreviewRecomputeCanAdvanceAndCancel();
   testRefreshNoteCachesUsesNonRestAnalysisSegments();
   testComposeWaveformFollowsOutputFrameCount();
+  testTensionProcessorReturnsSeparateHarmonicAndNoise();
+  testTensionProcessorComputesSTFTCache();
 
   if (failures != 0)
   {

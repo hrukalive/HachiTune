@@ -463,14 +463,23 @@ namespace HNSepCurveProcessor
                               kDefaultTension);
 
             const int noiseSamples = static_cast<int>(clipN.size());
-            auto processedSrc = tensionProc.processSegment(
+            auto hn = tensionProc.processSegmentHN(
                 clipH.data(), clipN.data(),
                 std::min(srcSamples, noiseSamples),
                 srcVoicing.data(), srcBreath.data(), srcTension.data(),
                 srcDurationFrames);
 
+            std::vector<float> mixed(hn.harmonic.size(), 0.0f);
+            for (size_t i = 0; i < mixed.size(); ++i)
+            {
+                mixed[i] = hn.harmonic[i] +
+                           (i < hn.noise.size() ? hn.noise[i] : 0.0f);
+            }
+            if (mixed.empty())
+                continue;
+
             auto srcMel = melComputer.compute(
-                processedSrc.data(), static_cast<int>(processedSrc.size()));
+                mixed.data(), static_cast<int>(mixed.size()));
             if (srcMel.empty())
                 continue;
 
