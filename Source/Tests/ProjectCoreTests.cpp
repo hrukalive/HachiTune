@@ -731,6 +731,30 @@ void testBlendSynthesizedRangeOffsetsClampedNegativeStart()
              "negative start uses aligned fade-out sample");
 }
 
+void testBlendUsesCurrentWaveformWhenAuditionBufferIsStale()
+{
+  Project project;
+  auto& audioData = project.getAudioData();
+  audioData.originalWaveform.setSize(1, 8);
+  audioData.waveform.setSize(1, 8);
+  project.getAuditionBuffer().setSize(1, 8);
+  for (int i = 0; i < 8; ++i)
+  {
+    audioData.originalWaveform.setSample(0, i, 1.0f);
+    audioData.waveform.setSample(0, i, 2.0f);
+    project.getAuditionBuffer().setSample(0, i, 99.0f);
+  }
+
+  resizeEditedData(project.getEditedData(), 2);
+  project.blendSynthesizedRangeIntoAuditionBuffer(
+      std::vector<float>(4, 6.0f), 1, 2, 4);
+
+  expectNear(project.getAuditionBuffer().getSample(0, 0), 2.0f, 0.0001f,
+             "blend baseline uses current waveform before range");
+  expectNear(audioData.waveform.getSample(0, 0), 2.0f, 0.0001f,
+             "blend does not copy stale audition data to waveform");
+}
+
 void testClearSynthesisDirtyForRangeOnlyClearsOverlappingSynthDirty()
 {
   Project project;
@@ -751,6 +775,51 @@ void testClearSynthesisDirtyForRangeOnlyClearsOverlappingSynthDirty()
          "synthesis cleanup preserves display dirty flag");
   expect(project.getNotes()[1].isSynthDirty(),
          "synthesis cleanup leaves non-overlapping synthDirty");
+}
+
+void testCompletedSynthesisDirtyCleanupUsesCapturedSnapshot()
+{
+  Project project;
+  Note note(0, 4, 60.0f);
+  note.setDirty(true);
+  note.setSynthDirty(true);
+  project.addNote(std::move(note));
+  project.setF0DirtyRange(0, 4);
+  project.setParamDirtyRange(0, 4);
+
+  auto snapshot = project.captureDirtyStateSnapshotForRange(0, 4);
+  project.clearDirtyStateForCompletedSynthesis(snapshot);
+
+  expect(!project.getNotes()[0].isDirty(),
+         "snapshot cleanup clears consumed note dirty");
+  expect(!project.getNotes()[0].isSynthDirty(),
+         "snapshot cleanup clears consumed synthDirty");
+  expect(!project.hasF0DirtyRange(),
+         "snapshot cleanup clears consumed f0 range");
+  expect(!project.hasParamDirtyRange(),
+         "snapshot cleanup clears consumed param range");
+
+  project.getNotes()[0].setDirty(true);
+  project.getNotes()[0].setSynthDirty(true);
+  project.setF0DirtyRange(0, 4);
+  project.setParamDirtyRange(0, 4);
+  snapshot = project.captureDirtyStateSnapshotForRange(0, 4);
+
+  project.getNotes()[0].markDirty();
+  project.getNotes()[0].markSynthDirty();
+  project.setF0DirtyRange(0, 4);
+  project.setParamDirtyRange(0, 4);
+
+  project.clearDirtyStateForCompletedSynthesis(snapshot);
+
+  expect(project.getNotes()[0].isDirty(),
+         "snapshot cleanup preserves newer note dirty");
+  expect(project.getNotes()[0].isSynthDirty(),
+         "snapshot cleanup preserves newer synthDirty");
+  expect(project.hasF0DirtyRange(),
+         "snapshot cleanup preserves newer f0 dirty range");
+  expect(project.hasParamDirtyRange(),
+         "snapshot cleanup preserves newer param dirty range");
 }
 
 void testTensionProcessorReturnsSeparateHarmonicAndNoise()
@@ -817,7 +886,9 @@ int main()
   testBlendSynthesizedRangeResizesToOutputDuration();
   testBlendSynthesizedRangeWritesAllChannels();
   testBlendSynthesizedRangeOffsetsClampedNegativeStart();
+  testBlendUsesCurrentWaveformWhenAuditionBufferIsStale();
   testClearSynthesisDirtyForRangeOnlyClearsOverlappingSynthDirty();
+  testCompletedSynthesisDirtyCleanupUsesCapturedSnapshot();
   testTensionProcessorReturnsSeparateHarmonicAndNoise();
   testTensionProcessorComputesSTFTCache();
 

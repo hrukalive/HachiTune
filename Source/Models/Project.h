@@ -7,6 +7,7 @@
 #include "ProjectListener.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 #include <memory>
 #include <utility>
@@ -182,6 +183,29 @@ public:
         bool isValid() const { return messages.empty(); }
     };
 
+    struct DirtyStateSnapshot
+    {
+        struct NoteState
+        {
+            int noteIndex = -1;
+            std::uint64_t dirtyGeneration = 0;
+            bool wasDirty = false;
+            bool wasSynthDirty = false;
+        };
+
+        int f0DirtyStart = -1;
+        int f0DirtyEnd = -1;
+        std::uint64_t f0DirtyGeneration = 0;
+        bool hadF0DirtyRange = false;
+
+        int paramDirtyStart = -1;
+        int paramDirtyEnd = -1;
+        std::uint64_t paramDirtyGeneration = 0;
+        bool hadParamDirtyRange = false;
+
+        std::vector<NoteState> notes;
+    };
+
     Project();
     ~Project() = default;
 
@@ -252,6 +276,10 @@ public:
     void deselectAllNotes();
     void clearAllDirty();
     void clearSynthesisDirtyForRange(int startFrame, int endFrame);
+    DirtyStateSnapshot captureDirtyStateSnapshotForRange(int startFrame,
+                                                         int endFrame) const;
+    void clearDirtyStateForCompletedSynthesis(
+        const DirtyStateSnapshot& snapshot);
 
     // Global settings
     float getGlobalPitchOffset() const { return globalPitchOffset; }
@@ -384,10 +412,12 @@ private:
     // F0 direct edit dirty range
     int f0DirtyStart = -1;
     int f0DirtyEnd = -1;
+    std::uint64_t f0DirtyGeneration = 0;
 
     // Parameter curve edit dirty range (voicing/breath/tension)
     int paramDirtyStart = -1;
     int paramDirtyEnd = -1;
+    std::uint64_t paramDirtyGeneration = 0;
 
     bool modified = false;
 

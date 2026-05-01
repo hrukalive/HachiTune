@@ -169,10 +169,10 @@ public:
     // When synthPreroll > 0, the waveform contains extra leading samples before
     // the note's startFrame*HOP_SIZE, enabling real-audio crossfade at boundaries.
     const std::vector<float>& getSynthWaveform() const { return synthWaveform; }
-    void setSynthWaveform(std::vector<float> samples) { synthWaveform = std::move(samples); synthPreroll = 0; synthDirty = false; }
-    void setSynthWaveform(std::vector<float> samples, int preroll) { synthWaveform = std::move(samples); synthPreroll = preroll; synthDirty = false; }
+    void setSynthWaveform(std::vector<float> samples) { synthWaveform = std::move(samples); synthPreroll = 0; synthDirty = false; ++dirtyGeneration; }
+    void setSynthWaveform(std::vector<float> samples, int preroll) { synthWaveform = std::move(samples); synthPreroll = preroll; synthDirty = false; ++dirtyGeneration; }
     bool hasSynthWaveform() const { return !synthWaveform.empty(); }
-    void clearSynthWaveform() { synthWaveform.clear(); synthPreroll = 0; synthPassId = 0; synthDirty = true; }
+    void clearSynthWaveform() { synthWaveform.clear(); synthPreroll = 0; synthPassId = 0; synthDirty = true; ++dirtyGeneration; }
 
     // Synth preroll: number of margin samples prepended before noteStart in synthWaveform.
     // synthWaveform[0..synthPreroll) covers audio BEFORE noteStart*HOP_SIZE.
@@ -185,8 +185,8 @@ public:
 
     // Synth dirty flag (needs re-synthesis; separate from display dirty flag)
     bool isSynthDirty() const { return synthDirty; }
-    void setSynthDirty(bool d) { synthDirty = d; }
-    void markSynthDirty() { synthDirty = true; synthWaveform.clear(); synthPreroll = 0; synthPassId = 0; }
+    void setSynthDirty(bool d) { synthDirty = d; ++dirtyGeneration; }
+    void markSynthDirty() { synthDirty = true; synthWaveform.clear(); synthPreroll = 0; synthPassId = 0; ++dirtyGeneration; }
 
     // Mel spectrogram clip (original mel frames for this note)
     const std::vector<std::vector<float>>& getClipMel() const { return clipMel; }
@@ -199,9 +199,10 @@ public:
 
     // Dirty flag (for incremental synthesis)
     bool isDirty() const { return dirty; }
-    void setDirty(bool d) { dirty = d; }
-    void markDirty() { dirty = true; }
-    void clearDirty() { dirty = false; }
+    void setDirty(bool d) { dirty = d; ++dirtyGeneration; }
+    void markDirty() { dirty = true; ++dirtyGeneration; }
+    void clearDirty() { dirty = false; ++dirtyGeneration; }
+    std::uint64_t getDirtyGeneration() const { return dirtyGeneration; }
 
     // Rest note (no pitch, just a placeholder for silence)
     bool isRest() const { return rest; }
@@ -296,6 +297,7 @@ private:
     bool selected = false;
     bool dirty = false;       // For incremental synthesis (display/trigger)
     bool synthDirty = true;   // Needs re-synthesis (separate from display dirty)
+    std::uint64_t dirtyGeneration = 0;
     bool rest = false;        // Rest note (silence placeholder)
 
     juce::String lyric;   // Lyric text (e.g., "a", "SP" for silence)

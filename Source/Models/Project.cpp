@@ -297,9 +297,11 @@ void Project::clearAllDirty()
     // Also clear F0 dirty range
     f0DirtyStart = -1;
     f0DirtyEnd = -1;
+    ++f0DirtyGeneration;
     // Also clear parameter dirty range
     paramDirtyStart = -1;
     paramDirtyEnd = -1;
+    ++paramDirtyGeneration;
 }
 
 void Project::clearSynthesisDirtyForRange(int startFrame, int endFrame)
@@ -313,6 +315,82 @@ void Project::clearSynthesisDirtyForRange(int startFrame, int endFrame)
             note.getStartFrame() >= endFrame)
             continue;
         note.setSynthDirty(false);
+    }
+}
+
+Project::DirtyStateSnapshot
+Project::captureDirtyStateSnapshotForRange(int startFrame, int endFrame) const
+{
+    DirtyStateSnapshot snapshot;
+    snapshot.f0DirtyStart = f0DirtyStart;
+    snapshot.f0DirtyEnd = f0DirtyEnd;
+    snapshot.f0DirtyGeneration = f0DirtyGeneration;
+    snapshot.hadF0DirtyRange = hasF0DirtyRange() &&
+                               f0DirtyEnd > startFrame &&
+                               f0DirtyStart < endFrame;
+    snapshot.paramDirtyStart = paramDirtyStart;
+    snapshot.paramDirtyEnd = paramDirtyEnd;
+    snapshot.paramDirtyGeneration = paramDirtyGeneration;
+    snapshot.hadParamDirtyRange = hasParamDirtyRange() &&
+                                  paramDirtyEnd > startFrame &&
+                                  paramDirtyStart < endFrame;
+
+    if (endFrame <= startFrame)
+        return snapshot;
+
+    for (int i = 0; i < static_cast<int>(notes.size()); ++i)
+    {
+        const auto& note = notes[static_cast<size_t>(i)];
+        if (note.getEndFrame() <= startFrame ||
+            note.getStartFrame() >= endFrame)
+            continue;
+        if (!note.isDirty() && !note.isSynthDirty())
+            continue;
+
+        DirtyStateSnapshot::NoteState noteState;
+        noteState.noteIndex = i;
+        noteState.dirtyGeneration = note.getDirtyGeneration();
+        noteState.wasDirty = note.isDirty();
+        noteState.wasSynthDirty = note.isSynthDirty();
+        snapshot.notes.push_back(noteState);
+    }
+
+    return snapshot;
+}
+
+void Project::clearDirtyStateForCompletedSynthesis(
+    const DirtyStateSnapshot& snapshot)
+{
+    for (const auto& noteState : snapshot.notes)
+    {
+        if (noteState.noteIndex < 0 ||
+            noteState.noteIndex >= static_cast<int>(notes.size()))
+            continue;
+
+        auto& note = notes[static_cast<size_t>(noteState.noteIndex)];
+        if (note.getDirtyGeneration() != noteState.dirtyGeneration)
+            continue;
+
+        if (noteState.wasSynthDirty && note.isSynthDirty())
+            note.setSynthDirty(false);
+        if (noteState.wasDirty && note.isDirty())
+            note.clearDirty();
+    }
+
+    if (snapshot.hadF0DirtyRange &&
+        f0DirtyGeneration == snapshot.f0DirtyGeneration &&
+        f0DirtyStart == snapshot.f0DirtyStart &&
+        f0DirtyEnd == snapshot.f0DirtyEnd)
+    {
+        clearF0DirtyRange();
+    }
+
+    if (snapshot.hadParamDirtyRange &&
+        paramDirtyGeneration == snapshot.paramDirtyGeneration &&
+        paramDirtyStart == snapshot.paramDirtyStart &&
+        paramDirtyEnd == snapshot.paramDirtyEnd)
+    {
+        clearParamDirtyRange();
     }
 }
 
@@ -332,12 +410,14 @@ void Project::setF0DirtyRange(int startFrame, int endFrame)
         f0DirtyStart = startFrame;
     if (f0DirtyEnd < 0 || endFrame > f0DirtyEnd)
         f0DirtyEnd = endFrame;
+    ++f0DirtyGeneration;
 }
 
 void Project::clearF0DirtyRange()
 {
     f0DirtyStart = -1;
     f0DirtyEnd = -1;
+    ++f0DirtyGeneration;
 }
 
 bool Project::hasF0DirtyRange() const
@@ -356,12 +436,14 @@ void Project::setParamDirtyRange(int startFrame, int endFrame)
         paramDirtyStart = startFrame;
     if (paramDirtyEnd < 0 || endFrame > paramDirtyEnd)
         paramDirtyEnd = endFrame;
+    ++paramDirtyGeneration;
 }
 
 void Project::clearParamDirtyRange()
 {
     paramDirtyStart = -1;
     paramDirtyEnd = -1;
+    ++paramDirtyGeneration;
 }
 
 bool Project::hasParamDirtyRange() const
@@ -1636,11 +1718,18 @@ void Project::blendSynthesizedRangeIntoAuditionBuffer(
   if (requiredSamples <= 0)
     return;
 
-  if (auditionBuffer.getNumSamples() == 0)
+  const auto& waveform = audioData.waveform;
+  if (waveform.getNumChannels() > 0 && waveform.getNumSamples() > 0)
+  {
+    auditionBuffer.makeCopyOf(waveform);
+  }
+  else if (auditionBuffer.getNumSamples() == 0)
+  {
     initAuditionBufferFromOriginal();
+  }
+
   if (auditionBuffer.getNumChannels() == 0)
   {
-    const auto& waveform = audioData.waveform;
     if (waveform.getNumChannels() > 0)
       auditionBuffer.makeCopyOf(waveform);
   }

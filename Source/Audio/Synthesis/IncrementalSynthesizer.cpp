@@ -296,6 +296,8 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
   debugInfo.synthesisStartFrame = startFrame;
   debugInfo.synthesisEndFrame = endFrame;
+  const auto dirtySnapshot =
+      project->captureDirtyStateSnapshotForRange(startFrame, endFrame);
 
   // Generate blend mask before async call (voicedMask is stable here)
   int hopSize = vocoder->getHopSize();
@@ -308,8 +310,7 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
   bool hasVoiced = std::any_of(blendMask.begin(), blendMask.end(),
                                [](float v) { return v > 0.0f; });
   if (!hasVoiced) {
-    project->clearSynthesisDirtyForRange(startFrame, endFrame);
-    project->clearAllDirty();
+    project->clearDirtyStateForCompletedSynthesis(dirtySnapshot);
     if (onComplete)
       onComplete(true);
     return;
@@ -367,7 +368,8 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
   vocoder->inferAsync(
       std::move(melRange), std::move(adjustedF0Range),
       [this, capturedCancelFlag, capturedProject, capturedStartFrame,
-       capturedEndFrame, hopSize, currentJobId, onComplete](
+       capturedEndFrame, hopSize, currentJobId, onComplete,
+       dirtySnapshot](
           std::vector<float> synthesizedAudio) {
         if (currentJobId != jobId.load())
           return;
@@ -386,7 +388,7 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
         std::thread([this, capturedCancelFlag, capturedProject,
                      capturedStartFrame, capturedEndFrame, hopSize,
-                     currentJobId, onComplete,
+                     currentJobId, onComplete, dirtySnapshot,
                      synthesizedAudio = std::move(synthesizedAudio)]() mutable {
           if (currentJobId != jobId.load())
             return;
@@ -414,11 +416,9 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
           isBusy = false;
           juce::MessageManager::callAsync(
-              [capturedProject, capturedStartFrame, capturedEndFrame,
-               onComplete]() {
-                capturedProject->clearSynthesisDirtyForRange(
-                    capturedStartFrame, capturedEndFrame);
-                capturedProject->clearAllDirty();
+              [capturedProject, dirtySnapshot, onComplete]() {
+                capturedProject->clearDirtyStateForCompletedSynthesis(
+                    dirtySnapshot);
                 capturedProject->notifyListeners(ProjectChangeType::SynthesisComplete);
                 if (onComplete) onComplete(true);
               });
