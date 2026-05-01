@@ -74,16 +74,19 @@ void TreeValueMonitor::onProjectChanged(ProjectChangeType type,
       safeThis->content.melView.rebuildF0Path();
       break;
     case ProjectChangeType::EditedDataChanged:
-      safeThis->content.treeView.refreshProject();
+      safeThis->content.treeView.refresh();
       safeThis->content.melView.rebuildMelImage();
       safeThis->content.melView.rebuildF0Path();
       break;
     case ProjectChangeType::SynthesisComplete:
+      safeThis->content.treeView.refresh();
       safeThis->content.melView.rebuildMelImage();
+      safeThis->content.melView.rebuildF0Path();
       break;
     case ProjectChangeType::WarpChanged:
-      safeThis->content.treeView.refreshProject();
-      safeThis->content.melView.repaint();
+      safeThis->content.treeView.refresh();
+      safeThis->content.melView.rebuildMelImage();
+      safeThis->content.melView.rebuildF0Path();
       break;
     case ProjectChangeType::GlobalParamChanged:
     case ProjectChangeType::SettingsChanged:
