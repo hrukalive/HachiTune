@@ -26,9 +26,13 @@ private:
     {
         if (!project)
             return;
-        project->setWarpMarkers(markers);
         if (onApply)
+        {
             onApply(markers);
+            return;
+        }
+
+        project->setWarpMarkers(markers);
     }
 
     Project* project = nullptr;

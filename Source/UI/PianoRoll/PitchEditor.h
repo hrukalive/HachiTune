@@ -104,7 +104,6 @@ private:
     std::vector<float> drawBeforeF0;
     std::vector<float> drawBeforeDelta;
     std::vector<bool> drawBeforeVoiced;
-    std::vector<bool> drawBeforeEdited;
     int drawMinEditedFrame = std::numeric_limits<int>::max();
     int drawMaxEditedFrame = std::numeric_limits<int>::min();
     int lastDrawFrame = -1;

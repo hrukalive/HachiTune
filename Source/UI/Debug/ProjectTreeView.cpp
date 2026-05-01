@@ -1,6 +1,16 @@
 #include "ProjectTreeView.h"
 #include <algorithm>
 
+namespace
+{
+juce::String formatMatrixSize(const std::vector<std::vector<float>>& matrix)
+{
+  const int rows = static_cast<int>(matrix.size());
+  const int cols = rows > 0 ? static_cast<int>(matrix.front().size()) : 0;
+  return juce::String(rows) + " x " + juce::String(cols);
+}
+} // namespace
+
 // =============================================================================
 // TreeViewItem subclasses
 // =============================================================================
@@ -91,6 +101,13 @@ public:
     check(tiltRight, note.getTiltRight());
     check(smoothLeft, note.getSmoothLeftFrames());
     check(smoothRight, note.getSmoothRightFrames());
+    check(basePitchSize, static_cast<int>(note.getBasePitch().size()));
+    check(deltaPitchSize, static_cast<int>(note.getDeltaPitch().size()));
+    check(originalDeltaPitchSize,
+          static_cast<int>(note.getOriginalDeltaPitch().size()));
+    check(voicingCurveSize, static_cast<int>(note.getVoicingCurve().size()));
+    check(breathCurveSize, static_cast<int>(note.getBreathCurve().size()));
+    check(tensionCurveSize, static_cast<int>(note.getTensionCurve().size()));
 
     if (changed)
     {
@@ -141,6 +158,12 @@ private:
     addSubItem(new PropertyItem("tiltRight: " + juce::String(tiltRight, 2)));
     addSubItem(new PropertyItem("smoothLeft: " + juce::String(smoothLeft) + " frames"));
     addSubItem(new PropertyItem("smoothRight: " + juce::String(smoothRight) + " frames"));
+    addSubItem(new PropertyItem("basePitch cache: " + juce::String(basePitchSize)));
+    addSubItem(new PropertyItem("deltaPitch cache: " + juce::String(deltaPitchSize)));
+    addSubItem(new PropertyItem("originalDelta cache: " + juce::String(originalDeltaPitchSize)));
+    addSubItem(new PropertyItem("voicing cache: " + juce::String(voicingCurveSize)));
+    addSubItem(new PropertyItem("breath cache: " + juce::String(breathCurveSize)));
+    addSubItem(new PropertyItem("tension cache: " + juce::String(tensionCurveSize)));
   }
 
   int noteIndex;
@@ -156,6 +179,12 @@ private:
   float tiltRight = 0.0f;
   int smoothLeft = 0;
   int smoothRight = 0;
+  int basePitchSize = 0;
+  int deltaPitchSize = 0;
+  int originalDeltaPitchSize = 0;
+  int voicingCurveSize = 0;
+  int breathCurveSize = 0;
+  int tensionCurveSize = 0;
 };
 
 // =============================================================================
@@ -274,67 +303,117 @@ void ProjectTreeView::updatePropertyItems()
     }
   };
 
-  // Ensure projCat has 5 property items
-  while (projCat->getNumSubItems() > 5)
-    projCat->removeSubItem(projCat->getNumSubItems() - 1);
+  auto setRows = [&](CategoryItem* cat, const std::vector<juce::String>& rows) {
+    if (!cat)
+      return;
+    while (cat->getNumSubItems() > static_cast<int>(rows.size()))
+      cat->removeSubItem(cat->getNumSubItems() - 1);
+    for (int i = 0; i < static_cast<int>(rows.size()); ++i)
+      setOrUpdate(cat, i, rows[static_cast<size_t>(i)]);
+  };
 
-  setOrUpdate(projCat, 0, "Name: " + project->getName());
-  setOrUpdate(projCat, 1, "GlobalPitchOffset: " + juce::String(project->getGlobalPitchOffset(), 2));
-  setOrUpdate(projCat, 2, "FormantShift: " + juce::String(project->getFormantShift(), 2));
-  setOrUpdate(projCat, 3, "Volume: " + juce::String(project->getVolume(), 2) + " dB");
-  setOrUpdate(projCat, 4, "Modified: " + juce::String(project->isModified() ? "yes" : "no"));
+  setRows(projCat,
+          {"Name: " + project->getName(),
+           "GlobalPitchOffset: " +
+               juce::String(project->getGlobalPitchOffset(), 2),
+           "FormantShift: " + juce::String(project->getFormantShift(), 2),
+           "Volume: " + juce::String(project->getVolume(), 2) + " dB",
+           "Modified: " + juce::String(project->isModified() ? "yes" : "no")});
 
   // --- AnalysisData ---
   const auto& ad = project->getAnalysisData();
   {
     int voicedCount = 0;
-    for (auto v : ad.originalVoicedMask) if (v) ++voicedCount;
+    for (auto v : ad.originalVoicedMask)
+      if (v)
+        ++voicedCount;
     int nonZeroF0 = 0;
-    for (auto v : ad.originalF0) if (v > 0.0f) ++nonZeroF0;
+    for (auto v : ad.originalF0)
+      if (v > 0.0f)
+        ++nonZeroF0;
 
-    const int adProps = 5;
-    while (analysisCat->getNumSubItems() > adProps)
-      analysisCat->removeSubItem(analysisCat->getNumSubItems() - 1);
-    setOrUpdate(analysisCat, 0, "Frames: " + juce::String(ad.getNumFrames()));
-    setOrUpdate(analysisCat, 1, "isEmpty: " + juce::String(ad.isEmpty() ? "yes" : "no"));
-    setOrUpdate(analysisCat, 2, "VoicedFrames: " + juce::String(voicedCount));
-    setOrUpdate(analysisCat, 3, "NonZeroF0: " + juce::String(nonZeroF0));
-    setOrUpdate(analysisCat, 4, "NoteSegments: " + juce::String(static_cast<int>(ad.noteSegments.size())));
+    setRows(analysisCat,
+            {"Frames: " + juce::String(ad.getNumFrames()),
+             "isEmpty: " + juce::String(ad.isEmpty() ? "yes" : "no"),
+             "analysis.originalF0: " + juce::String(static_cast<int>(ad.originalF0.size())),
+             "analysis.originalPitch: " + juce::String(static_cast<int>(ad.originalPitch.size())),
+             "analysis.originalDeltaPitch: " + juce::String(static_cast<int>(ad.originalDeltaPitch.size())),
+             "analysis.originalVoicedMask: " + juce::String(static_cast<int>(ad.originalVoicedMask.size())),
+             "analysis.originalVADMask: " + juce::String(static_cast<int>(ad.originalVADMask.size())),
+             "analysis.noteSegments: " + juce::String(static_cast<int>(ad.noteSegments.size())),
+             "VoicedFrames: " + juce::String(voicedCount),
+             "NonZeroF0: " + juce::String(nonZeroF0)});
   }
 
   // --- EditedData ---
   const auto& ed = project->getEditedData();
   {
     int voicedCount = 0;
-    for (auto v : ed.voicedMask) if (v) ++voicedCount;
+    for (auto v : ed.voicedMask)
+      if (v)
+        ++voicedCount;
     int nonZeroF0 = 0;
-    for (auto v : ed.f0) if (v > 0.0f) ++nonZeroF0;
+    for (auto v : ed.f0)
+      if (v > 0.0f)
+        ++nonZeroF0;
     int nonZeroBP = 0;
-    for (auto v : ed.basePitch) if (v != 0.0f) ++nonZeroBP;
+    for (auto v : ed.basePitch)
+      if (v != 0.0f)
+        ++nonZeroBP;
     int nonZeroDP = 0;
-    for (auto v : ed.deltaPitch) if (v != 0.0f) ++nonZeroDP;
+    for (auto v : ed.deltaPitch)
+      if (v != 0.0f)
+        ++nonZeroDP;
 
-    const int edProps = 7;
-    while (editedCat->getNumSubItems() > edProps)
-      editedCat->removeSubItem(editedCat->getNumSubItems() - 1);
-    setOrUpdate(editedCat, 0, "Frames: " + juce::String(ed.getNumFrames()));
-    setOrUpdate(editedCat, 1, "isEmpty: " + juce::String(ed.isEmpty() ? "yes" : "no"));
-    setOrUpdate(editedCat, 2, "VoicedFrames: " + juce::String(voicedCount));
-    setOrUpdate(editedCat, 3, "NonZeroF0: " + juce::String(nonZeroF0));
-    setOrUpdate(editedCat, 4, "NonZeroBasePitch: " + juce::String(nonZeroBP));
-    setOrUpdate(editedCat, 5, "NonZeroDeltaPitch: " + juce::String(nonZeroDP));
-    setOrUpdate(editedCat, 6, "VoicingCurve size: " + juce::String(static_cast<int>(ed.voicingCurve.size())));
+    const auto validation = project->validateFrameData();
+    std::vector<juce::String> rows = {
+        "Valid: " + juce::String(validation.isValid() ? "yes" : "no")};
+    for (const auto& message : validation.messages)
+      rows.push_back("Validation: " + message);
+    rows.push_back("Frames: " + juce::String(ed.getNumFrames()));
+    rows.push_back("isEmpty: " + juce::String(ed.isEmpty() ? "yes" : "no"));
+    rows.push_back("basePitch size: " +
+                   juce::String(static_cast<int>(ed.basePitch.size())));
+    rows.push_back("deltaPitch size: " +
+                   juce::String(static_cast<int>(ed.deltaPitch.size())));
+    rows.push_back("f0 size: " +
+                   juce::String(static_cast<int>(ed.f0.size())));
+    rows.push_back("voicedMask size: " +
+                   juce::String(static_cast<int>(ed.voicedMask.size())));
+    rows.push_back("vadMask size: " +
+                   juce::String(static_cast<int>(ed.vadMask.size())));
+    rows.push_back("voicingCurve size: " +
+                   juce::String(static_cast<int>(ed.voicingCurve.size())));
+    rows.push_back("breathCurve size: " +
+                   juce::String(static_cast<int>(ed.breathCurve.size())));
+    rows.push_back("tensionCurve size: " +
+                   juce::String(static_cast<int>(ed.tensionCurve.size())));
+    rows.push_back("VoicedFrames: " + juce::String(voicedCount));
+    rows.push_back("NonZeroF0: " + juce::String(nonZeroF0));
+    rows.push_back("NonZeroBasePitch: " + juce::String(nonZeroBP));
+    rows.push_back("NonZeroDeltaPitch: " + juce::String(nonZeroDP));
+    setRows(editedCat, rows);
   }
 
   // --- AudioData ---
   const auto& audioData = project->getAudioData();
-  while (audioCat->getNumSubItems() > 3)
-    audioCat->removeSubItem(audioCat->getNumSubItems() - 1);
-  setOrUpdate(audioCat, 0, "SampleRate: " + juce::String(audioData.sampleRate));
-  setOrUpdate(audioCat, 1, "Waveform: " + juce::String(audioData.waveform.getNumSamples()) + " samples");
-  setOrUpdate(audioCat, 2, "MelSpectrogram: " +
-      juce::String(static_cast<int>(audioData.melSpectrogram.size())) + " x " +
-      juce::String(audioData.melSpectrogram.empty() ? 0 : static_cast<int>(audioData.melSpectrogram[0].size())));
+  setRows(audioCat,
+          {"SampleRate: " + juce::String(audioData.sampleRate),
+           "Waveform: " +
+               juce::String(audioData.waveform.getNumSamples()) + " samples",
+           "audio.sourceMelSpectrogram: " +
+               formatMatrixSize(audioData.sourceMelSpectrogram),
+           "audio.melSpectrogram: " + formatMatrixSize(audioData.melSpectrogram),
+           "audio.harmonicWaveform: " +
+               juce::String(audioData.harmonicWaveform.getNumSamples()) +
+               " samples",
+           "audio.noiseWaveform: " +
+               juce::String(audioData.noiseWaveform.getNumSamples()) +
+               " samples",
+           "project.harmonicSTFT: " +
+               juce::String(static_cast<int>(project->getHarmonicSTFT().size())),
+           "project.noiseSTFT: " +
+               juce::String(static_cast<int>(project->getNoiseSTFT().size()))});
 
   // --- WarpMarkers ---
   const auto& markers = project->getWarpMarkers();

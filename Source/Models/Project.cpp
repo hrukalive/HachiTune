@@ -51,6 +51,159 @@ Project::Project()
 {
 }
 
+int Project::getFrameCount() const
+{
+    if (!editedData.f0.empty())
+        return static_cast<int>(editedData.f0.size());
+    if (!audioData.melSpectrogram.empty())
+        return static_cast<int>(audioData.melSpectrogram.size());
+    return audioData.getNumFrames();
+}
+
+float Project::getBaseF0ForFrame(int frame) const
+{
+    if (frame < 0 || frame >= static_cast<int>(editedData.basePitch.size()))
+        return 0.0f;
+    return midiToFreq(editedData.basePitch[static_cast<size_t>(frame)]);
+}
+
+Project::FrameDataValidation Project::validateFrameData() const
+{
+    FrameDataValidation result;
+    int editedFrames = 0;
+    auto useEditedFrameCount = [&](size_t size) {
+        if (editedFrames == 0 && size > 0)
+            editedFrames = static_cast<int>(size);
+    };
+
+    useEditedFrameCount(editedData.f0.size());
+    useEditedFrameCount(editedData.basePitch.size());
+    useEditedFrameCount(editedData.deltaPitch.size());
+    useEditedFrameCount(editedData.voicedMask.size());
+    useEditedFrameCount(editedData.vadMask.size());
+    useEditedFrameCount(editedData.voicingCurve.size());
+    useEditedFrameCount(editedData.breathCurve.size());
+    useEditedFrameCount(editedData.tensionCurve.size());
+
+    auto checkFloat = [&](const std::vector<float>& values,
+                          const char* name,
+                          bool required) {
+        if (required && values.empty())
+            result.messages.push_back(juce::String(name) + " is empty");
+        if (!values.empty() && static_cast<int>(values.size()) != editedFrames)
+            result.messages.push_back(juce::String(name) + " size mismatch");
+    };
+
+    auto checkBool = [&](const std::vector<bool>& values,
+                         const char* name,
+                         bool required) {
+        if (required && values.empty())
+            result.messages.push_back(juce::String(name) + " is empty");
+        if (!values.empty() && static_cast<int>(values.size()) != editedFrames)
+            result.messages.push_back(juce::String(name) + " size mismatch");
+    };
+
+    if (editedFrames > 0)
+    {
+        checkFloat(editedData.basePitch, "editedData.basePitch", true);
+        checkFloat(editedData.deltaPitch, "editedData.deltaPitch", true);
+        checkFloat(editedData.f0, "editedData.f0", true);
+        checkBool(editedData.voicedMask, "editedData.voicedMask", true);
+        checkBool(editedData.vadMask, "editedData.vadMask", true);
+        checkFloat(editedData.voicingCurve, "editedData.voicingCurve", true);
+        checkFloat(editedData.breathCurve, "editedData.breathCurve", true);
+        checkFloat(editedData.tensionCurve, "editedData.tensionCurve", true);
+    }
+
+    const int analysisFrames = analysisData.getNumFrames();
+    auto checkAnalysisFloat = [&](const std::vector<float>& values,
+                                  const char* name,
+                                  bool required) {
+        if (required && values.empty())
+            result.messages.push_back(juce::String(name) + " is empty");
+        if (!values.empty() && static_cast<int>(values.size()) != analysisFrames)
+            result.messages.push_back(juce::String(name) + " size mismatch");
+    };
+    auto checkAnalysisBool = [&](const std::vector<bool>& values,
+                                 const char* name,
+                                 bool required) {
+        if (required && values.empty())
+            result.messages.push_back(juce::String(name) + " is empty");
+        if (!values.empty() && static_cast<int>(values.size()) != analysisFrames)
+            result.messages.push_back(juce::String(name) + " size mismatch");
+    };
+
+    checkAnalysisFloat(analysisData.originalF0, "analysisData.originalF0", false);
+    const bool requiresAnalysisArrays = analysisFrames > 0;
+    checkAnalysisFloat(analysisData.originalPitch,
+                       "analysisData.originalPitch",
+                       requiresAnalysisArrays);
+    checkAnalysisFloat(analysisData.originalDeltaPitch,
+                       "analysisData.originalDeltaPitch",
+                       requiresAnalysisArrays);
+    checkAnalysisBool(analysisData.originalVoicedMask,
+                      "analysisData.originalVoicedMask",
+                      requiresAnalysisArrays);
+    checkAnalysisBool(analysisData.originalVADMask,
+                      "analysisData.originalVADMask",
+                      requiresAnalysisArrays);
+
+    const int projectFrames = getFrameCount();
+    int nonRestNotes = 0;
+    for (const auto& note : notes)
+    {
+        if (!note.isRest())
+            ++nonRestNotes;
+
+        if (note.getStartFrame() < 0 ||
+            note.getEndFrame() <= note.getStartFrame() ||
+            (projectFrames > 0 && note.getEndFrame() > projectFrames))
+            result.messages.push_back("invalid note output range");
+
+        if (!note.isRest())
+        {
+            const bool invalidSourceRange =
+                note.getSrcStartFrame() < 0 ||
+                note.getSrcEndFrame() <= note.getSrcStartFrame();
+            const bool exceedsAnalysisRange =
+                analysisFrames > 0 && note.getSrcEndFrame() > analysisFrames;
+            if (invalidSourceRange || exceedsAnalysisRange)
+                result.messages.push_back("invalid note source range");
+        }
+    }
+
+    if (((analysisFrames > 0 && nonRestNotes > 0) ||
+         !analysisData.noteSegments.empty()) &&
+        static_cast<int>(analysisData.noteSegments.size()) != nonRestNotes)
+        result.messages.push_back("analysisData.noteSegments count mismatch");
+
+    if (!audioData.melSpectrogram.empty())
+    {
+        const auto bins = audioData.melSpectrogram.front().size();
+        for (const auto& row : audioData.melSpectrogram)
+        {
+            if (row.size() != bins)
+            {
+                result.messages.push_back("audioData.melSpectrogram ragged rows");
+                break;
+            }
+        }
+    }
+
+    int prevSource = -1;
+    int prevOutput = -1;
+    for (const auto& marker : warpMarkers)
+    {
+        if (marker.sourceFrame <= prevSource ||
+            marker.outputFrame <= prevOutput)
+            result.messages.push_back("warpMarkers are not strictly increasing");
+        prevSource = marker.sourceFrame;
+        prevOutput = marker.outputFrame;
+    }
+
+    return result;
+}
+
 Note *Project::getNoteAtFrame(int frame)
 {
     for (auto &note : notes)
@@ -144,9 +297,112 @@ void Project::clearAllDirty()
     // Also clear F0 dirty range
     f0DirtyStart = -1;
     f0DirtyEnd = -1;
+    ++f0DirtyGeneration;
     // Also clear parameter dirty range
     paramDirtyStart = -1;
     paramDirtyEnd = -1;
+    ++paramDirtyGeneration;
+}
+
+void Project::clearSynthesisDirtyForRange(int startFrame, int endFrame)
+{
+    if (endFrame <= startFrame)
+        return;
+
+    for (auto &note : notes)
+    {
+        if (note.getEndFrame() <= startFrame ||
+            note.getStartFrame() >= endFrame)
+            continue;
+        note.setSynthDirty(false);
+    }
+}
+
+Project::DirtyStateSnapshot
+Project::captureDirtyStateSnapshotForRange(int startFrame, int endFrame) const
+{
+    DirtyStateSnapshot snapshot;
+    snapshot.f0DirtyStart = f0DirtyStart;
+    snapshot.f0DirtyEnd = f0DirtyEnd;
+    snapshot.f0DirtyGeneration = f0DirtyGeneration;
+    snapshot.hadF0DirtyRange = hasF0DirtyRange() &&
+                               f0DirtyEnd > startFrame &&
+                               f0DirtyStart < endFrame;
+    snapshot.paramDirtyStart = paramDirtyStart;
+    snapshot.paramDirtyEnd = paramDirtyEnd;
+    snapshot.paramDirtyGeneration = paramDirtyGeneration;
+    snapshot.hadParamDirtyRange = hasParamDirtyRange() &&
+                                  paramDirtyEnd > startFrame &&
+                                  paramDirtyStart < endFrame;
+
+    if (endFrame <= startFrame)
+        return snapshot;
+
+    for (int i = 0; i < static_cast<int>(notes.size()); ++i)
+    {
+        const auto& note = notes[static_cast<size_t>(i)];
+        if (note.getEndFrame() <= startFrame ||
+            note.getStartFrame() >= endFrame)
+            continue;
+        if (!note.isDirty() && !note.isSynthDirty())
+            continue;
+
+        DirtyStateSnapshot::NoteState noteState;
+        noteState.noteIndex = i;
+        noteState.startFrame = note.getStartFrame();
+        noteState.endFrame = note.getEndFrame();
+        noteState.srcStartFrame = note.getSrcStartFrame();
+        noteState.srcEndFrame = note.getSrcEndFrame();
+        noteState.dirtyGeneration = note.getDirtyGeneration();
+        noteState.wasDirty = note.isDirty();
+        noteState.wasSynthDirty = note.isSynthDirty();
+        snapshot.notes.push_back(noteState);
+    }
+
+    return snapshot;
+}
+
+void Project::clearDirtyStateForCompletedSynthesis(
+    const DirtyStateSnapshot& snapshot)
+{
+    for (const auto& noteState : snapshot.notes)
+    {
+        if (noteState.noteIndex < 0 ||
+            noteState.noteIndex >= static_cast<int>(notes.size()))
+            continue;
+
+        auto& note = notes[static_cast<size_t>(noteState.noteIndex)];
+        if (note.getStartFrame() != noteState.startFrame ||
+            note.getEndFrame() != noteState.endFrame ||
+            note.getSrcStartFrame() != noteState.srcStartFrame ||
+            note.getSrcEndFrame() != noteState.srcEndFrame)
+        {
+            continue;
+        }
+        if (note.getDirtyGeneration() != noteState.dirtyGeneration)
+            continue;
+
+        if (noteState.wasSynthDirty && note.isSynthDirty())
+            note.setSynthDirty(false);
+        if (noteState.wasDirty && note.isDirty())
+            note.clearDirty();
+    }
+
+    if (snapshot.hadF0DirtyRange &&
+        f0DirtyGeneration == snapshot.f0DirtyGeneration &&
+        f0DirtyStart == snapshot.f0DirtyStart &&
+        f0DirtyEnd == snapshot.f0DirtyEnd)
+    {
+        clearF0DirtyRange();
+    }
+
+    if (snapshot.hadParamDirtyRange &&
+        paramDirtyGeneration == snapshot.paramDirtyGeneration &&
+        paramDirtyStart == snapshot.paramDirtyStart &&
+        paramDirtyEnd == snapshot.paramDirtyEnd)
+    {
+        clearParamDirtyRange();
+    }
 }
 
 bool Project::hasDirtyNotes() const
@@ -165,12 +421,14 @@ void Project::setF0DirtyRange(int startFrame, int endFrame)
         f0DirtyStart = startFrame;
     if (f0DirtyEnd < 0 || endFrame > f0DirtyEnd)
         f0DirtyEnd = endFrame;
+    ++f0DirtyGeneration;
 }
 
 void Project::clearF0DirtyRange()
 {
     f0DirtyStart = -1;
     f0DirtyEnd = -1;
+    ++f0DirtyGeneration;
 }
 
 bool Project::hasF0DirtyRange() const
@@ -189,12 +447,14 @@ void Project::setParamDirtyRange(int startFrame, int endFrame)
         paramDirtyStart = startFrame;
     if (paramDirtyEnd < 0 || endFrame > paramDirtyEnd)
         paramDirtyEnd = endFrame;
+    ++paramDirtyGeneration;
 }
 
 void Project::clearParamDirtyRange()
 {
     paramDirtyStart = -1;
     paramDirtyEnd = -1;
+    ++paramDirtyGeneration;
 }
 
 bool Project::hasParamDirtyRange() const
@@ -882,8 +1142,11 @@ void Project::composeGlobalWaveform()
               });
 
     // --- Step 2: Compute required output buffer length --------------------
-    // Output must hold all shifted notes + trailing gap after the last note.
-    int requiredSamples = origSamples;
+    // Output follows the edited/warped timeline and can shrink as well as grow.
+    const int outputFrames = getFrameCount();
+    const int timelineSamples =
+        outputFrames > 0 ? outputFrames * HOP_SIZE : origSamples;
+    int requiredSamples = timelineSamples;
     if (!sortedNotes.empty())
     {
         const auto *last = sortedNotes.back();
@@ -895,16 +1158,12 @@ void Project::composeGlobalWaveform()
             lastEnd = std::max(lastEnd, synthEnd);
         }
         requiredSamples = std::max(requiredSamples, lastEnd);
-        // Trailing gap: original audio after last note's source end, placed
-        // after last note's output end.
-        int srcTrailLen = std::max(0,
-                                   origSamples - last->getSrcEndFrame() * HOP_SIZE);
-        requiredSamples = std::max(requiredSamples,
-                                   last->getEndFrame() * HOP_SIZE + srcTrailLen);
     }
 
-    // Resize waveform buffer if needed (grow only — shrinking left to caller)
-    if (waveform.getNumSamples() < requiredSamples)
+    if (requiredSamples <= 0)
+        return;
+
+    if (waveform.getNumSamples() != requiredSamples)
         waveform.setSize(numChannels, requiredSamples, false, true, false);
     const int totalSamples = waveform.getNumSamples();
 
@@ -1010,8 +1269,10 @@ void Project::composeGlobalWaveform()
 
     if (sortedNotes.empty())
     {
-        // No notes — copy entire original
-        copyFromOrig(0, 0, origSamples);
+        if (timelineSamples > 0 && timelineSamples != origSamples)
+            stretchFromOrig(0, 0, origSamples, timelineSamples);
+        else
+            copyFromOrig(0, 0, origSamples);
     }
     else
     {
@@ -1049,11 +1310,10 @@ void Project::composeGlobalWaveform()
             }
             else
             {
-                // Trailing gap: preserve original gap length (1:1 copy),
-                // don't stretch to fill the entire buffer which may be
-                // larger than needed from a previous longer stretch.
+                // Trailing gap follows the warped endpoint so waveform, mel,
+                // and edited curves share the same output duration.
                 gapSrcEnd = origSamples;
-                gapDstEnd = gapDstStart + std::max(0, gapSrcEnd - gapSrcStart);
+                gapDstEnd = timelineSamples;
             }
             int gapSrcLen = gapSrcEnd - gapSrcStart;
             int gapDstLen = gapDstEnd - gapDstStart;
@@ -1447,9 +1707,129 @@ void Project::initAuditionBufferFromOriginal()
 {
   const auto& orig = audioData.originalWaveform;
   if (orig.getNumSamples() > 0)
-  {
     auditionBuffer.makeCopyOf(orig);
+}
+
+void Project::applyNoteVolumeToSynthesizedRange(std::vector<float>& synthesized,
+                                                int startFrame,
+                                                int endFrame,
+                                                int hopSize) const
+{
+  if (synthesized.empty() || hopSize <= 0 || endFrame <= startFrame)
+    return;
+
+  const int expectedSamples = (endFrame - startFrame) * hopSize;
+  const int samplesToProcess =
+      std::min(expectedSamples, static_cast<int>(synthesized.size()));
+  if (samplesToProcess <= 0)
+    return;
+
+  for (const auto& note : notes)
+  {
+    if (note.isRest())
+      continue;
+    if (std::abs(note.getVolumeDb()) < 0.001f)
+      continue;
+
+    const int overlapStart = std::max(startFrame, note.getStartFrame());
+    const int overlapEnd = std::min(endFrame, note.getEndFrame());
+    if (overlapEnd <= overlapStart)
+      continue;
+
+    const int localStart = (overlapStart - startFrame) * hopSize;
+    const int localEnd = (overlapEnd - startFrame) * hopSize;
+    if (localStart >= samplesToProcess)
+      continue;
+
+    const float gain =
+        juce::Decibels::decibelsToGain(note.getVolumeDb(), -60.0f);
+    const int clampedStart = std::max(0, localStart);
+    const int clampedEnd = std::min(samplesToProcess, localEnd);
+    for (int i = clampedStart; i < clampedEnd; ++i)
+      synthesized[static_cast<size_t>(i)] *= gain;
   }
+}
+
+void Project::blendSynthesizedRangeIntoAuditionBuffer(
+    const std::vector<float>& synthesized,
+    int startFrame,
+    int endFrame,
+    int hopSize)
+{
+  if (synthesized.empty() || hopSize <= 0)
+    return;
+
+  const int outputFrames = getFrameCount();
+  const int requiredFrames = outputFrames > 0
+                                 ? std::max(outputFrames, endFrame)
+                                 : endFrame;
+  const int requiredSamples = std::max(0, requiredFrames * hopSize);
+  if (requiredSamples <= 0)
+    return;
+
+  const auto& waveform = audioData.waveform;
+  if (waveform.getNumChannels() > 0 && waveform.getNumSamples() > 0)
+  {
+    auditionBuffer.makeCopyOf(waveform);
+  }
+  else if (auditionBuffer.getNumSamples() == 0)
+  {
+    initAuditionBufferFromOriginal();
+  }
+
+  if (auditionBuffer.getNumChannels() == 0)
+  {
+    if (waveform.getNumChannels() > 0)
+      auditionBuffer.makeCopyOf(waveform);
+  }
+
+  const int numChannels = auditionBuffer.getNumChannels();
+  if (numChannels == 0)
+    return;
+
+  if (auditionBuffer.getNumSamples() != requiredSamples)
+    auditionBuffer.setSize(numChannels, requiredSamples, true, true, false);
+
+  const int rawStartSample = startFrame * hopSize;
+  const int rawEndSample = endFrame * hopSize;
+  const int rangeSamples = rawEndSample - rawStartSample;
+  if (rangeSamples <= 0)
+    return;
+
+  const int sourceSamples =
+      std::min(rangeSamples, static_cast<int>(synthesized.size()));
+  const int sourceOffset = std::max(0, -rawStartSample);
+  if (sourceOffset >= sourceSamples)
+    return;
+
+  const int startSample = std::max(0, rawStartSample);
+  const int endSample = std::min(auditionBuffer.getNumSamples(),
+                                 rawEndSample);
+  if (endSample <= startSample)
+    return;
+
+  const int numSamples = std::min(
+      endSample - startSample, sourceSamples - sourceOffset);
+  const int fade = std::min(hopSize, sourceSamples / 2);
+
+  for (int ch = 0; ch < numChannels; ++ch)
+  {
+    float* dst = auditionBuffer.getWritePointer(ch, startSample);
+    for (int i = 0; i < numSamples; ++i)
+    {
+      const int sourceIndex = sourceOffset + i;
+      float mix = 1.0f;
+      if (fade > 0 && sourceIndex < fade)
+        mix = static_cast<float>(sourceIndex) / static_cast<float>(fade);
+      if (fade > 0 && sourceSamples - 1 - sourceIndex < fade)
+        mix = std::min(mix, static_cast<float>(sourceSamples - 1 - sourceIndex) /
+                            static_cast<float>(fade));
+      const float synth = synthesized[static_cast<size_t>(sourceIndex)];
+      dst[i] = dst[i] + mix * (synth - dst[i]);
+    }
+  }
+
+  audioData.waveform.makeCopyOf(auditionBuffer);
 }
 
 void Project::refreshNoteCaches()
@@ -1458,6 +1838,7 @@ void Project::refreshNoteCaches()
   if (totalFrames == 0)
     return;
 
+  int segmentIndex = 0;
   for (int noteIdx = 0; noteIdx < static_cast<int>(notes.size()); ++noteIdx)
   {
     auto& note = notes[static_cast<size_t>(noteIdx)];
@@ -1491,30 +1872,34 @@ void Project::refreshNoteCaches()
     if (!editedData.tensionCurve.empty())
       note.setTensionCurve(sliceFloat(editedData.tensionCurve));
 
+    if (segmentIndex < static_cast<int>(analysisData.noteSegments.size()))
+    {
+      note.setSrcStartFrame(analysisData.noteSegments[static_cast<size_t>(segmentIndex)].srcStartFrame);
+      note.setSrcEndFrame(analysisData.noteSegments[static_cast<size_t>(segmentIndex)].srcEndFrame);
+    }
+    ++segmentIndex;
+
     const int analysisFrames = analysisData.getNumFrames();
     if (analysisFrames > 0)
     {
+      const int sourceStart = note.getSrcStartFrame();
+      const int sourceEnd = note.getSrcEndFrame();
+      const int sourceLen = sourceEnd - sourceStart;
       auto sliceAnalysis = [&](const std::vector<float>& global) {
-        std::vector<float> slice(static_cast<size_t>(len));
-        for (int i = 0; i < len; ++i)
+        std::vector<float> slice(static_cast<size_t>(sourceLen));
+        for (int i = 0; i < sourceLen; ++i)
         {
-          int gi = start + i;
+          int gi = sourceStart + i;
           if (gi >= 0 && gi < analysisFrames)
             slice[static_cast<size_t>(i)] = global[static_cast<size_t>(gi)];
         }
         return slice;
       };
 
-      if (!analysisData.originalDeltaPitch.empty())
+      if (sourceLen > 0 && !analysisData.originalDeltaPitch.empty())
         note.setOriginalDeltaPitch(sliceAnalysis(analysisData.originalDeltaPitch));
-      if (!analysisData.originalPitch.empty())
+      if (sourceLen > 0 && !analysisData.originalPitch.empty())
         note.setOriginalPitch(sliceAnalysis(analysisData.originalPitch));
-    }
-
-    if (noteIdx < static_cast<int>(analysisData.noteSegments.size()))
-    {
-      note.setSrcStartFrame(analysisData.noteSegments[static_cast<size_t>(noteIdx)].srcStartFrame);
-      note.setSrcEndFrame(analysisData.noteSegments[static_cast<size_t>(noteIdx)].srcEndFrame);
     }
   }
 }

@@ -7,6 +7,7 @@
 #include "ProjectListener.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 #include <memory>
 #include <utility>
@@ -85,7 +86,8 @@ struct AudioData
     int sampleRate = 44100;
 
     // Extracted features
-    std::vector<std::vector<float>> melSpectrogram;      // [T, NUM_MELS]
+    std::vector<std::vector<float>> sourceMelSpectrogram; // source timeline [T, NUM_MELS]
+    std::vector<std::vector<float>> melSpectrogram;       // output timeline [T, NUM_MELS]
     std::vector<std::pair<int, int>> segmentChunkRanges; // [N] GAME slicer chunks in frame range [start, end)
     std::vector<SegmentDebugChunk> segmentDebugChunks;   // raw GAME outputs for debug visualization
     IncrementalSynthesisDebugInfo incrementalDebug;
@@ -175,6 +177,39 @@ public:
         int outputFrame = 0;
     };
 
+    struct FrameDataValidation
+    {
+        std::vector<juce::String> messages;
+        bool isValid() const { return messages.empty(); }
+    };
+
+    struct DirtyStateSnapshot
+    {
+        struct NoteState
+        {
+            int noteIndex = -1;
+            int startFrame = 0;
+            int endFrame = 0;
+            int srcStartFrame = 0;
+            int srcEndFrame = 0;
+            std::uint64_t dirtyGeneration = 0;
+            bool wasDirty = false;
+            bool wasSynthDirty = false;
+        };
+
+        int f0DirtyStart = -1;
+        int f0DirtyEnd = -1;
+        std::uint64_t f0DirtyGeneration = 0;
+        bool hadF0DirtyRange = false;
+
+        int paramDirtyStart = -1;
+        int paramDirtyEnd = -1;
+        std::uint64_t paramDirtyGeneration = 0;
+        bool hadParamDirtyRange = false;
+
+        std::vector<NoteState> notes;
+    };
+
     Project();
     ~Project() = default;
 
@@ -211,6 +246,15 @@ public:
     juce::AudioBuffer<float>& getAuditionBuffer() { return auditionBuffer; }
     const juce::AudioBuffer<float>& getAuditionBuffer() const { return auditionBuffer; }
     void initAuditionBufferFromOriginal();
+    void blendSynthesizedRangeIntoAuditionBuffer(
+        const std::vector<float>& synthesized,
+        int startFrame,
+        int endFrame,
+        int hopSize);
+    void applyNoteVolumeToSynthesizedRange(std::vector<float>& synthesized,
+                                           int startFrame,
+                                           int endFrame,
+                                           int hopSize) const;
 
     // --- STFT cache (interleaved real/imag, kFFTBin*2 floats per frame) ---
     std::vector<float>& getHarmonicSTFT() { return harmonicSTFT; }
@@ -239,6 +283,11 @@ public:
     void selectAllNotes(bool includeRests = false);
     void deselectAllNotes();
     void clearAllDirty();
+    void clearSynthesisDirtyForRange(int startFrame, int endFrame);
+    DirtyStateSnapshot captureDirtyStateSnapshotForRange(int startFrame,
+                                                         int endFrame) const;
+    void clearDirtyStateForCompletedSynthesis(
+        const DirtyStateSnapshot& snapshot);
 
     // Global settings
     float getGlobalPitchOffset() const { return globalPitchOffset; }
@@ -264,6 +313,9 @@ public:
 
     // Get adjusted F0 with all modifications applied
     std::vector<float> getAdjustedF0() const;
+    int getFrameCount() const;
+    float getBaseF0ForFrame(int frame) const;
+    FrameDataValidation validateFrameData() const;
 
     // Get adjusted F0 for a specific frame range
     std::vector<float> getAdjustedF0ForRange(int startFrame, int endFrame) const;
@@ -368,10 +420,12 @@ private:
     // F0 direct edit dirty range
     int f0DirtyStart = -1;
     int f0DirtyEnd = -1;
+    std::uint64_t f0DirtyGeneration = 0;
 
     // Parameter curve edit dirty range (voicing/breath/tension)
     int paramDirtyStart = -1;
     int paramDirtyEnd = -1;
+    std::uint64_t paramDirtyGeneration = 0;
 
     bool modified = false;
 

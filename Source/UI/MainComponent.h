@@ -66,6 +66,7 @@ public:
   Project *getProject() const override {
     return editorController ? editorController->getProject() : nullptr;
   }
+  void attachExternalProject(std::shared_ptr<Project> project) override;
   Vocoder *getVocoder() const override {
     return editorController ? editorController->getVocoder() : nullptr;
   }
@@ -127,6 +128,7 @@ public:
   void triggerResynthesis() override; // Triggered by DAW parameter automation
 
 private:
+  void refreshProjectViews();
   void openFile();
   void exportFile();
   void exportMidiFile();

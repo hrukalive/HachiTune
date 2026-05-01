@@ -22,6 +22,14 @@ public:
       const std::vector<Project::WarpMarker>& markers);
 
   /**
+   * Build an output-timeline mel spectrogram from source-timeline mel.
+   */
+  static std::vector<std::vector<float>> buildOutputMel(
+      const std::vector<std::vector<float>>& sourceMel,
+      const std::vector<Project::WarpMarker>& warpMap,
+      int outputFrameCount);
+
+  /**
    * Stretch all arrays in editedData using warp markers.
    *   basePitch/masks -> nearest neighbor
    *   deltaPitch/curves -> linear interpolation

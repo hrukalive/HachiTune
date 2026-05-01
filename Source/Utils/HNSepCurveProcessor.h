@@ -9,14 +9,14 @@ namespace HNSepCurveProcessor
     constexpr float kDefaultTension = 0.0f;
 
     /**
-     * Ensure dense hnsep master curves exist in AudioData and that each note has
-     * a note-local editable copy. This is the hnsep counterpart to building the
-     * dense base/delta pitch curves after analysis.
+     * Ensure dense hnsep master curves exist in editedData and that each note
+     * has a note-local editable copy. This is the hnsep counterpart to building
+     * the dense base/delta pitch curves after analysis.
      */
     void initializeCurves(Project& project);
 
     /**
-     * Rebuild the dense master curves in AudioData from the current note-local
+     * Rebuild the dense master curves in editedData from the current note-local
      * editable copies. Note curves are resampled to the note's current output
      * duration so stretch operations keep hnsep edits aligned.
      */
@@ -29,7 +29,7 @@ namespace HNSepCurveProcessor
     void rebuildCurvesForRange(Project& project, int startFrame, int endFrame);
 
     /**
-     * Backfill note-local editable copies from existing dense AudioData curves.
+     * Backfill note-local editable copies from existing dense editedData curves.
      * This is primarily used for project loading / backward compatibility.
      */
     void extractNoteCurvesFromMaster(Project& project);
@@ -52,9 +52,9 @@ namespace HNSepCurveProcessor
     /**
      * For each non-rest note overlapping [startFrame, endFrame), run the
      * TensionProcessor at source rate using per-note harmonic/noise clips and
-     * source-duration HNSep curves, recompute mel from the processed audio, and
-     * write the resampled output-duration mel directly into
-     * AudioData::melSpectrogram at the note's output position.
+     * source-duration HNSep curves, recompute mel from the processed audio,
+     * write it into AudioData::sourceMelSpectrogram at source-frame positions,
+     * and rebuild AudioData::melSpectrogram from the current warp map.
      *
      * Call this after rebuildCurvesForRange() when hasActiveEdits() is true to
      * keep the global mel in sync with current voicing/breath/tension edits.

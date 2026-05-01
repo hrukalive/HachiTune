@@ -74,8 +74,15 @@ void StretchProcessor::remapNoteFrames(
     if (newEnd <= newStart)
       newEnd = newStart + 1;
 
+    const int oldStart = note.getStartFrame();
+    const int oldEnd = note.getEndFrame();
     note.setStartFrame(newStart);
     note.setEndFrame(newEnd);
+    if (oldStart != newStart || oldEnd != newEnd)
+    {
+      note.markDirty();
+      note.markSynthDirty();
+    }
   }
 }
 
@@ -111,6 +118,21 @@ std::vector<std::vector<float>> StretchProcessor::stretchMel(
           mel[static_cast<size_t>(srcNext)][static_cast<size_t>(m)] * frac;
     }
   }
+  return result;
+}
+
+std::vector<std::vector<float>> StretchProcessor::buildOutputMel(
+    const std::vector<std::vector<float>>& sourceMel,
+    const std::vector<Project::WarpMarker>& warpMap,
+    int outputFrameCount)
+{
+  if (sourceMel.empty() || outputFrameCount <= 0)
+    return {};
+
+  auto result = warpMap.size() < 2 ? sourceMel : stretchMel(sourceMel, warpMap);
+  const std::vector<float> emptyFrame(
+      sourceMel.front().size(), 0.0f);
+  result.resize(static_cast<size_t>(outputFrameCount), emptyFrame);
   return result;
 }
 

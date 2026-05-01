@@ -53,7 +53,6 @@ private:
   std::vector<float> beforeF0;
   std::vector<float> beforeDelta;
   std::vector<bool> beforeVoiced;
-  std::vector<bool> beforeEdited;
   int minEditedFrame = std::numeric_limits<int>::max();
   int maxEditedFrame = std::numeric_limits<int>::min();
   std::unordered_set<Note *> bakedNotes; // Notes already baked in this session

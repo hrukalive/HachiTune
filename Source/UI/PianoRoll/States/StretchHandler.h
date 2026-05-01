@@ -45,6 +45,7 @@ public:
     int maxFrame = 0;
     std::vector<Project::WarpMarker> originalMarkers;
     std::vector<Project::WarpMarker> previewMarkers;
+    std::vector<Project::WarpMarker> lastAppliedMarkers;
   };
 
   int getHoveredBoundaryIndex() const { return hoveredStretchBoundaryIndex; }

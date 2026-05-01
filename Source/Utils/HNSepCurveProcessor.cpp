@@ -2,6 +2,8 @@
 #include "CurveResampler.h"
 #include "MelSpectrogram.h"
 #include "Constants.h"
+#include "WarpMarkerProcessor.h"
+#include "../Audio/Synthesis/StretchProcessor.h"
 #include "../Audio/TensionProcessor.h"
 
 #include <algorithm>
@@ -9,6 +11,55 @@
 
 namespace
 {
+    bool hasIdentityWarpMap(Project& project)
+    {
+        const auto warpMap = WarpMarkerProcessor::buildWarpMapWithEndpoints(
+            project, project.getWarpMarkers());
+        return warpMap.size() == 2 &&
+               warpMap.front().sourceFrame == 0 &&
+               warpMap.front().outputFrame == 0 &&
+               warpMap.back().sourceFrame == warpMap.back().outputFrame;
+    }
+
+    std::vector<Project::WarpMarker> buildCurrentOutputWarpMap(Project& project)
+    {
+        const auto committedMap = WarpMarkerProcessor::buildWarpMapWithEndpoints(
+            project, project.getWarpMarkers());
+        const int outputFrames = project.getFrameCount();
+
+        std::vector<Project::WarpMarker> noteMarkers;
+        bool hasNotes = false;
+        bool committedMapMatchesNotes = committedMap.size() >= 2 &&
+                                        committedMap.back().outputFrame ==
+                                            outputFrames;
+        for (const auto& note : project.getNotes())
+        {
+            if (note.isRest())
+                continue;
+            hasNotes = true;
+            noteMarkers.push_back({note.getSrcStartFrame(), note.getStartFrame()});
+            noteMarkers.push_back({note.getSrcEndFrame(), note.getEndFrame()});
+
+            const int mappedStart = static_cast<int>(std::round(
+                StretchProcessor::mapFrame(
+                    committedMap, static_cast<float>(note.getSrcStartFrame()))));
+            const int mappedEnd = static_cast<int>(std::round(
+                StretchProcessor::mapFrame(
+                    committedMap, static_cast<float>(note.getSrcEndFrame()))));
+            if (mappedStart != note.getStartFrame() ||
+                mappedEnd != note.getEndFrame())
+            {
+                committedMapMatchesNotes = false;
+            }
+        }
+
+        if (!hasNotes || committedMapMatchesNotes)
+            return committedMap;
+
+        return WarpMarkerProcessor::buildWarpMapWithEndpoints(project,
+                                                              noteMarkers);
+    }
+
     void ensureCurveSizes(EditedData& editedData, int totalFrames)
     {
         if (totalFrames <= 0)
@@ -327,7 +378,13 @@ namespace HNSepCurveProcessor
     {
         auto& audioData = project.getAudioData();
         const auto& editedData = project.getEditedData();
-        if (audioData.melSpectrogram.empty())
+        if (audioData.sourceMelSpectrogram.empty() &&
+            !audioData.melSpectrogram.empty() &&
+            hasIdentityWarpMap(project))
+        {
+            audioData.sourceMelSpectrogram = audioData.melSpectrogram;
+        }
+        if (audioData.sourceMelSpectrogram.empty())
             return;
 
         const bool hasGlobalHNSep =
@@ -342,10 +399,11 @@ namespace HNSepCurveProcessor
             return;
 
         const int numMels =
-            static_cast<int>(audioData.melSpectrogram.front().size());
+            static_cast<int>(audioData.sourceMelSpectrogram.front().size());
 
         TensionProcessor tensionProc;
         MelSpectrogram melComputer(audioData.sampleRate);
+        bool updatedSourceMel = false;
 
         for (const auto& note : project.getNotes())
         {
@@ -405,39 +463,64 @@ namespace HNSepCurveProcessor
                               kDefaultTension);
 
             const int noiseSamples = static_cast<int>(clipN.size());
-            auto processedSrc = tensionProc.processSegment(
+            auto hn = tensionProc.processSegmentHN(
                 clipH.data(), clipN.data(),
                 std::min(srcSamples, noiseSamples),
                 srcVoicing.data(), srcBreath.data(), srcTension.data(),
                 srcDurationFrames);
 
+            std::vector<float> mixed(hn.harmonic.size(), 0.0f);
+            for (size_t i = 0; i < mixed.size(); ++i)
+            {
+                mixed[i] = hn.harmonic[i] +
+                           (i < hn.noise.size() ? hn.noise[i] : 0.0f);
+            }
+            if (mixed.empty())
+                continue;
+
             auto srcMel = melComputer.compute(
-                processedSrc.data(), static_cast<int>(processedSrc.size()));
+                mixed.data(), static_cast<int>(mixed.size()));
             if (srcMel.empty())
                 continue;
 
-            std::vector<std::vector<float>> outMel;
-            if (srcDurationFrames == outDurationFrames)
-                outMel = std::move(srcMel);
-            else
-                outMel = CurveResampler::resampleLinear2D(srcMel, outDurationFrames);
+            if (static_cast<int>(srcMel.size()) != srcDurationFrames)
+                srcMel = CurveResampler::resampleLinear2D(srcMel,
+                                                          srcDurationFrames);
+            srcMel.resize(static_cast<size_t>(srcDurationFrames),
+                          std::vector<float>(static_cast<size_t>(numMels),
+                                             0.0f));
 
-            outMel.resize(static_cast<size_t>(outDurationFrames),
-                          std::vector<float>(static_cast<size_t>(numMels), 0.0f));
-
-            const int writeStart = std::max(startFrame, noteOutStart);
-            const int writeEnd = std::min(endFrame, noteOutEnd);
+            const int sourceStart = note.getSrcStartFrame();
+            const int sourceEnd = note.getSrcEndFrame();
+            const int writeStart = std::max(0, sourceStart);
+            const int writeEnd = std::min(sourceEnd,
+                                          static_cast<int>(
+                                              audioData.sourceMelSpectrogram.size()));
             for (int f = writeStart; f < writeEnd; ++f)
             {
-                const int noteLocal = f - noteOutStart;
+                const int noteLocal = f - sourceStart;
                 if (noteLocal >= 0 &&
-                    noteLocal < static_cast<int>(outMel.size()) &&
-                    f < static_cast<int>(audioData.melSpectrogram.size()))
+                    noteLocal < static_cast<int>(srcMel.size()))
                 {
-                    audioData.melSpectrogram[static_cast<size_t>(f)] =
-                        outMel[static_cast<size_t>(noteLocal)];
+                    audioData.sourceMelSpectrogram[static_cast<size_t>(f)] =
+                        srcMel[static_cast<size_t>(noteLocal)];
+                    updatedSourceMel = true;
                 }
             }
+        }
+
+        if (!updatedSourceMel)
+            return;
+
+        const auto warpMap = buildCurrentOutputWarpMap(project);
+        if (warpMap.size() >= 2)
+        {
+            audioData.melSpectrogram = StretchProcessor::buildOutputMel(
+                audioData.sourceMelSpectrogram, warpMap, project.getFrameCount());
+        }
+        else
+        {
+            audioData.melSpectrogram = audioData.sourceMelSpectrogram;
         }
     }
 } // namespace HNSepCurveProcessor

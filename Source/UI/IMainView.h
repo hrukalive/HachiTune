@@ -2,6 +2,7 @@
 
 #include "../JuceHeader.h"
 #include <functional>
+#include <memory>
 
 class Project;
 class Vocoder;
@@ -28,6 +29,7 @@ public:
   virtual void setOnRequestHostStop(std::function<void()> callback) = 0;
   virtual void setOnRequestHostSeek(
       std::function<void(double)> callback) = 0;
+  virtual void attachExternalProject(std::shared_ptr<Project> project) = 0;
 
   virtual void setHostAudio(const juce::AudioBuffer<float> &buffer,
                             double sampleRate) = 0;

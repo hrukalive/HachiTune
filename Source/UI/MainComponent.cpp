@@ -1445,6 +1445,34 @@ void MainComponent::notifyProjectDataChanged()
     onProjectDataChanged();
 }
 
+void MainComponent::refreshProjectViews()
+{
+  auto *project = getProject();
+  pianoRoll.setProject(project);
+  pianoRollView.setProject(project);
+  parameterPanel.setProject(project);
+
+  if (project)
+  {
+    toolbar.setTotalTime(project->getAudioData().getDuration());
+    toolbar.setLoopEnabled(project->getLoopRange().enabled);
+    pianoRoll.invalidateWaveformCache();
+    pianoRoll.invalidateBasePitchCache();
+    pianoRollView.refreshOverview();
+    parameterPanel.updateFromNote();
+  }
+  else
+  {
+    toolbar.setTotalTime(0.0);
+    toolbar.setLoopEnabled(false);
+  }
+
+  if (commandManager)
+    commandManager->commandStatusChanged();
+
+  repaint();
+}
+
 void MainComponent::undo()
 {
   // Cancel any in-progress drawing first
@@ -1757,6 +1785,14 @@ void MainComponent::filesDropped(const juce::StringArray &files, int /*x*/,
     loadAudioFile(audioFile);
 }
 
+void MainComponent::attachExternalProject(std::shared_ptr<Project> project)
+{
+  if (editorController)
+    editorController->setExternalProject(std::move(project));
+
+  refreshProjectViews();
+}
+
 void MainComponent::setHostAudio(const juce::AudioBuffer<float> &buffer,
                                  double sampleRate)
 {
@@ -1919,6 +1955,7 @@ bool MainComponent::restoreProjectJson(const juce::String &jsonString)
     if (json.isObject())
     {
       ProjectSerializer::fromJson(*project, json);
+      refreshProjectViews();
       return true;
     }
   }

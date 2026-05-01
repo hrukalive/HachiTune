@@ -26,8 +26,10 @@ public:
   explicit EditorController(bool enableAudioDevice);
   ~EditorController();
 
-  Project *getProject() const { return project.get(); }
+  Project *getProject() const { return projectShared.get(); }
+  std::shared_ptr<Project> getSharedProject() const { return projectShared; }
   void setProject(std::unique_ptr<Project> newProject);
+  void setExternalProject(std::shared_ptr<Project> externalProject);
 
   AudioEngine *getAudioEngine() const { return audioEngine.get(); }
   Vocoder *getVocoder() const { return vocoder.get(); }
@@ -113,7 +115,8 @@ public:
 private:
   GPUProvider getProviderFromDevice(const juce::String &device) const;
 
-  std::unique_ptr<Project> project;
+  std::shared_ptr<Project> projectShared;
+  bool externalProjectAttached = false;
   std::unique_ptr<AudioEngine> audioEngine;
   std::unique_ptr<FCPEPitchDetector> fcpePitchDetector;
   std::unique_ptr<RMVPEPitchDetector> rmvpePitchDetector;

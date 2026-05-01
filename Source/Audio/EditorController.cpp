@@ -8,6 +8,7 @@
 #include "../Utils/MelSpectrogram.h"
 #include "../Utils/PitchCurveProcessor.h"
 #include "../Utils/PlatformPaths.h"
+#include "../Utils/WarpMarkerProcessor.h"
 
 #include <algorithm>
 #include <climits>
@@ -15,7 +16,7 @@
 
 EditorController::EditorController(bool enableAudioDevice)
 {
-  project = std::make_unique<Project>();
+  projectShared = std::make_shared<Project>();
   if (enableAudioDevice)
     audioEngine = std::make_unique<AudioEngine>();
 
@@ -61,7 +62,28 @@ EditorController::~EditorController()
 
 void EditorController::setProject(std::unique_ptr<Project> newProject)
 {
-  project = std::move(newProject);
+  if (!newProject)
+  {
+    if (projectShared)
+      *projectShared = Project();
+    else
+      projectShared = std::make_shared<Project>();
+    return;
+  }
+
+  if (externalProjectAttached && projectShared)
+    *projectShared = std::move(*newProject);
+  else
+    projectShared = std::move(newProject);
+}
+
+void EditorController::setExternalProject(std::shared_ptr<Project> externalProject)
+{
+  externalProjectAttached = externalProject != nullptr;
+  if (externalProject)
+    projectShared = std::move(externalProject);
+  else
+    projectShared = std::make_shared<Project>();
 }
 
 bool EditorController::runHNSepSeparation(Project &proj)
@@ -111,58 +133,12 @@ bool EditorController::runHNSepSeparation(Project &proj)
     LOG("runHNSepSeparation: separation complete (" +
         juce::String(numSamples) + " samples)");
 
-    // Cache STFT of harmonic and noise for TensionProcessor
-    {
-      const int hopSize = 512;
-      const int fftSize = 2048;
-      const int fftBin = fftSize / 2 + 1;
-      juce::dsp::FFT stftFFT(11); // log2(2048) = 11
+    proj.getHarmonicSTFT() =
+        TensionProcessor::computeSTFT(audioData.harmonicWaveform);
+    proj.getNoiseSTFT() =
+        TensionProcessor::computeSTFT(audioData.noiseWaveform);
 
-      auto computeSTFT = [&](const juce::AudioBuffer<float>& buffer) -> std::vector<float> {
-        if (buffer.getNumSamples() == 0)
-          return {};
-        const float* data = buffer.getReadPointer(0);
-        const int nSamples = buffer.getNumSamples();
-        const int numSTFTFrames = (nSamples + hopSize - 1) / hopSize;
-        // Hann window
-        std::vector<float> hannWin(static_cast<size_t>(fftSize));
-        const double twoPi = 2.0 * 3.14159265358979323846;
-        for (int n = 0; n < fftSize; ++n)
-          hannWin[static_cast<size_t>(n)] =
-              static_cast<float>(0.5 * (1.0 - std::cos(twoPi * n / fftSize)));
-
-        std::vector<float> stft(static_cast<size_t>(numSTFTFrames * fftBin * 2), 0.0f);
-        std::vector<float> fftBuf(static_cast<size_t>(fftSize * 2), 0.0f);
-
-        for (int f = 0; f < numSTFTFrames; ++f)
-        {
-          const int center = f * hopSize;
-          const int frameStart = center - fftSize / 2;
-          std::fill(fftBuf.begin(), fftBuf.end(), 0.0f);
-          for (int n = 0; n < fftSize; ++n)
-          {
-            const int idx = frameStart + n;
-            float sample = (idx >= 0 && idx < nSamples) ? data[idx] : 0.0f;
-            fftBuf[static_cast<size_t>(n)] = sample * hannWin[static_cast<size_t>(n)];
-          }
-
-          stftFFT.performRealOnlyForwardTransform(fftBuf.data());
-
-          const int offset = f * fftBin * 2;
-          for (int k = 0; k < fftBin; ++k)
-          {
-            stft[static_cast<size_t>(offset + k * 2)] = fftBuf[static_cast<size_t>(k * 2)];
-            stft[static_cast<size_t>(offset + k * 2 + 1)] = fftBuf[static_cast<size_t>(k * 2 + 1)];
-          }
-        }
-        return stft;
-      };
-
-      proj.getHarmonicSTFT() = computeSTFT(audioData.harmonicWaveform);
-      proj.getNoiseSTFT() = computeSTFT(audioData.noiseWaveform);
-
-      LOG("runHNSepSeparation: STFT cache computed");
-    }
+    LOG("runHNSepSeparation: STFT cache computed");
 
     return true;
   }
@@ -479,8 +455,9 @@ void EditorController::loadAudioFileAsync(
          original = std::move(originalWaveform), onComplete]() mutable {
           setProject(std::move(project));
           isLoadingAudio = false;
-          if (this->project)
-            this->project->notifyListeners(ProjectChangeType::AudioDataChanged);
+          if (projectShared)
+            projectShared->notifyListeners(
+                ProjectChangeType::AudioDataChanged);
           if (onComplete)
             onComplete(original);
         }); });
@@ -580,8 +557,9 @@ void EditorController::setHostAudioAsync(
             return;
           setProject(std::move(project));
           isLoadingAudio = false;
-          if (this->project)
-            this->project->notifyListeners(ProjectChangeType::AudioDataChanged);
+          if (projectShared)
+            projectShared->notifyListeners(
+                ProjectChangeType::AudioDataChanged);
           if (onComplete)
             onComplete(original);
         }); });
@@ -809,7 +787,8 @@ void EditorController::analyzeAudio(
   onProgress(0.35, TR("progress.computing_mel"));
   MelSpectrogram melComputer(audioData.sampleRate, N_FFT, HOP_SIZE, NUM_MELS,
                              FMIN, FMAX);
-  audioData.melSpectrogram = melComputer.compute(samples, numSamples);
+  audioData.sourceMelSpectrogram = melComputer.compute(samples, numSamples);
+  audioData.melSpectrogram = audioData.sourceMelSpectrogram;
 
   int targetFrames = static_cast<int>(audioData.melSpectrogram.size());
 
@@ -1092,46 +1071,65 @@ void EditorController::analyzeAudioAsync(
 
   loaderThread = std::thread([this, onProjectReady, onProjectChanged]()
                              {
-    if (!project)
+    if (!projectShared)
       return;
 
-    auto projectCopy = std::make_shared<Project>(*project);
+    auto projectCopy = std::make_shared<Project>(*projectShared);
 
     analyzeAudio(*projectCopy, [](double, const juce::String &) {});
 
     juce::MessageManager::callAsync([this, projectCopy, onProjectReady,
                                      onProjectChanged]() {
-      if (!project)
+      if (!projectShared)
         return;
 
-      project->getAudioData().melSpectrogram =
-          projectCopy->getAudioData().melSpectrogram;
-      project->getEditedData().f0 = projectCopy->getEditedData().f0;
-      project->getEditedData().voicedMask =
-          projectCopy->getEditedData().voicedMask;
-      project->getEditedData().vadMask =
-          projectCopy->getEditedData().vadMask;
-      project->getAudioData().originalWaveform.makeCopyOf(
-          projectCopy->getAudioData().originalWaveform);
-      project->getEditedData().basePitch =
-          projectCopy->getEditedData().basePitch;
-      project->getEditedData().deltaPitch =
-          projectCopy->getEditedData().deltaPitch;
-      project->getEditedData().voicingCurve =
-          projectCopy->getEditedData().voicingCurve;
-      project->getEditedData().breathCurve =
-          projectCopy->getEditedData().breathCurve;
-      project->getEditedData().tensionCurve =
-          projectCopy->getEditedData().tensionCurve;
-      project->getAudioData().harmonicWaveform.makeCopyOf(
-          projectCopy->getAudioData().harmonicWaveform);
-      project->getAudioData().noiseWaveform.makeCopyOf(
-          projectCopy->getAudioData().noiseWaveform);
+      const auto existingWarpMarkers = projectShared->getWarpMarkers();
 
-      project->notifyListeners(ProjectChangeType::AudioDataChanged);
+      projectShared->getAudioData().melSpectrogram =
+          projectCopy->getAudioData().melSpectrogram;
+      projectShared->getAudioData().sourceMelSpectrogram =
+          projectCopy->getAudioData().sourceMelSpectrogram;
+      projectShared->getEditedData().f0 = projectCopy->getEditedData().f0;
+      projectShared->getEditedData().voicedMask =
+          projectCopy->getEditedData().voicedMask;
+      projectShared->getEditedData().vadMask =
+          projectCopy->getEditedData().vadMask;
+      projectShared->getAudioData().originalWaveform.makeCopyOf(
+          projectCopy->getAudioData().originalWaveform);
+      projectShared->getEditedData().basePitch =
+          projectCopy->getEditedData().basePitch;
+      projectShared->getEditedData().deltaPitch =
+          projectCopy->getEditedData().deltaPitch;
+      projectShared->getEditedData().voicingCurve =
+          projectCopy->getEditedData().voicingCurve;
+      projectShared->getEditedData().breathCurve =
+          projectCopy->getEditedData().breathCurve;
+      projectShared->getEditedData().tensionCurve =
+          projectCopy->getEditedData().tensionCurve;
+      projectShared->getAudioData().harmonicWaveform.makeCopyOf(
+          projectCopy->getAudioData().harmonicWaveform);
+      projectShared->getAudioData().noiseWaveform.makeCopyOf(
+          projectCopy->getAudioData().noiseWaveform);
+      projectShared->getNotes() = projectCopy->getNotes();
+      projectShared->getAnalysisData() = projectCopy->getAnalysisData();
+
+      if (!existingWarpMarkers.empty())
+      {
+        const auto sourceMap =
+            WarpMarkerProcessor::buildWarpMapWithEndpoints(*projectShared, {});
+        WarpMarkerProcessor::recomputeFromMarkers(*projectShared, sourceMap,
+                                                  existingWarpMarkers, true);
+      }
+      else
+      {
+        projectShared->clearWarpMarkers();
+        projectShared->refreshNoteCaches();
+      }
+
+      projectShared->notifyListeners(ProjectChangeType::AudioDataChanged);
 
       if (onProjectReady)
-        onProjectReady(*project);
+        onProjectReady(*projectShared);
       if (onProjectChanged)
         onProjectChanged();
     }); });
@@ -1146,21 +1144,21 @@ void EditorController::segmentIntoNotesAsync(
 
   loaderThread = std::thread([this, onProjectReady, onNotesChanged]()
                              {
-    if (!project)
+    if (!projectShared)
       return;
 
-    auto projectCopy = std::make_shared<Project>(*project);
+    auto projectCopy = std::make_shared<Project>(*projectShared);
     segmentIntoNotes(*projectCopy);
 
     juce::MessageManager::callAsync([this, projectCopy, onProjectReady,
                                      onNotesChanged]() {
-      if (!project)
+      if (!projectShared)
         return;
 
-      project->getNotes() = projectCopy->getNotes();
+      projectShared->getNotes() = projectCopy->getNotes();
 
       if (onProjectReady)
-        onProjectReady(*project);
+        onProjectReady(*projectShared);
       if (onNotesChanged)
         onNotesChanged();
     }); });
@@ -1227,10 +1225,13 @@ void EditorController::segmentIntoNotes(Project &targetProject,
 
   auto sliceSourceMelClips = [&]()
   {
-    if (audioData.melSpectrogram.empty())
+    const auto& sourceMel = !audioData.sourceMelSpectrogram.empty()
+        ? audioData.sourceMelSpectrogram
+        : audioData.melSpectrogram;
+    if (sourceMel.empty())
       return;
 
-    const int totalMelFrames = static_cast<int>(audioData.melSpectrogram.size());
+    const int totalMelFrames = static_cast<int>(sourceMel.size());
     for (auto &note : notes)
     {
       const int melStart =
@@ -1245,8 +1246,8 @@ void EditorController::segmentIntoNotes(Project &targetProject,
       }
 
       std::vector<std::vector<float>> melClip(
-          audioData.melSpectrogram.begin() + melStart,
-          audioData.melSpectrogram.begin() + melEnd);
+          sourceMel.begin() + melStart,
+          sourceMel.begin() + melEnd);
       note.setClipMel(std::move(melClip));
     }
   };

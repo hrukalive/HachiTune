@@ -95,7 +95,8 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
     onProgress(0.35, "Computing mel spectrogram...");
   MelSpectrogram melComputer(audioData.sampleRate, N_FFT, HOP_SIZE, NUM_MELS,
                              FMIN, FMAX);
-  audioData.melSpectrogram = melComputer.compute(samples, numSamples);
+  audioData.sourceMelSpectrogram = melComputer.compute(samples, numSamples);
+  audioData.melSpectrogram = audioData.sourceMelSpectrogram;
 
   int targetFrames = static_cast<int>(audioData.melSpectrogram.size());
 

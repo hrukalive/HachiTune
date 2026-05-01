@@ -220,6 +220,20 @@ target_sources(HachiTunePlugin PRIVATE
 add_library(hachitune_core STATIC ${HACHITUNE_CORE_SOURCES})
 add_library(hachitune_ui STATIC ${HACHITUNE_UI_SOURCES})
 
+enable_testing()
+
+add_executable(HachiTuneCoreTests
+    Source/Tests/ProjectCoreTests.cpp)
+
+target_link_libraries(HachiTuneCoreTests PRIVATE
+    hachitune_core
+    juce::juce_gui_basics
+    juce::juce_dsp)
+
+target_compile_features(HachiTuneCoreTests PRIVATE cxx_std_17)
+
+add_test(NAME HachiTuneCoreTests COMMAND HachiTuneCoreTests)
+
 # Binary data for SVG icons
 file(GLOB SVG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/Resources/svg/*.svg")
 set(BINARY_DATA_FILES ${SVG_FILES})
