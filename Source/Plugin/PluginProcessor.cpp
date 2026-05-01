@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "../UI/IMainView.h"
+#include "../Models/ProjectSerializer.h"
 #include "../Utils/Localization.h"
 #include "PluginEditor.h"
 #include <cmath>
@@ -512,6 +513,8 @@ void HachiTuneAudioProcessor::setMainComponent(IMainView *mc) {
         project->setGlobalPitchOffset(po);
       if (std::abs(fs) > 0.001f)
         project->setFormantShift(fs);
+      cachedPitchOffset = project->getGlobalPitchOffset();
+      cachedFormantShift = project->getFormantShift();
     }
 
     if (pendingStateJson.isNotEmpty() &&
@@ -527,7 +530,10 @@ void HachiTuneAudioProcessor::setMainComponent(IMainView *mc) {
             ->setValueNotifyingHost(apvts.getParameter(PARAM_FORMANT_SHIFT)
                                        ->convertTo0to1(
                                            project->getFormantShift()));
+        cachedPitchOffset = project->getGlobalPitchOffset();
+        cachedFormantShift = project->getFormantShift();
       }
+      mc->bindRealtimeProcessor(realtimeProcessor);
     }
   } else {
     realtimeProcessor.setProject(nullptr);
@@ -561,6 +567,9 @@ void HachiTuneAudioProcessor::getStateInformation(
     projectJson = mainComponent->serializeProjectJson();
   } else if (pendingStateJson.isNotEmpty()) {
     projectJson = pendingStateJson;
+  } else if (pluginProject) {
+    auto projectState = ProjectSerializer::toJson(*pluginProject);
+    projectJson = juce::JSON::toString(projectState, false);
   }
 
   if (projectJson.isNotEmpty()) {
@@ -583,6 +592,23 @@ void HachiTuneAudioProcessor::setStateInformation(const void *data,
   if (!parsed.isObject())
     return;
 
+  auto syncProjectParameters = [this](Project *project) {
+    if (!project)
+      return;
+
+    if (auto *pitchParam = apvts.getParameter(PARAM_PITCH_OFFSET)) {
+      pitchParam->setValueNotifyingHost(
+          pitchParam->convertTo0to1(project->getGlobalPitchOffset()));
+    }
+    if (auto *formantParam = apvts.getParameter(PARAM_FORMANT_SHIFT)) {
+      formantParam->setValueNotifyingHost(
+          formantParam->convertTo0to1(project->getFormantShift()));
+    }
+
+    cachedPitchOffset = project->getGlobalPitchOffset();
+    cachedFormantShift = project->getFormantShift();
+  };
+
   // Check if this is a versioned envelope or legacy project JSON
   if (parsed.hasProperty("pluginStateVersion")) {
     // New versioned format
@@ -601,32 +627,38 @@ void HachiTuneAudioProcessor::setStateInformation(const void *data,
     auto projectState = parsed.getProperty("projectState", {});
     if (projectState.isObject()) {
       auto projectJson = juce::JSON::toString(projectState, false);
-      if (mainComponent && mainComponent->restoreProjectJson(projectJson)) {
-        // Sync project values to cached state
-        if (auto *project = mainComponent->getProject()) {
-          cachedPitchOffset = project->getGlobalPitchOffset();
-          cachedFormantShift = project->getFormantShift();
-        }
+      bool restored = false;
+      if (mainComponent) {
+        restored = mainComponent->restoreProjectJson(projectJson);
+      } else if (pluginProject) {
+        restored = ProjectSerializer::fromJson(*pluginProject, projectState);
+      }
+
+      if (restored) {
+        syncProjectParameters(mainComponent ? mainComponent->getProject()
+                                            : pluginProject.get());
+        pendingStateJson.clear();
+        if (mainComponent)
+          mainComponent->bindRealtimeProcessor(realtimeProcessor);
         return;
       }
       pendingStateJson = projectJson;
     }
   } else {
     // Legacy format: raw project JSON (backward compatibility)
-    if (mainComponent && mainComponent->restoreProjectJson(rawString)) {
-      // Sync legacy project values to APVTS
-      if (auto *project = mainComponent->getProject()) {
-        apvts.getParameter(PARAM_PITCH_OFFSET)
-            ->setValueNotifyingHost(apvts.getParameter(PARAM_PITCH_OFFSET)
-                                       ->convertTo0to1(
-                                           project->getGlobalPitchOffset()));
-        apvts.getParameter(PARAM_FORMANT_SHIFT)
-            ->setValueNotifyingHost(apvts.getParameter(PARAM_FORMANT_SHIFT)
-                                       ->convertTo0to1(
-                                           project->getFormantShift()));
-        cachedPitchOffset = project->getGlobalPitchOffset();
-        cachedFormantShift = project->getFormantShift();
-      }
+    bool restored = false;
+    if (mainComponent) {
+      restored = mainComponent->restoreProjectJson(rawString);
+    } else if (pluginProject) {
+      restored = ProjectSerializer::fromJson(*pluginProject, parsed);
+    }
+
+    if (restored) {
+      syncProjectParameters(mainComponent ? mainComponent->getProject()
+                                          : pluginProject.get());
+      pendingStateJson.clear();
+      if (mainComponent)
+        mainComponent->bindRealtimeProcessor(realtimeProcessor);
       return;
     }
     pendingStateJson = rawString;

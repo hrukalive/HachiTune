@@ -16,7 +16,7 @@
 
 EditorController::EditorController(bool enableAudioDevice)
 {
-  project = std::make_unique<Project>();
+  projectShared = std::make_shared<Project>();
   if (enableAudioDevice)
     audioEngine = std::make_unique<AudioEngine>();
 
@@ -62,7 +62,28 @@ EditorController::~EditorController()
 
 void EditorController::setProject(std::unique_ptr<Project> newProject)
 {
-  project = std::move(newProject);
+  if (!newProject)
+  {
+    if (projectShared)
+      *projectShared = Project();
+    else
+      projectShared = std::make_shared<Project>();
+    return;
+  }
+
+  if (externalProjectAttached && projectShared)
+    *projectShared = std::move(*newProject);
+  else
+    projectShared = std::move(newProject);
+}
+
+void EditorController::setExternalProject(std::shared_ptr<Project> externalProject)
+{
+  externalProjectAttached = externalProject != nullptr;
+  if (externalProject)
+    projectShared = std::move(externalProject);
+  else
+    projectShared = std::make_shared<Project>();
 }
 
 bool EditorController::runHNSepSeparation(Project &proj)
@@ -434,8 +455,9 @@ void EditorController::loadAudioFileAsync(
          original = std::move(originalWaveform), onComplete]() mutable {
           setProject(std::move(project));
           isLoadingAudio = false;
-          if (this->project)
-            this->project->notifyListeners(ProjectChangeType::AudioDataChanged);
+          if (projectShared)
+            projectShared->notifyListeners(
+                ProjectChangeType::AudioDataChanged);
           if (onComplete)
             onComplete(original);
         }); });
@@ -535,8 +557,9 @@ void EditorController::setHostAudioAsync(
             return;
           setProject(std::move(project));
           isLoadingAudio = false;
-          if (this->project)
-            this->project->notifyListeners(ProjectChangeType::AudioDataChanged);
+          if (projectShared)
+            projectShared->notifyListeners(
+                ProjectChangeType::AudioDataChanged);
           if (onComplete)
             onComplete(original);
         }); });
@@ -1048,65 +1071,65 @@ void EditorController::analyzeAudioAsync(
 
   loaderThread = std::thread([this, onProjectReady, onProjectChanged]()
                              {
-    if (!project)
+    if (!projectShared)
       return;
 
-    auto projectCopy = std::make_shared<Project>(*project);
+    auto projectCopy = std::make_shared<Project>(*projectShared);
 
     analyzeAudio(*projectCopy, [](double, const juce::String &) {});
 
     juce::MessageManager::callAsync([this, projectCopy, onProjectReady,
                                      onProjectChanged]() {
-      if (!project)
+      if (!projectShared)
         return;
 
-      const auto existingWarpMarkers = project->getWarpMarkers();
+      const auto existingWarpMarkers = projectShared->getWarpMarkers();
 
-      project->getAudioData().melSpectrogram =
+      projectShared->getAudioData().melSpectrogram =
           projectCopy->getAudioData().melSpectrogram;
-      project->getAudioData().sourceMelSpectrogram =
+      projectShared->getAudioData().sourceMelSpectrogram =
           projectCopy->getAudioData().sourceMelSpectrogram;
-      project->getEditedData().f0 = projectCopy->getEditedData().f0;
-      project->getEditedData().voicedMask =
+      projectShared->getEditedData().f0 = projectCopy->getEditedData().f0;
+      projectShared->getEditedData().voicedMask =
           projectCopy->getEditedData().voicedMask;
-      project->getEditedData().vadMask =
+      projectShared->getEditedData().vadMask =
           projectCopy->getEditedData().vadMask;
-      project->getAudioData().originalWaveform.makeCopyOf(
+      projectShared->getAudioData().originalWaveform.makeCopyOf(
           projectCopy->getAudioData().originalWaveform);
-      project->getEditedData().basePitch =
+      projectShared->getEditedData().basePitch =
           projectCopy->getEditedData().basePitch;
-      project->getEditedData().deltaPitch =
+      projectShared->getEditedData().deltaPitch =
           projectCopy->getEditedData().deltaPitch;
-      project->getEditedData().voicingCurve =
+      projectShared->getEditedData().voicingCurve =
           projectCopy->getEditedData().voicingCurve;
-      project->getEditedData().breathCurve =
+      projectShared->getEditedData().breathCurve =
           projectCopy->getEditedData().breathCurve;
-      project->getEditedData().tensionCurve =
+      projectShared->getEditedData().tensionCurve =
           projectCopy->getEditedData().tensionCurve;
-      project->getAudioData().harmonicWaveform.makeCopyOf(
+      projectShared->getAudioData().harmonicWaveform.makeCopyOf(
           projectCopy->getAudioData().harmonicWaveform);
-      project->getAudioData().noiseWaveform.makeCopyOf(
+      projectShared->getAudioData().noiseWaveform.makeCopyOf(
           projectCopy->getAudioData().noiseWaveform);
-      project->getNotes() = projectCopy->getNotes();
-      project->getAnalysisData() = projectCopy->getAnalysisData();
+      projectShared->getNotes() = projectCopy->getNotes();
+      projectShared->getAnalysisData() = projectCopy->getAnalysisData();
 
       if (!existingWarpMarkers.empty())
       {
         const auto sourceMap =
-            WarpMarkerProcessor::buildWarpMapWithEndpoints(*project, {});
-        WarpMarkerProcessor::recomputeFromMarkers(*project, sourceMap,
+            WarpMarkerProcessor::buildWarpMapWithEndpoints(*projectShared, {});
+        WarpMarkerProcessor::recomputeFromMarkers(*projectShared, sourceMap,
                                                   existingWarpMarkers, true);
       }
       else
       {
-        project->clearWarpMarkers();
-        project->refreshNoteCaches();
+        projectShared->clearWarpMarkers();
+        projectShared->refreshNoteCaches();
       }
 
-      project->notifyListeners(ProjectChangeType::AudioDataChanged);
+      projectShared->notifyListeners(ProjectChangeType::AudioDataChanged);
 
       if (onProjectReady)
-        onProjectReady(*project);
+        onProjectReady(*projectShared);
       if (onProjectChanged)
         onProjectChanged();
     }); });
@@ -1121,21 +1144,21 @@ void EditorController::segmentIntoNotesAsync(
 
   loaderThread = std::thread([this, onProjectReady, onNotesChanged]()
                              {
-    if (!project)
+    if (!projectShared)
       return;
 
-    auto projectCopy = std::make_shared<Project>(*project);
+    auto projectCopy = std::make_shared<Project>(*projectShared);
     segmentIntoNotes(*projectCopy);
 
     juce::MessageManager::callAsync([this, projectCopy, onProjectReady,
                                      onNotesChanged]() {
-      if (!project)
+      if (!projectShared)
         return;
 
-      project->getNotes() = projectCopy->getNotes();
+      projectShared->getNotes() = projectCopy->getNotes();
 
       if (onProjectReady)
-        onProjectReady(*project);
+        onProjectReady(*projectShared);
       if (onNotesChanged)
         onNotesChanged();
     }); });

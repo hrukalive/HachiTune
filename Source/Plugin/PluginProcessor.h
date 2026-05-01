@@ -2,6 +2,7 @@
 
 #include "../Audio/Engine/PluginTransportController.h"
 #include "../Audio/RealtimePitchProcessor.h"
+#include "../Models/Project.h"
 #include "../JuceHeader.h"
 #include "HostCompatibility.h"
 #include "NonAraCaptureController.h"
@@ -72,6 +73,7 @@ public:
   // Editor connection
   void setMainComponent(IMainView *mc);
   IMainView *getMainComponent() const { return mainComponent; }
+  std::shared_ptr<Project> getPluginProject() const { return pluginProject; }
 
   // ========== Host Transport Control ==========
 
@@ -171,6 +173,7 @@ private:
   double hostSampleRate = 44100.0;
 
   juce::String pendingStateJson;
+  std::shared_ptr<Project> pluginProject = std::make_shared<Project>();
 
   // Non-ARA capture (Stage 2A): decoupled controller
   std::shared_ptr<NonAraCaptureController> captureController =

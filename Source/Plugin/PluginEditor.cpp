@@ -16,6 +16,7 @@ HachiTuneAudioProcessorEditor::HachiTuneAudioProcessorEditor(
 {
   // Initialize UI resources
   initializeUiResources();
+  mainView->attachExternalProject(audioProcessor.getPluginProject());
 
   // Enable keyboard focus for the editor
   setWantsKeyboardFocus(true);
@@ -90,6 +91,9 @@ void HachiTuneAudioProcessorEditor::setupARAMode() {
   mainView->setOnRequestHostSeek([this](double timeInSeconds) {
     audioProcessor.requestHostSeek(timeInSeconds);
   });
+
+  if (mainView->hasAnalyzedProject())
+    return;
 
   // Check for existing audio sources
   auto *juceDocument = docController->getDocument();
