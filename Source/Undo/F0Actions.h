@@ -17,15 +17,12 @@ public:
                std::vector<float> afterDelta,
                std::vector<bool> beforeVoiced,
                std::vector<bool> afterVoiced,
-               std::vector<bool> beforeEdited,
-               std::vector<bool> afterEdited,
                std::function<void(int, int)> onChanged = nullptr)
       : project(project),
         startFrame(startFrame), endFrame(endFrame),
         beforeF0(std::move(beforeF0)), afterF0(std::move(afterF0)),
         beforeDelta(std::move(beforeDelta)), afterDelta(std::move(afterDelta)),
         beforeVoiced(std::move(beforeVoiced)), afterVoiced(std::move(afterVoiced)),
-        beforeEdited(std::move(beforeEdited)), afterEdited(std::move(afterEdited)),
         onChanged(std::move(onChanged)) {}
 
   void undo() override
@@ -62,7 +59,5 @@ private:
   std::vector<float> afterDelta;
   std::vector<bool> beforeVoiced;
   std::vector<bool> afterVoiced;
-  std::vector<bool> beforeEdited;
-  std::vector<bool> afterEdited;
   std::function<void(int, int)> onChanged;
 };

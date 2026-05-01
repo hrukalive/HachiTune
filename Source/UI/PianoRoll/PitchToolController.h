@@ -56,7 +56,7 @@ public:
   void cancel();
 
   /**
-   * Set project reference (required for accessing audioData.deltaPitch).
+   * Set project reference (required for accessing editedData.deltaPitch).
    */
   void setProject(Project* proj) { project = proj; }
 

@@ -26,7 +26,6 @@ bool DrawHandler::mouseDown(const juce::MouseEvent &e, float worldX,
   beforeF0.clear();
   beforeDelta.clear();
   beforeVoiced.clear();
-  beforeEdited.clear();
   minEditedFrame = std::numeric_limits<int>::max();
   maxEditedFrame = std::numeric_limits<int>::min();
   bakedNotes.clear();
@@ -72,7 +71,6 @@ bool DrawHandler::mouseUp(const juce::MouseEvent &e, float worldX,
     beforeF0.clear();
     beforeDelta.clear();
     beforeVoiced.clear();
-    beforeEdited.clear();
     minEditedFrame = std::numeric_limits<int>::max();
     maxEditedFrame = std::numeric_limits<int>::min();
     lastDrawFrame = -1;
@@ -101,7 +99,6 @@ void DrawHandler::cancel() {
     beforeF0.clear();
     beforeDelta.clear();
     beforeVoiced.clear();
-    beforeEdited.clear();
     minEditedFrame = std::numeric_limits<int>::max();
     maxEditedFrame = std::numeric_limits<int>::min();
     bakedNotes.clear();
@@ -140,7 +137,6 @@ void DrawHandler::cancel() {
   beforeF0.clear();
   beforeDelta.clear();
   beforeVoiced.clear();
-  beforeEdited.clear();
   minEditedFrame = std::numeric_limits<int>::max();
   maxEditedFrame = std::numeric_limits<int>::min();
   bakedNotes.clear();
@@ -240,11 +236,6 @@ void DrawHandler::commitPitchDrawing() {
                                                                rangeEnd - snapshotStartFrame);
     auto slicedBeforeVoiced = SnapshotHelper::captureBoolRange(beforeVoiced, rangeStart - snapshotStartFrame,
                                                                 rangeEnd - snapshotStartFrame);
-    auto slicedBeforeEdited = SnapshotHelper::captureBoolRange(beforeEdited, rangeStart - snapshotStartFrame,
-                                                                rangeEnd - snapshotStartFrame);
-
-    // afterEdited: f0EditedMask removed, provide empty placeholder for undo action
-    auto afterEdited = std::vector<bool>(static_cast<size_t>(rangeEnd - rangeStart), false);
 
     auto action = std::make_unique<F0DrawAction>(
         *owner_.project,
@@ -252,7 +243,6 @@ void DrawHandler::commitPitchDrawing() {
         std::move(slicedBeforeF0), std::move(afterF0),
         std::move(slicedBeforeDelta), std::move(afterDelta),
         std::move(slicedBeforeVoiced), std::move(afterVoiced),
-        std::move(slicedBeforeEdited), std::move(afterEdited),
         [this](int minFrame, int maxFrame) {
           if (owner_.project) {
             owner_.project->setF0DirtyRange(minFrame, maxFrame + 1);
@@ -268,7 +258,6 @@ void DrawHandler::commitPitchDrawing() {
   beforeF0.clear();
   beforeDelta.clear();
   beforeVoiced.clear();
-  beforeEdited.clear();
   minEditedFrame = std::numeric_limits<int>::max();
   maxEditedFrame = std::numeric_limits<int>::min();
   bakedNotes.clear();

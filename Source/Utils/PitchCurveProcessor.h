@@ -34,7 +34,7 @@ namespace PitchCurveProcessor
     /**
      * Rebuild base pitch (midi) from current notes and keep existing delta.
      * Ensures base/delta are dense and aligned to the project frame count,
-     * then composes audioData.f0 (without applying the uv mask).
+     * then composes editedData.f0 (without applying the uv mask).
      */
     void rebuildBaseFromNotes(Project& project);
 
@@ -97,7 +97,7 @@ namespace PitchCurveProcessor
                                  float globalPitchOffset = 0.0f);
 
     /**
-     * Convenience to update audioData.f0 in-place using composeF0.
+     * Convenience to update editedData.f0 in-place using composeF0.
      */
     void composeF0InPlace(Project& project,
                           bool applyUvMask,

@@ -148,11 +148,6 @@ void PitchEditor::endDrawing()
                                                                rangeEnd - drawSnapshotStartFrame);
     auto slicedBeforeVoiced = SnapshotHelper::captureBoolRange(drawBeforeVoiced, rangeStart - drawSnapshotStartFrame,
                                                                 rangeEnd - drawSnapshotStartFrame);
-    auto slicedBeforeEdited = SnapshotHelper::captureBoolRange(drawBeforeEdited, rangeStart - drawSnapshotStartFrame,
-                                                                 rangeEnd - drawSnapshotStartFrame);
-
-    // afterEdited: f0EditedMask removed, provide empty placeholder for undo action
-    auto afterEdited = std::vector<bool>(static_cast<size_t>(rangeEnd - rangeStart), false);
 
     auto action = std::make_unique<F0DrawAction>(
         *project,
@@ -160,7 +155,6 @@ void PitchEditor::endDrawing()
         std::move(slicedBeforeF0), std::move(afterF0),
         std::move(slicedBeforeDelta), std::move(afterDelta),
         std::move(slicedBeforeVoiced), std::move(afterVoiced),
-        std::move(slicedBeforeEdited), std::move(afterEdited),
         [this](int minFrame, int maxFrame) {
           if (project) {
             project->setF0DirtyRange(minFrame, maxFrame + 1);
@@ -176,7 +170,6 @@ void PitchEditor::endDrawing()
   drawBeforeF0.clear();
   drawBeforeDelta.clear();
   drawBeforeVoiced.clear();
-  drawBeforeEdited.clear();
   drawMinEditedFrame = std::numeric_limits<int>::max();
   drawMaxEditedFrame = std::numeric_limits<int>::min();
   lastDrawFrame = -1;

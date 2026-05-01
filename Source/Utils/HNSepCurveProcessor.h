@@ -9,14 +9,14 @@ namespace HNSepCurveProcessor
     constexpr float kDefaultTension = 0.0f;
 
     /**
-     * Ensure dense hnsep master curves exist in AudioData and that each note has
-     * a note-local editable copy. This is the hnsep counterpart to building the
-     * dense base/delta pitch curves after analysis.
+     * Ensure dense hnsep master curves exist in editedData and that each note
+     * has a note-local editable copy. This is the hnsep counterpart to building
+     * the dense base/delta pitch curves after analysis.
      */
     void initializeCurves(Project& project);
 
     /**
-     * Rebuild the dense master curves in AudioData from the current note-local
+     * Rebuild the dense master curves in editedData from the current note-local
      * editable copies. Note curves are resampled to the note's current output
      * duration so stretch operations keep hnsep edits aligned.
      */
@@ -29,7 +29,7 @@ namespace HNSepCurveProcessor
     void rebuildCurvesForRange(Project& project, int startFrame, int endFrame);
 
     /**
-     * Backfill note-local editable copies from existing dense AudioData curves.
+     * Backfill note-local editable copies from existing dense editedData curves.
      * This is primarily used for project loading / backward compatibility.
      */
     void extractNoteCurvesFromMaster(Project& project);
