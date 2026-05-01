@@ -121,6 +121,21 @@ std::vector<std::vector<float>> StretchProcessor::stretchMel(
   return result;
 }
 
+std::vector<std::vector<float>> StretchProcessor::buildOutputMel(
+    const std::vector<std::vector<float>>& sourceMel,
+    const std::vector<Project::WarpMarker>& warpMap,
+    int outputFrameCount)
+{
+  if (sourceMel.empty() || outputFrameCount <= 0)
+    return {};
+
+  auto result = warpMap.size() < 2 ? sourceMel : stretchMel(sourceMel, warpMap);
+  const std::vector<float> emptyFrame(
+      sourceMel.front().size(), 0.0f);
+  result.resize(static_cast<size_t>(outputFrameCount), emptyFrame);
+  return result;
+}
+
 void StretchProcessor::stretchEditedData(
     EditedData& edited,
     const std::vector<Project::WarpMarker>& markers,

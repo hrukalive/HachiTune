@@ -78,6 +78,20 @@ void expectVectorNear(const std::vector<float>& actual,
   }
 }
 
+void expectMelNear(const std::vector<std::vector<float>>& actual,
+                   const std::vector<std::vector<float>>& expected,
+                   float tolerance,
+                   const char* message)
+{
+  if (!require(actual.size() == expected.size(), message))
+    return;
+
+  for (size_t i = 0; i < actual.size(); ++i)
+  {
+    expectVectorNear(actual[i], expected[i], tolerance, message);
+  }
+}
+
 void resizeEditedData(EditedData& edited, int frames)
 {
   edited.basePitch.resize(static_cast<size_t>(frames), 60.0f);
@@ -95,6 +109,8 @@ Project makeProject()
   Project project;
   project.setName("CoreTest");
   project.getAudioData().sampleRate = 44100;
+  project.getAudioData().sourceMelSpectrogram = {
+      {0.1f, 0.2f}, {0.2f, 0.3f}, {0.3f, 0.4f}, {0.4f, 0.5f}};
   project.getAudioData().melSpectrogram = {
       {0.1f, 0.2f}, {0.2f, 0.3f}, {0.3f, 0.4f}, {0.4f, 0.5f}};
 
@@ -362,6 +378,37 @@ void testStretchEditedData()
   expect(data.basePitch[1] == 62.0f, "basePitch uses nearest interpolation");
 }
 
+void testBuildOutputMelUsesRequestedFrameCount()
+{
+  const std::vector<std::vector<float>> sourceMel = {
+      {0.0f, 1.0f}, {10.0f, 11.0f}, {20.0f, 21.0f}};
+  const std::vector<Project::WarpMarker> markers = {{0, 0}, {2, 3}};
+
+  const auto output =
+      StretchProcessor::buildOutputMel(sourceMel, markers, 5);
+
+  if (!require(output.size() == 5, "output mel uses requested frame count"))
+    return;
+  if (!require(output[0].size() == 2, "output mel preserves bin count"))
+    return;
+  expectVectorNear(output[0], {0.0f, 1.0f}, 0.0001f,
+                   "output mel starts from source");
+  expectVectorNear(output[3], {0.0f, 0.0f}, 0.0001f,
+                   "output mel pads extra frames with zeros");
+  expectVectorNear(output[4], {0.0f, 0.0f}, 0.0001f,
+                   "output mel pads final extra frame with zeros");
+
+  const auto noMapOutput =
+      StretchProcessor::buildOutputMel(sourceMel, {}, 5);
+  if (!require(noMapOutput.size() == 5,
+               "output mel honors requested frame count without markers"))
+    return;
+  expectVectorNear(noMapOutput[0], {0.0f, 1.0f}, 0.0001f,
+                   "no-map output keeps source frame");
+  expectVectorNear(noMapOutput[3], {0.0f, 0.0f}, 0.0001f,
+                   "no-map output pads extra frame");
+}
+
 void testWarpEndpoints()
 {
   auto project = makeProject();
@@ -372,6 +419,35 @@ void testWarpEndpoints()
   expect(markers.front().outputFrame == 0, "warp starts at output 0");
   expect(markers.back().sourceFrame == 4, "warp ends at source end");
   expect(markers.back().outputFrame == 4, "warp ends at output end");
+}
+
+void testRecomputeFromMarkersBuildsMelFromSourceCache()
+{
+  auto project = makeProject();
+  const std::vector<std::vector<float>> sourceMel = {
+      {0.0f}, {10.0f}, {20.0f}, {30.0f}};
+  const std::vector<Project::WarpMarker> current = {
+      {0, 0}, {2, 3}, {4, 5}};
+  const std::vector<Project::WarpMarker> target = {
+      {0, 0}, {2, 4}, {4, 6}};
+
+  project.getAudioData().sourceMelSpectrogram = sourceMel;
+  project.getAudioData().melSpectrogram.assign(5, {999.0f});
+
+  WarpMarkerProcessor::recomputeFromMarkers(project, current, target, false);
+
+  const auto targetMap =
+      WarpMarkerProcessor::buildWarpMapWithEndpoints(project, target);
+  const auto expected =
+      StretchProcessor::buildOutputMel(sourceMel, targetMap,
+                                       static_cast<int>(
+                                           project.getEditedData().f0.size()));
+  expectMelNear(project.getAudioData().melSpectrogram, expected, 0.0001f,
+                "recompute rebuilds output mel from source cache");
+  expectMelNear(project.getAudioData().sourceMelSpectrogram, sourceMel,
+                0.0001f, "recompute preserves source mel cache");
+  expect(project.getWarpMarkers().empty(),
+         "source-mel recompute preview does not commit project markers");
 }
 
 void testNormalizePreservesEndpointOutputLength()
@@ -541,7 +617,9 @@ int main()
   testLoadWithoutPitchPayloadClearsProjectData();
   testValidation();
   testStretchEditedData();
+  testBuildOutputMelUsesRequestedFrameCount();
   testWarpEndpoints();
+  testRecomputeFromMarkersBuildsMelFromSourceCache();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();
   testPreviewRecomputeCanAdvanceAndCancel();

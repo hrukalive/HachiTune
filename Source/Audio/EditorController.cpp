@@ -8,6 +8,7 @@
 #include "../Utils/MelSpectrogram.h"
 #include "../Utils/PitchCurveProcessor.h"
 #include "../Utils/PlatformPaths.h"
+#include "../Utils/WarpMarkerProcessor.h"
 
 #include <algorithm>
 #include <climits>
@@ -809,7 +810,8 @@ void EditorController::analyzeAudio(
   onProgress(0.35, TR("progress.computing_mel"));
   MelSpectrogram melComputer(audioData.sampleRate, N_FFT, HOP_SIZE, NUM_MELS,
                              FMIN, FMAX);
-  audioData.melSpectrogram = melComputer.compute(samples, numSamples);
+  audioData.sourceMelSpectrogram = melComputer.compute(samples, numSamples);
+  audioData.melSpectrogram = audioData.sourceMelSpectrogram;
 
   int targetFrames = static_cast<int>(audioData.melSpectrogram.size());
 
@@ -1104,8 +1106,12 @@ void EditorController::analyzeAudioAsync(
       if (!project)
         return;
 
+      const auto existingWarpMarkers = project->getWarpMarkers();
+
       project->getAudioData().melSpectrogram =
           projectCopy->getAudioData().melSpectrogram;
+      project->getAudioData().sourceMelSpectrogram =
+          projectCopy->getAudioData().sourceMelSpectrogram;
       project->getEditedData().f0 = projectCopy->getEditedData().f0;
       project->getEditedData().voicedMask =
           projectCopy->getEditedData().voicedMask;
@@ -1127,6 +1133,21 @@ void EditorController::analyzeAudioAsync(
           projectCopy->getAudioData().harmonicWaveform);
       project->getAudioData().noiseWaveform.makeCopyOf(
           projectCopy->getAudioData().noiseWaveform);
+      project->getNotes() = projectCopy->getNotes();
+      project->getAnalysisData() = projectCopy->getAnalysisData();
+
+      if (!existingWarpMarkers.empty())
+      {
+        const auto sourceMap =
+            WarpMarkerProcessor::buildWarpMapWithEndpoints(*project, {});
+        WarpMarkerProcessor::recomputeFromMarkers(*project, sourceMap,
+                                                  existingWarpMarkers, true);
+      }
+      else
+      {
+        project->clearWarpMarkers();
+        project->refreshNoteCaches();
+      }
 
       project->notifyListeners(ProjectChangeType::AudioDataChanged);
 
@@ -1227,10 +1248,13 @@ void EditorController::segmentIntoNotes(Project &targetProject,
 
   auto sliceSourceMelClips = [&]()
   {
-    if (audioData.melSpectrogram.empty())
+    const auto& sourceMel = !audioData.sourceMelSpectrogram.empty()
+        ? audioData.sourceMelSpectrogram
+        : audioData.melSpectrogram;
+    if (sourceMel.empty())
       return;
 
-    const int totalMelFrames = static_cast<int>(audioData.melSpectrogram.size());
+    const int totalMelFrames = static_cast<int>(sourceMel.size());
     for (auto &note : notes)
     {
       const int melStart =
@@ -1245,8 +1269,8 @@ void EditorController::segmentIntoNotes(Project &targetProject,
       }
 
       std::vector<std::vector<float>> melClip(
-          audioData.melSpectrogram.begin() + melStart,
-          audioData.melSpectrogram.begin() + melEnd);
+          sourceMel.begin() + melStart,
+          sourceMel.begin() + melEnd);
       note.setClipMel(std::move(melClip));
     }
   };

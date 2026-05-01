@@ -3,12 +3,23 @@
 #include "../../Utils/CurveResampler.h"
 #include "../../Utils/HNSepCurveProcessor.h"
 #include "../../Utils/PitchCurveProcessor.h"
+#include "../../Utils/WarpMarkerProcessor.h"
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 
 namespace
 {
+bool hasIdentityWarpMap(Project& project)
+{
+    const auto warpMap = WarpMarkerProcessor::buildWarpMapWithEndpoints(
+        project, project.getWarpMarkers());
+    return warpMap.size() == 2 &&
+           warpMap.front().sourceFrame == 0 &&
+           warpMap.front().outputFrame == 0 &&
+           warpMap.back().sourceFrame == warpMap.back().outputFrame;
+}
+
 double computeSplitRatio(int splitFrame, int startFrame, int endFrame)
 {
     const int durationFrames = endFrame - startFrame;
@@ -218,14 +229,18 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     // Ensure clip mel exists before splitting
     if (!note->hasClipMel()) {
         auto& audioData = project->getAudioData();
-        if (!audioData.melSpectrogram.empty()) {
-            int melSize = static_cast<int>(audioData.melSpectrogram.size());
+        const auto* sourceMel = !audioData.sourceMelSpectrogram.empty()
+            ? &audioData.sourceMelSpectrogram
+            : (hasIdentityWarpMap(*project) ? &audioData.melSpectrogram
+                                            : nullptr);
+        if (sourceMel != nullptr && !sourceMel->empty()) {
+            int melSize = static_cast<int>(sourceMel->size());
             int melStart = std::max(0, std::min(srcStartFrame, melSize));
             int melEnd = std::max(melStart, std::min(srcEndFrame, melSize));
             if (melEnd > melStart) {
                 std::vector<std::vector<float>> melClip(
-                    audioData.melSpectrogram.begin() + melStart,
-                    audioData.melSpectrogram.begin() + melEnd);
+                    sourceMel->begin() + melStart,
+                    sourceMel->begin() + melEnd);
                 note->setClipMel(std::move(melClip));
             }
         }

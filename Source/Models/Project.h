@@ -85,7 +85,8 @@ struct AudioData
     int sampleRate = 44100;
 
     // Extracted features
-    std::vector<std::vector<float>> melSpectrogram;      // [T, NUM_MELS]
+    std::vector<std::vector<float>> sourceMelSpectrogram; // source timeline [T, NUM_MELS]
+    std::vector<std::vector<float>> melSpectrogram;       // output timeline [T, NUM_MELS]
     std::vector<std::pair<int, int>> segmentChunkRanges; // [N] GAME slicer chunks in frame range [start, end)
     std::vector<SegmentDebugChunk> segmentDebugChunks;   // raw GAME outputs for debug visualization
     IncrementalSynthesisDebugInfo incrementalDebug;

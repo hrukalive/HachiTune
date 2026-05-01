@@ -93,8 +93,9 @@ void MainComponent::openProjectFile(const juce::File &file) {
                   const int numSamples = audioData.waveform.getNumSamples();
                   MelSpectrogram melComputer(audioData.sampleRate, N_FFT,
                                              HOP_SIZE, NUM_MELS, FMIN, FMAX);
-                  audioData.melSpectrogram =
+                  audioData.sourceMelSpectrogram =
                       melComputer.compute(samples, numSamples);
+                  audioData.melSpectrogram = audioData.sourceMelSpectrogram;
                 }
 
                 if (editedData.voicedMask.empty() && !editedData.f0.empty()) {
