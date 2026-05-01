@@ -308,6 +308,7 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
   bool hasVoiced = std::any_of(blendMask.begin(), blendMask.end(),
                                [](float v) { return v > 0.0f; });
   if (!hasVoiced) {
+    project->clearSynthesisDirtyForRange(startFrame, endFrame);
     project->clearAllDirty();
     if (onComplete)
       onComplete(true);
@@ -413,7 +414,10 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
           isBusy = false;
           juce::MessageManager::callAsync(
-              [capturedProject, onComplete]() {
+              [capturedProject, capturedStartFrame, capturedEndFrame,
+               onComplete]() {
+                capturedProject->clearSynthesisDirtyForRange(
+                    capturedStartFrame, capturedEndFrame);
                 capturedProject->clearAllDirty();
                 capturedProject->notifyListeners(ProjectChangeType::SynthesisComplete);
                 if (onComplete) onComplete(true);

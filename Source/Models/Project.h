@@ -251,6 +251,7 @@ public:
     void selectAllNotes(bool includeRests = false);
     void deselectAllNotes();
     void clearAllDirty();
+    void clearSynthesisDirtyForRange(int startFrame, int endFrame);
 
     // Global settings
     float getGlobalPitchOffset() const { return globalPitchOffset; }

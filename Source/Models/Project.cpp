@@ -302,6 +302,20 @@ void Project::clearAllDirty()
     paramDirtyEnd = -1;
 }
 
+void Project::clearSynthesisDirtyForRange(int startFrame, int endFrame)
+{
+    if (endFrame <= startFrame)
+        return;
+
+    for (auto &note : notes)
+    {
+        if (note.getEndFrame() <= startFrame ||
+            note.getStartFrame() >= endFrame)
+            continue;
+        note.setSynthDirty(false);
+    }
+}
+
 bool Project::hasDirtyNotes() const
 {
     for (const auto &note : notes)
@@ -1613,31 +1627,68 @@ void Project::blendSynthesizedRangeIntoAuditionBuffer(
 {
   if (synthesized.empty() || hopSize <= 0)
     return;
+
+  const int outputFrames = getFrameCount();
+  const int requiredFrames = outputFrames > 0
+                                 ? std::max(outputFrames, endFrame)
+                                 : endFrame;
+  const int requiredSamples = std::max(0, requiredFrames * hopSize);
+  if (requiredSamples <= 0)
+    return;
+
   if (auditionBuffer.getNumSamples() == 0)
     initAuditionBufferFromOriginal();
   if (auditionBuffer.getNumChannels() == 0)
+  {
+    const auto& waveform = audioData.waveform;
+    if (waveform.getNumChannels() > 0)
+      auditionBuffer.makeCopyOf(waveform);
+  }
+
+  const int numChannels = auditionBuffer.getNumChannels();
+  if (numChannels == 0)
     return;
 
-  const int startSample = std::max(0, startFrame * hopSize);
+  if (auditionBuffer.getNumSamples() != requiredSamples)
+    auditionBuffer.setSize(numChannels, requiredSamples, true, true, false);
+
+  const int rawStartSample = startFrame * hopSize;
+  const int rawEndSample = endFrame * hopSize;
+  const int rangeSamples = rawEndSample - rawStartSample;
+  if (rangeSamples <= 0)
+    return;
+
+  const int sourceSamples =
+      std::min(rangeSamples, static_cast<int>(synthesized.size()));
+  const int sourceOffset = std::max(0, -rawStartSample);
+  if (sourceOffset >= sourceSamples)
+    return;
+
+  const int startSample = std::max(0, rawStartSample);
   const int endSample = std::min(auditionBuffer.getNumSamples(),
-                                 endFrame * hopSize);
+                                 rawEndSample);
   if (endSample <= startSample)
     return;
 
   const int numSamples = std::min(
-      endSample - startSample, static_cast<int>(synthesized.size()));
-  float* dst = auditionBuffer.getWritePointer(0, startSample);
-  const int fade = std::min(hopSize, numSamples / 2);
+      endSample - startSample, sourceSamples - sourceOffset);
+  const int fade = std::min(hopSize, sourceSamples / 2);
 
-  for (int i = 0; i < numSamples; ++i)
+  for (int ch = 0; ch < numChannels; ++ch)
   {
-    float mix = 1.0f;
-    if (fade > 0 && i < fade)
-      mix = static_cast<float>(i) / static_cast<float>(fade);
-    if (fade > 0 && numSamples - 1 - i < fade)
-      mix = std::min(mix, static_cast<float>(numSamples - 1 - i) /
-                          static_cast<float>(fade));
-    dst[i] = dst[i] + mix * (synthesized[static_cast<size_t>(i)] - dst[i]);
+    float* dst = auditionBuffer.getWritePointer(ch, startSample);
+    for (int i = 0; i < numSamples; ++i)
+    {
+      const int sourceIndex = sourceOffset + i;
+      float mix = 1.0f;
+      if (fade > 0 && sourceIndex < fade)
+        mix = static_cast<float>(sourceIndex) / static_cast<float>(fade);
+      if (fade > 0 && sourceSamples - 1 - sourceIndex < fade)
+        mix = std::min(mix, static_cast<float>(sourceSamples - 1 - sourceIndex) /
+                            static_cast<float>(fade));
+      const float synth = synthesized[static_cast<size_t>(sourceIndex)];
+      dst[i] = dst[i] + mix * (synth - dst[i]);
+    }
   }
 
   audioData.waveform.makeCopyOf(auditionBuffer);

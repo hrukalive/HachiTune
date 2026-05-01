@@ -621,6 +621,7 @@ void testBlendSynthesizedRangeIntoAuditionBuffer()
     audioData.waveform.setSample(0, i, 1.0f);
   }
 
+  resizeEditedData(project.getEditedData(), 4);
   project.blendSynthesizedRangeIntoAuditionBuffer(
       std::vector<float>(8, 5.0f), 1, 3, 4);
 
@@ -644,6 +645,112 @@ void testBlendSynthesizedRangeIntoAuditionBuffer()
              "blend leaves samples after range unchanged");
   expectNear(audioData.waveform.getSample(0, 8), audition.getSample(0, 8),
              0.0001f, "blend syncs audio waveform from audition buffer");
+}
+
+void testBlendSynthesizedRangeResizesToOutputDuration()
+{
+  Project project;
+  auto& audioData = project.getAudioData();
+  audioData.originalWaveform.setSize(1, 8);
+  audioData.waveform.setSize(1, 8);
+  for (int i = 0; i < 8; ++i)
+  {
+    audioData.originalWaveform.setSample(0, i, 1.0f);
+    audioData.waveform.setSample(0, i, 1.0f);
+  }
+
+  resizeEditedData(project.getEditedData(), 4);
+  project.blendSynthesizedRangeIntoAuditionBuffer(
+      std::vector<float>(16, 5.0f), 0, 4, 4);
+
+  expect(project.getAuditionBuffer().getNumSamples() == 16,
+         "blend grows audition buffer to output duration");
+  expect(audioData.waveform.getNumSamples() == 16,
+         "blend grows audio waveform to output duration");
+
+  resizeEditedData(project.getEditedData(), 2);
+  project.blendSynthesizedRangeIntoAuditionBuffer(
+      std::vector<float>(8, 2.0f), 0, 2, 4);
+
+  expect(project.getAuditionBuffer().getNumSamples() == 8,
+         "blend shrinks audition buffer to output duration");
+  expect(audioData.waveform.getNumSamples() == 8,
+         "blend removes stale waveform tail after shrink");
+}
+
+void testBlendSynthesizedRangeWritesAllChannels()
+{
+  Project project;
+  auto& audioData = project.getAudioData();
+  audioData.originalWaveform.setSize(2, 12);
+  audioData.waveform.setSize(2, 12);
+  for (int i = 0; i < 12; ++i)
+  {
+    audioData.originalWaveform.setSample(0, i, 1.0f);
+    audioData.originalWaveform.setSample(1, i, 2.0f);
+    audioData.waveform.setSample(0, i, 1.0f);
+    audioData.waveform.setSample(1, i, 2.0f);
+  }
+
+  resizeEditedData(project.getEditedData(), 3);
+  project.blendSynthesizedRangeIntoAuditionBuffer(
+      std::vector<float>(12, 5.0f), 0, 3, 4);
+
+  const auto& audition = project.getAuditionBuffer();
+  expectNear(audition.getSample(0, 4), 5.0f, 0.0001f,
+             "blend writes synthesized audio to channel 0");
+  expectNear(audition.getSample(1, 4), 5.0f, 0.0001f,
+             "blend duplicates synthesized audio to channel 1");
+  expectNear(audioData.waveform.getSample(1, 4), 5.0f, 0.0001f,
+             "blend syncs all channels to audio waveform");
+}
+
+void testBlendSynthesizedRangeOffsetsClampedNegativeStart()
+{
+  Project project;
+  auto& audioData = project.getAudioData();
+  audioData.originalWaveform.setSize(1, 4);
+  audioData.waveform.setSize(1, 4);
+  for (int i = 0; i < 4; ++i)
+  {
+    audioData.originalWaveform.setSample(0, i, 1.0f);
+    audioData.waveform.setSample(0, i, 1.0f);
+  }
+
+  resizeEditedData(project.getEditedData(), 1);
+  project.blendSynthesizedRangeIntoAuditionBuffer(
+      {10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f, 80.0f},
+      -1, 1, 4);
+
+  const auto& audition = project.getAuditionBuffer();
+  expectNear(audition.getSample(0, 0), 37.75f, 0.0001f,
+             "negative start skips offscreen synthesized samples");
+  expectNear(audition.getSample(0, 1), 30.5f, 0.0001f,
+             "negative start preserves fade alignment");
+  expectNear(audition.getSample(0, 3), 1.0f, 0.0001f,
+             "negative start uses aligned fade-out sample");
+}
+
+void testClearSynthesisDirtyForRangeOnlyClearsOverlappingSynthDirty()
+{
+  Project project;
+  Note dirtyNote(0, 4, 60.0f);
+  dirtyNote.setDirty(true);
+  dirtyNote.setSynthDirty(true);
+  project.addNote(std::move(dirtyNote));
+
+  Note outsideNote(5, 6, 60.0f);
+  outsideNote.setSynthDirty(true);
+  project.addNote(std::move(outsideNote));
+
+  project.clearSynthesisDirtyForRange(0, 4);
+
+  expect(!project.getNotes()[0].isSynthDirty(),
+         "synthesis cleanup clears overlapping synthDirty");
+  expect(project.getNotes()[0].isDirty(),
+         "synthesis cleanup preserves display dirty flag");
+  expect(project.getNotes()[1].isSynthDirty(),
+         "synthesis cleanup leaves non-overlapping synthDirty");
 }
 
 void testTensionProcessorReturnsSeparateHarmonicAndNoise()
@@ -707,6 +814,10 @@ int main()
   testRefreshNoteCachesUsesNonRestAnalysisSegments();
   testComposeWaveformFollowsOutputFrameCount();
   testBlendSynthesizedRangeIntoAuditionBuffer();
+  testBlendSynthesizedRangeResizesToOutputDuration();
+  testBlendSynthesizedRangeWritesAllChannels();
+  testBlendSynthesizedRangeOffsetsClampedNegativeStart();
+  testClearSynthesisDirtyForRangeOnlyClearsOverlappingSynthDirty();
   testTensionProcessorReturnsSeparateHarmonicAndNoise();
   testTensionProcessorComputesSTFTCache();
 
