@@ -6,6 +6,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -61,13 +62,18 @@ private:
   std::vector<float> generateBlendMask(int startFrame, int endFrame,
                                        int hopSize,
                                        std::vector<float> *frameMaskOut = nullptr);
+  bool isCurrentJob(uint64_t currentJobId,
+                    const std::shared_ptr<std::atomic<bool>>& jobCancelFlag) const;
+  bool finishJobIfCurrent(uint64_t currentJobId);
 
   Vocoder *vocoder = nullptr;
   Project *project = nullptr;
 
   std::shared_ptr<std::atomic<bool>> cancelFlag;
   std::atomic<uint64_t> jobId{0};
+  std::atomic<uint64_t> activeJobId{0};
   std::atomic<bool> isBusy{false};
+  mutable std::mutex jobStateMutex;
 
   std::thread applyThread;
 

@@ -85,8 +85,27 @@ IncrementalSynthesizer::computeResynthRange()
 IncrementalSynthesizer::~IncrementalSynthesizer() { cancel(); }
 
 void IncrementalSynthesizer::cancel() {
+  std::lock_guard<std::mutex> lock(jobStateMutex);
   if (cancelFlag)
     cancelFlag->store(true);
+}
+
+bool IncrementalSynthesizer::isCurrentJob(
+    uint64_t currentJobId,
+    const std::shared_ptr<std::atomic<bool>>& jobCancelFlag) const {
+  if (currentJobId != jobId.load())
+    return false;
+  if (activeJobId.load() != currentJobId)
+    return false;
+  return !jobCancelFlag || !jobCancelFlag->load();
+}
+
+bool IncrementalSynthesizer::finishJobIfCurrent(uint64_t currentJobId) {
+  uint64_t expected = currentJobId;
+  if (!activeJobId.compare_exchange_strong(expected, 0))
+    return false;
+  isBusy = false;
+  return true;
 }
 
 namespace {
@@ -353,15 +372,21 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
     onProgress(TR("progress.synthesizing"));
 
   // Cancel previous job
-  if (cancelFlag)
-    cancelFlag->store(true);
-  cancelFlag = std::make_shared<std::atomic<bool>>(false);
-  uint64_t currentJobId = ++jobId;
-  isBusy = true;
+  uint64_t currentJobId = 0;
+  std::shared_ptr<std::atomic<bool>> capturedCancelFlag;
+  {
+    std::lock_guard<std::mutex> lock(jobStateMutex);
+    if (cancelFlag)
+      cancelFlag->store(true);
+    cancelFlag = std::make_shared<std::atomic<bool>>(false);
+    currentJobId = ++jobId;
+    activeJobId.store(currentJobId);
+    isBusy = true;
+    capturedCancelFlag = cancelFlag;
+  }
 
   int capturedStartFrame = startFrame;
   int capturedEndFrame = endFrame;
-  auto capturedCancelFlag = cancelFlag;
   auto capturedProject = project;
 
 
@@ -371,18 +396,20 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
        capturedEndFrame, hopSize, currentJobId, onComplete,
        dirtySnapshot](
           std::vector<float> synthesizedAudio) {
-        if (currentJobId != jobId.load())
-          return;
-        if (capturedCancelFlag->load()) {
-          isBusy = false;
+        auto failCurrentJob = [this, currentJobId, onComplete]() {
+          if (!finishJobIfCurrent(currentJobId))
+            return;
           if (onComplete)
             onComplete(false);
+        };
+
+        if (!isCurrentJob(currentJobId, capturedCancelFlag)) {
+          if (currentJobId == jobId.load() && capturedCancelFlag->load())
+            failCurrentJob();
           return;
         }
         if (synthesizedAudio.empty()) {
-          isBusy = false;
-          if (onComplete)
-            onComplete(false);
+          failCurrentJob();
           return;
         }
 
@@ -390,31 +417,47 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
                      capturedStartFrame, capturedEndFrame, hopSize,
                      currentJobId, onComplete, dirtySnapshot,
                      synthesizedAudio = std::move(synthesizedAudio)]() mutable {
-          if (currentJobId != jobId.load())
-            return;
-          if (capturedCancelFlag->load()) {
-            isBusy = false;
+          auto failCurrentJobAsync = [this, currentJobId, onComplete]() {
+            if (!finishJobIfCurrent(currentJobId))
+              return;
             if (onComplete)
               juce::MessageManager::callAsync(
                   [onComplete]() { onComplete(false); });
+          };
+
+          auto shouldAbort = [&]() {
+            if (isCurrentJob(currentJobId, capturedCancelFlag))
+              return false;
+            if (currentJobId == jobId.load() && capturedCancelFlag->load())
+              failCurrentJobAsync();
+            return true;
+          };
+
+          if (shouldAbort())
             return;
-          }
 
           int expectedSamples =
               (capturedEndFrame - capturedStartFrame) * hopSize;
           if (expectedSamples <= 0) {
-            isBusy = false;
-            if (onComplete)
-              juce::MessageManager::callAsync(
-                  [onComplete]() { onComplete(false); });
+            failCurrentJobAsync();
             return;
           }
 
           synthesizedAudio.resize(static_cast<size_t>(expectedSamples), 0.0f);
-          capturedProject->blendSynthesizedRangeIntoAuditionBuffer(
+          capturedProject->applyNoteVolumeToSynthesizedRange(
               synthesizedAudio, capturedStartFrame, capturedEndFrame, hopSize);
+          if (shouldAbort())
+            return;
 
-          isBusy = false;
+          {
+            std::lock_guard<std::mutex> lock(jobStateMutex);
+            if (!isCurrentJob(currentJobId, capturedCancelFlag))
+              return;
+            capturedProject->blendSynthesizedRangeIntoAuditionBuffer(
+                synthesizedAudio, capturedStartFrame, capturedEndFrame, hopSize);
+            if (!finishJobIfCurrent(currentJobId))
+              return;
+          }
           juce::MessageManager::callAsync(
               [capturedProject, dirtySnapshot, onComplete]() {
                 capturedProject->clearDirtyStateForCompletedSynthesis(

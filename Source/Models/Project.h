@@ -188,6 +188,10 @@ public:
         struct NoteState
         {
             int noteIndex = -1;
+            int startFrame = 0;
+            int endFrame = 0;
+            int srcStartFrame = 0;
+            int srcEndFrame = 0;
             std::uint64_t dirtyGeneration = 0;
             bool wasDirty = false;
             bool wasSynthDirty = false;
@@ -247,6 +251,10 @@ public:
         int startFrame,
         int endFrame,
         int hopSize);
+    void applyNoteVolumeToSynthesizedRange(std::vector<float>& synthesized,
+                                           int startFrame,
+                                           int endFrame,
+                                           int hopSize) const;
 
     // --- STFT cache (interleaved real/imag, kFFTBin*2 floats per frame) ---
     std::vector<float>& getHarmonicSTFT() { return harmonicSTFT; }

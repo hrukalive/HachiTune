@@ -755,6 +755,36 @@ void testBlendUsesCurrentWaveformWhenAuditionBufferIsStale()
              "blend does not copy stale audition data to waveform");
 }
 
+void testApplyNoteVolumeToSynthesizedRangeBeforeBlend()
+{
+  Project project;
+  auto& audioData = project.getAudioData();
+  audioData.originalWaveform.setSize(1, 12);
+  audioData.waveform.setSize(1, 12);
+  for (int i = 0; i < 12; ++i)
+  {
+    audioData.originalWaveform.setSample(0, i, 1.0f);
+    audioData.waveform.setSample(0, i, 1.0f);
+  }
+
+  Note note(1, 2, 60.0f);
+  note.setVolumeDb(-6.0206f);
+  project.addNote(std::move(note));
+  resizeEditedData(project.getEditedData(), 3);
+
+  std::vector<float> synthesized(12, 5.0f);
+  project.applyNoteVolumeToSynthesizedRange(synthesized, 0, 3, 4);
+  expectNear(synthesized[3], 5.0f, 0.0001f,
+             "note volume leaves non-overlapping sample unchanged");
+  expectNear(synthesized[4], 2.5f, 0.0001f,
+             "note volume scales overlapping synthesized sample");
+
+  project.blendSynthesizedRangeIntoAuditionBuffer(synthesized, 0, 3, 4);
+
+  expectNear(project.getAuditionBuffer().getSample(0, 4), 2.5f, 0.0001f,
+             "note volume affects direct blended amplitude");
+}
+
 void testClearSynthesisDirtyForRangeOnlyClearsOverlappingSynthDirty()
 {
   Project project;
@@ -822,6 +852,33 @@ void testCompletedSynthesisDirtyCleanupUsesCapturedSnapshot()
          "snapshot cleanup preserves newer param dirty range");
 }
 
+void testDirtySnapshotDoesNotClearReplacementNoteAtSameIndex()
+{
+  Project project;
+  Note original(0, 4, 60.0f);
+  original.setSrcStartFrame(0);
+  original.setSrcEndFrame(4);
+  original.setDirty(true);
+  original.setSynthDirty(true);
+  project.addNote(std::move(original));
+
+  const auto snapshot = project.captureDirtyStateSnapshotForRange(0, 4);
+
+  Note replacement(10, 14, 60.0f);
+  replacement.setSrcStartFrame(10);
+  replacement.setSrcEndFrame(14);
+  replacement.setDirty(true);
+  replacement.setSynthDirty(true);
+  project.getNotes()[0] = std::move(replacement);
+
+  project.clearDirtyStateForCompletedSynthesis(snapshot);
+
+  expect(project.getNotes()[0].isDirty(),
+         "snapshot cleanup preserves replacement note dirty");
+  expect(project.getNotes()[0].isSynthDirty(),
+         "snapshot cleanup preserves replacement note synthDirty");
+}
+
 void testTensionProcessorReturnsSeparateHarmonicAndNoise()
 {
   const std::vector<float> harmonic = {1.0f, -2.0f, 3.0f, -4.0f};
@@ -887,8 +944,10 @@ int main()
   testBlendSynthesizedRangeWritesAllChannels();
   testBlendSynthesizedRangeOffsetsClampedNegativeStart();
   testBlendUsesCurrentWaveformWhenAuditionBufferIsStale();
+  testApplyNoteVolumeToSynthesizedRangeBeforeBlend();
   testClearSynthesisDirtyForRangeOnlyClearsOverlappingSynthDirty();
   testCompletedSynthesisDirtyCleanupUsesCapturedSnapshot();
+  testDirtySnapshotDoesNotClearReplacementNoteAtSameIndex();
   testTensionProcessorReturnsSeparateHarmonicAndNoise();
   testTensionProcessorComputesSTFTCache();
 

@@ -349,6 +349,10 @@ Project::captureDirtyStateSnapshotForRange(int startFrame, int endFrame) const
 
         DirtyStateSnapshot::NoteState noteState;
         noteState.noteIndex = i;
+        noteState.startFrame = note.getStartFrame();
+        noteState.endFrame = note.getEndFrame();
+        noteState.srcStartFrame = note.getSrcStartFrame();
+        noteState.srcEndFrame = note.getSrcEndFrame();
         noteState.dirtyGeneration = note.getDirtyGeneration();
         noteState.wasDirty = note.isDirty();
         noteState.wasSynthDirty = note.isSynthDirty();
@@ -368,6 +372,13 @@ void Project::clearDirtyStateForCompletedSynthesis(
             continue;
 
         auto& note = notes[static_cast<size_t>(noteState.noteIndex)];
+        if (note.getStartFrame() != noteState.startFrame ||
+            note.getEndFrame() != noteState.endFrame ||
+            note.getSrcStartFrame() != noteState.srcStartFrame ||
+            note.getSrcEndFrame() != noteState.srcEndFrame)
+        {
+            continue;
+        }
         if (note.getDirtyGeneration() != noteState.dirtyGeneration)
             continue;
 
@@ -1696,8 +1707,46 @@ void Project::initAuditionBufferFromOriginal()
 {
   const auto& orig = audioData.originalWaveform;
   if (orig.getNumSamples() > 0)
-  {
     auditionBuffer.makeCopyOf(orig);
+}
+
+void Project::applyNoteVolumeToSynthesizedRange(std::vector<float>& synthesized,
+                                                int startFrame,
+                                                int endFrame,
+                                                int hopSize) const
+{
+  if (synthesized.empty() || hopSize <= 0 || endFrame <= startFrame)
+    return;
+
+  const int expectedSamples = (endFrame - startFrame) * hopSize;
+  const int samplesToProcess =
+      std::min(expectedSamples, static_cast<int>(synthesized.size()));
+  if (samplesToProcess <= 0)
+    return;
+
+  for (const auto& note : notes)
+  {
+    if (note.isRest())
+      continue;
+    if (std::abs(note.getVolumeDb()) < 0.001f)
+      continue;
+
+    const int overlapStart = std::max(startFrame, note.getStartFrame());
+    const int overlapEnd = std::min(endFrame, note.getEndFrame());
+    if (overlapEnd <= overlapStart)
+      continue;
+
+    const int localStart = (overlapStart - startFrame) * hopSize;
+    const int localEnd = (overlapEnd - startFrame) * hopSize;
+    if (localStart >= samplesToProcess)
+      continue;
+
+    const float gain =
+        juce::Decibels::decibelsToGain(note.getVolumeDb(), -60.0f);
+    const int clampedStart = std::max(0, localStart);
+    const int clampedEnd = std::min(samplesToProcess, localEnd);
+    for (int i = clampedStart; i < clampedEnd; ++i)
+      synthesized[static_cast<size_t>(i)] *= gain;
   }
 }
 
