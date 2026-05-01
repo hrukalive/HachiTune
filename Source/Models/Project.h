@@ -218,6 +218,11 @@ public:
     juce::AudioBuffer<float>& getAuditionBuffer() { return auditionBuffer; }
     const juce::AudioBuffer<float>& getAuditionBuffer() const { return auditionBuffer; }
     void initAuditionBufferFromOriginal();
+    void blendSynthesizedRangeIntoAuditionBuffer(
+        const std::vector<float>& synthesized,
+        int startFrame,
+        int endFrame,
+        int hopSize);
 
     // --- STFT cache (interleaved real/imag, kFFTBin*2 floats per frame) ---
     std::vector<float>& getHarmonicSTFT() { return harmonicSTFT; }

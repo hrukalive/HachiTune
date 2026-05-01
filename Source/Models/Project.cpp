@@ -1605,6 +1605,44 @@ void Project::initAuditionBufferFromOriginal()
   }
 }
 
+void Project::blendSynthesizedRangeIntoAuditionBuffer(
+    const std::vector<float>& synthesized,
+    int startFrame,
+    int endFrame,
+    int hopSize)
+{
+  if (synthesized.empty() || hopSize <= 0)
+    return;
+  if (auditionBuffer.getNumSamples() == 0)
+    initAuditionBufferFromOriginal();
+  if (auditionBuffer.getNumChannels() == 0)
+    return;
+
+  const int startSample = std::max(0, startFrame * hopSize);
+  const int endSample = std::min(auditionBuffer.getNumSamples(),
+                                 endFrame * hopSize);
+  if (endSample <= startSample)
+    return;
+
+  const int numSamples = std::min(
+      endSample - startSample, static_cast<int>(synthesized.size()));
+  float* dst = auditionBuffer.getWritePointer(0, startSample);
+  const int fade = std::min(hopSize, numSamples / 2);
+
+  for (int i = 0; i < numSamples; ++i)
+  {
+    float mix = 1.0f;
+    if (fade > 0 && i < fade)
+      mix = static_cast<float>(i) / static_cast<float>(fade);
+    if (fade > 0 && numSamples - 1 - i < fade)
+      mix = std::min(mix, static_cast<float>(numSamples - 1 - i) /
+                          static_cast<float>(fade));
+    dst[i] = dst[i] + mix * (synthesized[static_cast<size_t>(i)] - dst[i]);
+  }
+
+  audioData.waveform.makeCopyOf(auditionBuffer);
+}
+
 void Project::refreshNoteCaches()
 {
   const int totalFrames = editedData.getNumFrames();

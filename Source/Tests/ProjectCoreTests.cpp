@@ -609,6 +609,43 @@ void testComposeWaveformFollowsOutputFrameCount()
          "compose waveform shrinks to warped endpoint");
 }
 
+void testBlendSynthesizedRangeIntoAuditionBuffer()
+{
+  Project project;
+  auto& audioData = project.getAudioData();
+  audioData.originalWaveform.setSize(1, 16);
+  audioData.waveform.setSize(1, 16);
+  for (int i = 0; i < 16; ++i)
+  {
+    audioData.originalWaveform.setSample(0, i, 1.0f);
+    audioData.waveform.setSample(0, i, 1.0f);
+  }
+
+  project.blendSynthesizedRangeIntoAuditionBuffer(
+      std::vector<float>(8, 5.0f), 1, 3, 4);
+
+  const auto& audition = project.getAuditionBuffer();
+  require(audition.getNumSamples() == 16, "blend initializes audition buffer");
+  expectNear(audition.getSample(0, 3), 1.0f, 0.0001f,
+             "blend leaves samples before range unchanged");
+  expectNear(audition.getSample(0, 4), 1.0f, 0.0001f,
+             "blend fades in from existing sample");
+  expectNear(audition.getSample(0, 5), 2.0f, 0.0001f,
+             "blend applies fade-in mix");
+  expectNear(audition.getSample(0, 7), 4.0f, 0.0001f,
+             "blend reaches high mix before center");
+  expectNear(audition.getSample(0, 8), 4.0f, 0.0001f,
+             "blend fades out after center");
+  expectNear(audition.getSample(0, 10), 2.0f, 0.0001f,
+             "blend applies fade-out mix");
+  expectNear(audition.getSample(0, 11), 1.0f, 0.0001f,
+             "blend fades out to existing sample");
+  expectNear(audition.getSample(0, 12), 1.0f, 0.0001f,
+             "blend leaves samples after range unchanged");
+  expectNear(audioData.waveform.getSample(0, 8), audition.getSample(0, 8),
+             0.0001f, "blend syncs audio waveform from audition buffer");
+}
+
 void testTensionProcessorReturnsSeparateHarmonicAndNoise()
 {
   const std::vector<float> harmonic = {1.0f, -2.0f, 3.0f, -4.0f};
@@ -669,6 +706,7 @@ int main()
   testPreviewRecomputeCanAdvanceAndCancel();
   testRefreshNoteCachesUsesNonRestAnalysisSegments();
   testComposeWaveformFollowsOutputFrameCount();
+  testBlendSynthesizedRangeIntoAuditionBuffer();
   testTensionProcessorReturnsSeparateHarmonicAndNoise();
   testTensionProcessorComputesSTFTCache();
 
