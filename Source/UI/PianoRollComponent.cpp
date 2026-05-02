@@ -3042,11 +3042,11 @@ bool PianoRollComponent::nudgeSelectedNotesBySemitones(int semitoneDelta)
   constexpr float maxMidi = static_cast<float>(MAX_MIDI_NOTE);
 
   std::vector<Note *> notesToMove;
-  std::vector<float> oldMidis;
-  std::vector<float> newMidis;
+  std::vector<float> oldOffsets;
+  std::vector<float> newOffsets;
   notesToMove.reserve(selectedNotes.size());
-  oldMidis.reserve(selectedNotes.size());
-  newMidis.reserve(selectedNotes.size());
+  oldOffsets.reserve(selectedNotes.size());
+  newOffsets.reserve(selectedNotes.size());
 
   int dirtyStartFrame = std::numeric_limits<int>::max();
   int dirtyEndFrame = std::numeric_limits<int>::min();
@@ -3056,20 +3056,19 @@ bool PianoRollComponent::nudgeSelectedNotesBySemitones(int semitoneDelta)
     if (!note || note->isRest())
       continue;
 
-    const float oldMidi = note->getMidiNote();
-    const float offset = note->getPitchOffset();
-    const float oldAdjustedMidi = oldMidi + offset;
-    const float movedAdjustedMidi =
+    const float oldOffset = note->getPitchOffset();
+    const float currentAdjusted = note->getAdjustedMidiNote();
+    const float movedAdjusted =
         juce::jlimit(minMidi, maxMidi,
-                     oldAdjustedMidi + static_cast<float>(semitoneDelta));
-    const float movedMidi = movedAdjustedMidi - offset;
+                     currentAdjusted + static_cast<float>(semitoneDelta));
+    const float newOffset = oldOffset + (movedAdjusted - currentAdjusted);
 
-    if (std::abs(movedMidi - oldMidi) <= 1.0e-6f)
+    if (std::abs(newOffset - oldOffset) <= 1.0e-6f)
       continue;
 
     notesToMove.push_back(note);
-    oldMidis.push_back(oldMidi);
-    newMidis.push_back(movedMidi);
+    oldOffsets.push_back(oldOffset);
+    newOffsets.push_back(newOffset);
     dirtyStartFrame = std::min(dirtyStartFrame, note->getStartFrame());
     dirtyEndFrame = std::max(dirtyEndFrame, note->getEndFrame());
   }
@@ -3105,7 +3104,7 @@ bool PianoRollComponent::nudgeSelectedNotesBySemitones(int semitoneDelta)
   if (undoManager)
   {
     auto action = std::make_unique<MultiNoteMidiNudgeAction>(
-        notesToMove, oldMidis, newMidis,
+        notesToMove, oldOffsets, newOffsets,
         [rebuildAndNotify](const std::vector<Note *> &notes)
         {
           rebuildAndNotify(notes);
@@ -3115,7 +3114,7 @@ bool PianoRollComponent::nudgeSelectedNotesBySemitones(int semitoneDelta)
 
   for (size_t i = 0; i < notesToMove.size(); ++i)
   {
-    notesToMove[i]->setMidiNote(newMidis[i]);
+    notesToMove[i]->setPitchOffset(newOffsets[i]);
     notesToMove[i]->markDirty();
     notesToMove[i]->markSynthDirty();
   }
