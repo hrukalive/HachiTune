@@ -13,7 +13,7 @@ struct TransformParams
     float varianceScale = 1.0f;
     int smoothLeftFrames = 0;
     int smoothRightFrames = 0;
-    float midiNote = 0.0f;
+    float pitchOffset = 0.0f;
     float highPassFilterStrength = 0.0f;
     float lowPassFilterStrength = 0.0f;
 
@@ -28,7 +28,7 @@ struct TransformParams
         p.varianceScale = note.getVarianceScale();
         p.smoothLeftFrames = note.getSmoothLeftFrames();
         p.smoothRightFrames = note.getSmoothRightFrames();
-        p.midiNote = note.getMidiNote();
+        p.pitchOffset = note.getPitchOffset();
         p.highPassFilterStrength = note.getHighPassFilterStrength();
         p.lowPassFilterStrength = note.getLowPassFilterStrength();
         return p;
@@ -37,7 +37,7 @@ struct TransformParams
     /** Apply all transformation params back to a note. */
     void applyToNote(Note& note) const
     {
-        note.setMidiNote(midiNote);
+        note.setPitchOffset(pitchOffset);
         note.setTiltLeft(tiltLeft);
         note.setTiltRight(tiltRight);
         note.setVarianceScale(varianceScale);
@@ -54,7 +54,7 @@ struct TransformParams
                varianceScale == other.varianceScale &&
                smoothLeftFrames == other.smoothLeftFrames &&
                smoothRightFrames == other.smoothRightFrames &&
-               midiNote == other.midiNote &&
+               pitchOffset == other.pitchOffset &&
                highPassFilterStrength == other.highPassFilterStrength &&
                lowPassFilterStrength == other.lowPassFilterStrength;
     }

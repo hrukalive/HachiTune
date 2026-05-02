@@ -276,7 +276,7 @@ bool PitchToolController::mouseDown(const juce::MouseEvent& e,
       // tilt handles stays absolute instead of accumulating repeatedly.
       const float currentTiltMean =
           (note->getTiltLeft() + note->getTiltRight()) / 2.0f;
-      params.midiNote = note->getMidiNote() - currentTiltMean;
+      params.pitchOffset = note->getPitchOffset() - currentTiltMean;
 
       originalParams.push_back(params);
     } else {
@@ -362,7 +362,7 @@ bool PitchToolController::mouseUp(
   for (size_t i = 0; i < undoOldParams.size(); ++i) {
     const float tiltMean =
         (undoOldParams[i].tiltLeft + undoOldParams[i].tiltRight) / 2.0f;
-    undoOldParams[i].midiNote += tiltMean;
+    undoOldParams[i].pitchOffset += tiltMean;
   }
 
   bool hasMeaningfulChange = false;
@@ -422,7 +422,7 @@ void PitchToolController::applyOperation(std::vector<Note*>& notes,
       origParams.applyToNote(*affectedNotes[i]);
       const float tiltMean =
           (origParams.tiltLeft + origParams.tiltRight) / 2.0f;
-      affectedNotes[i]->setMidiNote(origParams.midiNote + tiltMean);
+      affectedNotes[i]->setPitchOffset(origParams.pitchOffset + tiltMean);
     }
   };
 
@@ -574,7 +574,7 @@ void PitchToolController::applyOperation(std::vector<Note*>& notes,
           note->setTiltLeft(origParams.tiltLeft + semitoneDelta);
           const float newTiltMean =
               (note->getTiltLeft() + note->getTiltRight()) / 2.0f;
-          note->setMidiNote(origParams.midiNote + newTiltMean);
+          note->setPitchOffset(origParams.pitchOffset + newTiltMean);
           break;
         }
         case PitchToolHandles::HandleType::TiltRight:
@@ -582,7 +582,7 @@ void PitchToolController::applyOperation(std::vector<Note*>& notes,
           note->setTiltRight(origParams.tiltRight + semitoneDelta);
           const float newTiltMean =
               (note->getTiltLeft() + note->getTiltRight()) / 2.0f;
-          note->setMidiNote(origParams.midiNote + newTiltMean);
+          note->setPitchOffset(origParams.pitchOffset + newTiltMean);
           break;
         }
         case PitchToolHandles::HandleType::ReduceVariance:
@@ -591,7 +591,7 @@ void PitchToolController::applyOperation(std::vector<Note*>& notes,
           note->setVarianceScale(origParams.varianceScale + dragDelta);
           const float currentTiltMean =
               (note->getTiltLeft() + note->getTiltRight()) / 2.0f;
-          note->setMidiNote(origParams.midiNote + currentTiltMean);
+          note->setPitchOffset(origParams.pitchOffset + currentTiltMean);
           break;
         }
         case PitchToolHandles::HandleType::SmoothLeft:
@@ -641,7 +641,7 @@ void PitchToolController::cancel() {
       params.applyToNote(*affectedNotes[i]);
 
       const float tiltMean = (params.tiltLeft + params.tiltRight) / 2.0f;
-      affectedNotes[i]->setMidiNote(params.midiNote + tiltMean);
+      affectedNotes[i]->setPitchOffset(params.pitchOffset + tiltMean);
       affectedNotes[i]->markDirty();
       affectedNotes[i]->markSynthDirty();
     }
