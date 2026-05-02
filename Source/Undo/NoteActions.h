@@ -201,17 +201,16 @@ class NoteSnapToSemitoneAction : public UndoableAction
 {
 public:
     NoteSnapToSemitoneAction(Note *note,
-                             float oldMidi, float oldOffset,
-                             float newMidi,
+                             float oldOffset,
+                             float newOffset,
                              std::function<void(Note *)> onNoteChanged = nullptr)
-        : note(note), oldMidi(oldMidi), oldOffset(oldOffset),
-          newMidi(newMidi), onNoteChanged(onNoteChanged) {}
+        : note(note), oldOffset(oldOffset),
+          newOffset(newOffset), onNoteChanged(onNoteChanged) {}
 
     void undo() override
     {
         if (note)
         {
-            note->setMidiNote(oldMidi);
             note->setPitchOffset(oldOffset);
             note->markDirty();
             note->markSynthDirty();
@@ -224,8 +223,7 @@ public:
     {
         if (note)
         {
-            note->setMidiNote(newMidi);
-            note->setPitchOffset(0.0f);
+            note->setPitchOffset(newOffset);
             note->markDirty();
             note->markSynthDirty();
         }
@@ -237,9 +235,8 @@ public:
 
 private:
     Note *note;
-    float oldMidi;
     float oldOffset;
-    float newMidi;
+    float newOffset;
     std::function<void(Note *)> onNoteChanged;
 };
 
@@ -250,14 +247,12 @@ class MultiNoteSnapToSemitoneAction : public UndoableAction
 {
 public:
     MultiNoteSnapToSemitoneAction(const std::vector<Note *> &notes,
-                                  std::vector<float> oldMidis,
                                   std::vector<float> oldOffsets,
-                                  std::vector<float> newMidis,
+                                  std::vector<float> newOffsets,
                                   std::function<void(const std::vector<Note *> &)> onNotesChanged = nullptr)
         : notes(notes),
-          oldMidis(std::move(oldMidis)),
           oldOffsets(std::move(oldOffsets)),
-          newMidis(std::move(newMidis)),
+          newOffsets(std::move(newOffsets)),
           onNotesChanged(onNotesChanged) {}
 
     void undo() override
@@ -267,7 +262,6 @@ public:
             auto *note = notes[i];
             if (!note)
                 continue;
-            note->setMidiNote(oldMidis[i]);
             note->setPitchOffset(oldOffsets[i]);
             note->markDirty();
             note->markSynthDirty();
@@ -283,8 +277,7 @@ public:
             auto *note = notes[i];
             if (!note)
                 continue;
-            note->setMidiNote(newMidis[i]);
-            note->setPitchOffset(0.0f);
+            note->setPitchOffset(newOffsets[i]);
             note->markDirty();
             note->markSynthDirty();
         }
@@ -296,9 +289,8 @@ public:
 
 private:
     std::vector<Note *> notes;
-    std::vector<float> oldMidis;
     std::vector<float> oldOffsets;
-    std::vector<float> newMidis;
+    std::vector<float> newOffsets;
     std::function<void(const std::vector<Note *> &)> onNotesChanged;
 };
 
