@@ -93,6 +93,7 @@ private:
     bool isMultiDragging = false;
     std::vector<Note*> draggedNotes;
     std::vector<float> originalMidiNotes;
+    std::vector<float> originalPitchOffsets;
     std::vector<std::vector<float>> originalF0ValuesMulti;
     bool snapToSemitoneDragEnabled = false;
     int pitchReferenceHz = 440;

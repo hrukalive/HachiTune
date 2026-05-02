@@ -380,6 +380,7 @@ void PitchEditor::startMultiNoteDrag(const std::vector<Note *> &notes,
 
   draggedNotes = notes;
   originalMidiNotes.clear();
+  originalPitchOffsets.clear();
   originalF0ValuesMulti.clear();
   dragStartY = y;
 
@@ -390,6 +391,7 @@ void PitchEditor::startMultiNoteDrag(const std::vector<Note *> &notes,
   for (auto *note : draggedNotes)
   {
     originalMidiNotes.push_back(note->getMidiNote());
+    originalPitchOffsets.push_back(note->getPitchOffset());
 
     // Capture delta slice for each note
     int startFrame = note->getStartFrame();
@@ -441,10 +443,10 @@ void PitchEditor::updateMultiNoteDrag(float y)
   if (snapToSemitoneDragEnabled)
     deltaSemitones = std::round(deltaSemitones);
 
-  for (auto *note : draggedNotes)
+  for (size_t i = 0; i < draggedNotes.size(); ++i)
   {
-    note->setPitchOffset(deltaSemitones);
-    note->markDirty();
+    draggedNotes[i]->setPitchOffset(originalPitchOffsets[i] + deltaSemitones);
+    draggedNotes[i]->markDirty();
   }
 
   if (project != nullptr &&
@@ -465,13 +467,14 @@ void PitchEditor::endMultiNoteDrag()
     isMultiDragging = false;
     draggedNotes.clear();
     originalMidiNotes.clear();
+    originalPitchOffsets.clear();
     originalF0ValuesMulti.clear();
     return;
   }
 
   float newOffset = draggedNotes[0]->getPitchOffset();
   constexpr float CHANGE_THRESHOLD = 0.001f;
-  bool hasChange = std::abs(newOffset) >= CHANGE_THRESHOLD;
+  bool hasChange = std::abs(newOffset - originalPitchOffsets[0]) >= CHANGE_THRESHOLD;
 
   if (hasChange)
   {
@@ -482,12 +485,10 @@ void PitchEditor::endMultiNoteDrag()
     int expandedStart = std::numeric_limits<int>::max();
     int expandedEnd = std::numeric_limits<int>::min();
 
-    // Bake pitchOffset into midiNote for all notes
+    // Mark notes dirty for synthesis
     for (size_t i = 0; i < draggedNotes.size(); ++i)
     {
       auto *note = draggedNotes[i];
-      note->setMidiNote(originalMidiNotes[i] + newOffset);
-      note->setPitchOffset(0.0f);
       note->markSynthDirty();
 
       expandedStart = std::min(expandedStart, note->getStartFrame());
@@ -533,8 +534,14 @@ void PitchEditor::endMultiNoteDrag()
       int capturedExpandedStart = expandedStart;
       int capturedExpandedEnd = expandedEnd;
       int capturedF0Size = f0Size;
+      std::vector<float> currentOffsets;
+      currentOffsets.reserve(draggedNotes.size());
+      for (auto* note : draggedNotes)
+        currentOffsets.push_back(note->getPitchOffset());
+
       auto action = std::make_unique<MultiNotePitchDragAction>(
-          *project, std::move(noteIndices), originalMidiNotes, newOffset,
+          *project, std::move(noteIndices), originalPitchOffsets,
+          std::move(currentOffsets),
           multiDragStartFrame, multiDragEndFrame,
           std::move(multiDragBeforeF0),
           std::move(afterF0),
@@ -565,8 +572,8 @@ void PitchEditor::endMultiNoteDrag()
   else
   {
     // No meaningful change: reset pitchOffset
-    for (auto *note : draggedNotes)
-      note->setPitchOffset(0.0f);
+    for (size_t i = 0; i < draggedNotes.size() && i < originalPitchOffsets.size(); ++i)
+      draggedNotes[i]->setPitchOffset(originalPitchOffsets[i]);
     if (project != nullptr &&
         usesBoundarySmoothingPreview(*project, draggedNotes))
     {
@@ -581,6 +588,7 @@ void PitchEditor::endMultiNoteDrag()
   isMultiDragging = false;
   draggedNotes.clear();
   originalMidiNotes.clear();
+  originalPitchOffsets.clear();
   originalF0ValuesMulti.clear();
   dragPreviewStartFrame = -1;
   dragPreviewEndFrame = -1;
