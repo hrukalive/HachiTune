@@ -888,11 +888,6 @@ std::vector<float> Project::renderMappedBaseWaveformSegment(int startSample,
         if (!note.isRest())
             sortedNotes.push_back(&note);
     }
-    std::sort(sortedNotes.begin(), sortedNotes.end(),
-              [](const Note *a, const Note *b)
-              {
-                  return a->getStartFrame() < b->getStartFrame();
-              });
 
     auto writeFromOrig = [&](int srcOff, int dstOff, int len)
     {
@@ -1044,11 +1039,6 @@ std::vector<float> Project::renderMappedSourceSegment(const float *sourceBuffer,
         if (!note.isRest())
             sortedNotes.push_back(&note);
     }
-    std::sort(sortedNotes.begin(), sortedNotes.end(),
-              [](const Note *a, const Note *b)
-              {
-                  return a->getStartFrame() < b->getStartFrame();
-              });
 
     auto writeFromSrc = [&](int srcOff, int dstOff, int len)
     {
@@ -1190,11 +1180,6 @@ void Project::composeGlobalWaveform()
         if (!note.isRest())
             sortedNotes.push_back(&note);
     }
-    std::sort(sortedNotes.begin(), sortedNotes.end(),
-              [](const Note *a, const Note *b)
-              {
-                  return a->getStartFrame() < b->getStartFrame();
-              });
 
     // --- Step 2: Compute required output buffer length --------------------
     // Output follows the edited/warped timeline and can shrink as well as grow.

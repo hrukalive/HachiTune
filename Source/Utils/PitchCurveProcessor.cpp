@@ -314,14 +314,6 @@ namespace
                 sortedNotes.push_back(&note);
         }
 
-        std::sort(sortedNotes.begin(), sortedNotes.end(),
-                  [](const Note* a, const Note* b)
-                  {
-                      if (a->getStartFrame() != b->getStartFrame())
-                          return a->getStartFrame() < b->getStartFrame();
-                      return a->getEndFrame() < b->getEndFrame();
-                  });
-
         if (sortedNotes.size() < 2)
             return {};
 
