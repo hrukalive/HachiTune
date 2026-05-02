@@ -196,14 +196,12 @@ void MainComponent::openProjectFile(const juce::File &file) {
                   auto &ad = project->getAudioData();
                   const int tf = ad.getNumFrames();
                   if (tf > 0 &&
-                      ad.harmonicWaveform.getNumSamples() == 0 &&
-                      HNSepCurveProcessor::hasActiveEdits(*project, 0, tf))
+                      ad.harmonicWaveform.getNumSamples() == 0)
                   {
                     safeThis->editorController->runHNSepSeparation(*project);
-                    // Populate per-note H/N clips from the freshly
-                    // separated global waveforms so that the synthesis
-                    // path can apply tension/voicing/breath per note.
                     HNSepCurveProcessor::ensureNoteHNClips(*project);
+                    HNSepCurveProcessor::recomputeMelForRange(
+                        *project, 0, tf);
                   }
                 }
 
