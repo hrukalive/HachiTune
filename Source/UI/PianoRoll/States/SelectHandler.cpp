@@ -369,7 +369,7 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
 
     // Check if there was any meaningful change
     constexpr float CHANGE_THRESHOLD = 0.001f;
-    bool hasChange = std::abs(newOffset) >= CHANGE_THRESHOLD;
+    bool hasChange = std::abs(newOffset - originalPitchOffset) >= CHANGE_THRESHOLD;
 
     if (hasChange)
     {
@@ -379,10 +379,6 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
       auto &editedData = project->getEditedData();
       int f0Size = static_cast<int>(editedData.f0.size());
 
-      // Update note's midiNote with final offset
-      const float finalMidiNote = originalMidiNote + newOffset;
-      draggedNote->setMidiNote(finalMidiNote);
-      draggedNote->setPitchOffset(0.0f);
       draggedNote->markSynthDirty();
 
       // Find adjacent notes to expand dirty range
@@ -431,7 +427,7 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
         int capturedF0Size = f0Size;
         auto *ownerPtr = &owner_;
         auto action = std::make_unique<NotePitchDragAction>(
-            *project, noteIdx, originalMidiNote, finalMidiNote,
+            *project, noteIdx, originalPitchOffset, newOffset,
             startFrame, endFrame,
             std::vector<float>(originalF0Values),
             std::move(afterF0),
@@ -465,7 +461,7 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
     else
     {
       // No meaningful change: reset and repaint
-      draggedNote->setPitchOffset(0.0f);
+      draggedNote->setPitchOffset(originalPitchOffset);
       if (usesBoundarySmoothingPreview(*project, {draggedNote}))
       {
         rebuildBoundarySmoothingPreview(*project, {draggedNote});
@@ -991,32 +987,29 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
       if (selectedNotes.size() > 1)
       {
         std::vector<Note *> notesToSnap;
-        std::vector<float> oldMidis;
         std::vector<float> oldOffsets;
-        std::vector<float> newMidis;
+        std::vector<float> newOffsets;
 
         notesToSnap.reserve(selectedNotes.size());
-        oldMidis.reserve(selectedNotes.size());
         oldOffsets.reserve(selectedNotes.size());
-        newMidis.reserve(selectedNotes.size());
+        newOffsets.reserve(selectedNotes.size());
 
         for (auto *selected : selectedNotes)
         {
           if (!selected || selected->isRest())
             continue;
 
-          float oldMidi = selected->getMidiNote();
           float oldOffset = selected->getPitchOffset();
-          float adjustedMidi = oldMidi + oldOffset;
+          float adjustedMidi = selected->getMidiNote() + oldOffset;
           float snappedMidi = snapForDoubleClick(adjustedMidi);
+          float newOffset = snappedMidi - selected->getMidiNote();
 
-          if (std::abs(snappedMidi - adjustedMidi) <= 0.001f)
+          if (std::abs(newOffset - oldOffset) <= 0.001f)
             continue;
 
           notesToSnap.push_back(selected);
-          oldMidis.push_back(oldMidi);
           oldOffsets.push_back(oldOffset);
-          newMidis.push_back(snappedMidi);
+          newOffsets.push_back(newOffset);
         }
 
         if (!notesToSnap.empty())
@@ -1025,7 +1018,7 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           {
             auto action =
                 std::make_unique<MultiNoteSnapToSemitoneAction>(
-                    notesToSnap, oldMidis, oldOffsets, newMidis,
+                    notesToSnap, oldOffsets, newOffsets,
                     [this](const std::vector<Note *> &)
                     {
                       rebuildAndNotify();
@@ -1035,8 +1028,7 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
 
           for (size_t i = 0; i < notesToSnap.size(); ++i)
           {
-            notesToSnap[i]->setMidiNote(newMidis[i]);
-            notesToSnap[i]->setPitchOffset(0.0f);
+            notesToSnap[i]->setPitchOffset(newOffsets[i]);
             notesToSnap[i]->markDirty();
           }
 
@@ -1047,25 +1039,24 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
     }
 
     // Snap single note pitch
-    float oldMidi = note->getMidiNote();
     float oldOffset = note->getPitchOffset();
-    float adjustedMidi = oldMidi + oldOffset;
+    float adjustedMidi = note->getMidiNote() + oldOffset;
     float snappedMidi = snapForDoubleClick(adjustedMidi);
+    float newOffset = snappedMidi - note->getMidiNote();
 
-    if (std::abs(snappedMidi - adjustedMidi) > 0.001f)
+    if (std::abs(newOffset - oldOffset) > 0.001f)
     {
       if (owner_.undoManager)
       {
         auto action =
             std::make_unique<NoteSnapToSemitoneAction>(
-                note, oldMidi, oldOffset, snappedMidi,
+                note, oldOffset, newOffset,
                 [this](Note *)
                 { rebuildAndNotify(); });
         owner_.undoManager->addAction(std::move(action));
       }
 
-      note->setMidiNote(snappedMidi);
-      note->setPitchOffset(0.0f);
+      note->setPitchOffset(newOffset);
       note->markDirty();
       rebuildAndNotify();
     }
@@ -1085,15 +1076,15 @@ void SelectHandler::cancel()
 {
   if (isDragging && draggedNote)
   {
-    draggedNote->setPitchOffset(0.0f);
+    draggedNote->setPitchOffset(originalPitchOffset);
     if (owner_.project &&
         usesBoundarySmoothingPreview(*owner_.project, {draggedNote}))
     {
       rebuildBoundarySmoothingPreview(*owner_.project, {draggedNote});
     }
     else
-  {
-    restoreDragBasePreview();
+    {
+      restoreDragBasePreview();
     }
     isDragging = false;
     draggedNote = nullptr;
