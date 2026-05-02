@@ -204,25 +204,80 @@ Project::FrameDataValidation Project::validateFrameData() const
     return result;
 }
 
+void Project::addNote(Note note)
+{
+  auto it = std::lower_bound(notes.begin(), notes.end(), note,
+      [](const Note& a, const Note& b)
+      {
+        if (a.getStartFrame() != b.getStartFrame())
+          return a.getStartFrame() < b.getStartFrame();
+        return a.getEndFrame() < b.getEndFrame();
+      });
+  notes.insert(it, std::move(note));
+}
+
+void Project::sortNotes()
+{
+  std::sort(notes.begin(), notes.end(),
+      [](const Note& a, const Note& b)
+      {
+        if (a.getStartFrame() != b.getStartFrame())
+          return a.getStartFrame() < b.getStartFrame();
+        return a.getEndFrame() < b.getEndFrame();
+      });
+}
+
 Note *Project::getNoteAtFrame(int frame)
 {
-    for (auto &note : notes)
-    {
-        if (note.containsFrame(frame))
-            return &note;
-    }
-    return nullptr;
+  // Binary search for the first note whose startFrame > frame
+  auto it = std::upper_bound(notes.begin(), notes.end(), frame,
+      [](int f, const Note& note) { return f < note.getStartFrame(); });
+
+  // Walk backward to check notes that could contain this frame
+  while (it != notes.begin())
+  {
+    --it;
+    if (it->containsFrame(frame))
+      return &(*it);
+    // Once startFrame is too far left, no earlier note can contain frame
+    if (it->getEndFrame() <= frame)
+      break;
+  }
+  return nullptr;
 }
 
 std::vector<Note *> Project::getNotesInRange(int startFrame, int endFrame)
 {
-    std::vector<Note *> result;
-    for (auto &note : notes)
+  std::vector<Note *> result;
+
+  // Find first note that could overlap: need note.endFrame > startFrame.
+  // Since notes are sorted by startFrame, a note can overlap even if its
+  // startFrame < startFrame (it extends past). Walk back from the first
+  // note with startFrame >= startFrame.
+  auto it = std::lower_bound(notes.begin(), notes.end(), startFrame,
+      [](const Note& note, int f) { return note.getStartFrame() < f; });
+
+  // Walk backward to catch notes that start before startFrame but extend into the range
+  while (it != notes.begin())
+  {
+    --it;
+    if (it->getEndFrame() <= startFrame)
     {
-        if (note.getStartFrame() < endFrame && note.getEndFrame() > startFrame)
-            result.push_back(&note);
+      ++it;
+      break;
     }
-    return result;
+  }
+
+  // Scan forward collecting overlapping notes
+  for (; it != notes.end(); ++it)
+  {
+    if (it->getStartFrame() >= endFrame)
+      break;
+    if (it->getEndFrame() > startFrame)
+      result.push_back(&(*it));
+  }
+
+  return result;
 }
 
 std::vector<Note *> Project::getSelectedNotes()

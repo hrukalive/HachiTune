@@ -597,6 +597,7 @@ void recomputeFromMarkers(Project& project,
         editedData = std::move(sourceEditedData);
     }
     StretchProcessor::remapNoteFrames(project.getNotes(), warpMap);
+    project.sortNotes();
 
     auto& audioData = project.getAudioData();
     if (audioData.sourceMelSpectrogram.empty() &&

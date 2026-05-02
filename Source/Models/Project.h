@@ -230,7 +230,8 @@ public:
     // Notes
     std::vector<Note> &getNotes() { return notes; }
     const std::vector<Note> &getNotes() const { return notes; }
-    void addNote(Note note) { notes.push_back(std::move(note)); }
+    void addNote(Note note);
+    void sortNotes();
     void clearNotes() { notes.clear(); }
     const std::vector<WarpMarker>& getWarpMarkers() const { return warpMarkers; }
     void setWarpMarkers(std::vector<WarpMarker> markers) { warpMarkers = std::move(markers); }
