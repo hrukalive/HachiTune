@@ -13,21 +13,21 @@ class MultiNoteMidiNudgeAction : public UndoableAction
 {
 public:
     MultiNoteMidiNudgeAction(std::vector<Note *> notes,
-                             std::vector<float> oldMidis,
-                             std::vector<float> newMidis,
+                             std::vector<float> oldOffsets,
+                             std::vector<float> newOffsets,
                              std::function<void(const std::vector<Note *> &)> onNotesChanged = nullptr)
         : notes(std::move(notes)),
-          oldMidis(std::move(oldMidis)),
-          newMidis(std::move(newMidis)),
+          oldOffsets(std::move(oldOffsets)),
+          newOffsets(std::move(newOffsets)),
           onNotesChanged(std::move(onNotesChanged)) {}
 
     void undo() override
     {
-        for (size_t i = 0; i < notes.size() && i < oldMidis.size(); ++i)
+        for (size_t i = 0; i < notes.size() && i < oldOffsets.size(); ++i)
         {
             if (!notes[i])
                 continue;
-            notes[i]->setMidiNote(oldMidis[i]);
+            notes[i]->setPitchOffset(oldOffsets[i]);
             notes[i]->markDirty();
             notes[i]->markSynthDirty();
         }
@@ -37,11 +37,11 @@ public:
 
     void redo() override
     {
-        for (size_t i = 0; i < notes.size() && i < newMidis.size(); ++i)
+        for (size_t i = 0; i < notes.size() && i < newOffsets.size(); ++i)
         {
             if (!notes[i])
                 continue;
-            notes[i]->setMidiNote(newMidis[i]);
+            notes[i]->setPitchOffset(newOffsets[i]);
             notes[i]->markDirty();
             notes[i]->markSynthDirty();
         }
@@ -53,8 +53,8 @@ public:
 
 private:
     std::vector<Note *> notes;
-    std::vector<float> oldMidis;
-    std::vector<float> newMidis;
+    std::vector<float> oldOffsets;
+    std::vector<float> newOffsets;
     std::function<void(const std::vector<Note *> &)> onNotesChanged;
 };
 
@@ -63,7 +63,7 @@ class NotePitchDragAction : public UndoableAction
 public:
   NotePitchDragAction(Project& project,
                               int noteIndex,
-                              float oldMidi, float newMidi,
+                              float oldOffset, float newOffset,
                               int startFrame, int endFrame,
                               std::vector<float> beforeF0,
                               std::vector<float> afterF0,
@@ -72,7 +72,7 @@ public:
                               std::function<void()> onChanged = nullptr)
       : project(project),
         noteIndex(noteIndex),
-        oldMidi(oldMidi), newMidi(newMidi),
+        oldOffset(oldOffset), newOffset(newOffset),
         startFrame(startFrame), endFrame(endFrame),
         beforeF0(std::move(beforeF0)), afterF0(std::move(afterF0)),
         beforeBasePitch(std::move(beforeBasePitch)),
@@ -87,7 +87,7 @@ public:
     auto& notes = project.getNotes();
     if (noteIndex >= 0 && noteIndex < static_cast<int>(notes.size()))
     {
-      notes[noteIndex].setMidiNote(oldMidi);
+      notes[noteIndex].setPitchOffset(oldOffset);
       notes[noteIndex].markDirty();
       notes[noteIndex].markSynthDirty();
     }
@@ -104,7 +104,7 @@ public:
     auto& notes = project.getNotes();
     if (noteIndex >= 0 && noteIndex < static_cast<int>(notes.size()))
     {
-      notes[noteIndex].setMidiNote(newMidi);
+      notes[noteIndex].setPitchOffset(newOffset);
       notes[noteIndex].markDirty();
       notes[noteIndex].markSynthDirty();
     }
@@ -118,8 +118,8 @@ public:
 private:
   Project& project;
   int noteIndex;
-  float oldMidi;
-  float newMidi;
+  float oldOffset;
+  float newOffset;
   int startFrame;
   int endFrame;
   std::vector<float> beforeF0;
@@ -134,8 +134,8 @@ class MultiNotePitchDragAction : public UndoableAction
 public:
   MultiNotePitchDragAction(Project& project,
                                    std::vector<int> noteIndices,
-                                   std::vector<float> oldMidis,
-                                   float pitchDelta,
+                                   std::vector<float> oldOffsets,
+                                   std::vector<float> newOffsets,
                                    int startFrame, int endFrame,
                                    std::vector<float> beforeF0,
                                    std::vector<float> afterF0,
@@ -144,8 +144,8 @@ public:
                                    std::function<void()> onChanged = nullptr)
       : project(project),
         noteIndices(std::move(noteIndices)),
-        oldMidis(std::move(oldMidis)),
-        pitchDelta(pitchDelta),
+        oldOffsets(std::move(oldOffsets)),
+        newOffsets(std::move(newOffsets)),
         startFrame(startFrame), endFrame(endFrame),
         beforeF0(std::move(beforeF0)), afterF0(std::move(afterF0)),
         beforeBasePitch(std::move(beforeBasePitch)),
@@ -158,12 +158,12 @@ public:
     SnapshotHelper::restoreFloatRange(editedData.f0, startFrame, beforeF0);
     SnapshotHelper::restoreFloatRange(editedData.basePitch, startFrame, beforeBasePitch);
     auto& notes = project.getNotes();
-    for (size_t i = 0; i < noteIndices.size() && i < oldMidis.size(); ++i)
+    for (size_t i = 0; i < noteIndices.size() && i < oldOffsets.size(); ++i)
     {
       int idx = noteIndices[i];
       if (idx >= 0 && idx < static_cast<int>(notes.size()))
       {
-        notes[idx].setMidiNote(oldMidis[i]);
+        notes[idx].setPitchOffset(oldOffsets[i]);
         notes[idx].markDirty();
         notes[idx].markSynthDirty();
       }
@@ -179,12 +179,12 @@ public:
     SnapshotHelper::restoreFloatRange(editedData.f0, startFrame, afterF0);
     SnapshotHelper::restoreFloatRange(editedData.basePitch, startFrame, afterBasePitch);
     auto& notes = project.getNotes();
-    for (size_t i = 0; i < noteIndices.size() && i < oldMidis.size(); ++i)
+    for (size_t i = 0; i < noteIndices.size() && i < newOffsets.size(); ++i)
     {
       int idx = noteIndices[i];
       if (idx >= 0 && idx < static_cast<int>(notes.size()))
       {
-        notes[idx].setMidiNote(oldMidis[i] + pitchDelta);
+        notes[idx].setPitchOffset(newOffsets[i]);
         notes[idx].markDirty();
         notes[idx].markSynthDirty();
       }
@@ -199,8 +199,8 @@ public:
 private:
   Project& project;
   std::vector<int> noteIndices;
-  std::vector<float> oldMidis;
-  float pitchDelta;
+  std::vector<float> oldOffsets;
+  std::vector<float> newOffsets;
   int startFrame;
   int endFrame;
   std::vector<float> beforeF0;
