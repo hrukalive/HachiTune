@@ -1,4 +1,5 @@
 #include "MelViewComponent.h"
+#include "../../Utils/MelScale.h"
 #include <cmath>
 #include <algorithm>
 
@@ -166,6 +167,8 @@ void MelViewComponent::paint(juce::Graphics& g)
   if (f0.empty())
     return;
 
+  ensureMelCenterFreqs(numMels);
+
   juce::Path f0Path;
   bool prevValid = false;
 
@@ -185,7 +188,7 @@ void MelViewComponent::paint(juce::Graphics& g)
       continue;
     }
 
-    const float melBin = hzToMelBin(freq, numMels);
+    const float melBin = MelScale::hzToMelBin(freq, melCenterFreqs);
     const float yPos = h - (melBin / static_cast<float>(numMels)) * h;
 
     if (prevValid)
@@ -274,12 +277,10 @@ juce::Colour MelViewComponent::viridisColour(float t)
   return juce::Colour::fromFloatRGBA(r, gr, b, 1.0f);
 }
 
-float MelViewComponent::hzToMelBin(float hz, int numMels)
+void MelViewComponent::ensureMelCenterFreqs(int numMels)
 {
-  if (hz <= 0.0f)
-    return 0.0f;
-
-  const float mel = 2595.0f * std::log10(1.0f + hz / 700.0f);
-  constexpr float maxMel = 3800.0f;
-  return (mel / maxMel) * static_cast<float>(numMels);
+  if (numMels == cachedNumMels && !melCenterFreqs.empty())
+    return;
+  melCenterFreqs = MelScale::computeCenterFrequencies(numMels);
+  cachedNumMels = numMels;
 }

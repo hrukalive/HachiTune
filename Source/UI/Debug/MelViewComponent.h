@@ -21,7 +21,10 @@ public:
 
 private:
   static juce::Colour viridisColour(float t);
-  static float hzToMelBin(float hz, int numMels = 128);
+
+  std::vector<float> melCenterFreqs;
+  int cachedNumMels = 0;
+  void ensureMelCenterFreqs(int numMels);
 
   Project* project = nullptr;
   juce::Image melImage;
