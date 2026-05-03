@@ -81,60 +81,69 @@ float Project::getBaseF0ForFrame(int frame) const
 Project::FrameDataValidation Project::validateFrameData() const
 {
     FrameDataValidation result;
-    int editedFrames = 0;
-    auto useEditedFrameCount = [&](size_t size) {
-        if (editedFrames == 0 && size > 0)
-            editedFrames = static_cast<int>(size);
+    int outputFrames = 0;
+    auto useOutputFrameCount = [&](size_t size) {
+        if (outputFrames == 0 && size > 0)
+            outputFrames = static_cast<int>(size);
     };
 
-    useEditedFrameCount(editedData.f0.size());
-    useEditedFrameCount(editedData.tunedF0.size());
-    useEditedFrameCount(editedData.basePitch.size());
-    useEditedFrameCount(editedData.deltaPitch.size());
-    useEditedFrameCount(editedData.voicedMask.size());
-    useEditedFrameCount(editedData.vadMask.size());
-    useEditedFrameCount(editedData.voicingCurve.size());
-    useEditedFrameCount(editedData.breathCurve.size());
-    useEditedFrameCount(editedData.tensionCurve.size());
-    useEditedFrameCount(editedData.baseVoicing.size());
-    useEditedFrameCount(editedData.baseBreath.size());
-    useEditedFrameCount(editedData.baseTension.size());
+    useOutputFrameCount(editedData.f0.size());
+    useOutputFrameCount(editedData.mel.size());
+    useOutputFrameCount(editedData.basePitch.size());
+    useOutputFrameCount(editedData.deltaPitch.size());
+    useOutputFrameCount(editedData.voicedMask.size());
+    useOutputFrameCount(editedData.vadMask.size());
+    useOutputFrameCount(editedData.voicingCurve.size());
+    useOutputFrameCount(editedData.breathCurve.size());
+    useOutputFrameCount(editedData.tensionCurve.size());
 
     auto checkFloat = [&](const std::vector<float>& values,
                           const char* name,
-                          bool required) {
+                          bool required,
+                          int expectedFrames) {
         if (required && values.empty())
             result.messages.push_back(juce::String(name) + " is empty");
-        if (!values.empty() && static_cast<int>(values.size()) != editedFrames)
+        if (!values.empty() && expectedFrames > 0 &&
+            static_cast<int>(values.size()) != expectedFrames)
             result.messages.push_back(juce::String(name) + " size mismatch");
     };
 
     auto checkBool = [&](const std::vector<bool>& values,
                          const char* name,
-                         bool required) {
+                         bool required,
+                         int expectedFrames) {
         if (required && values.empty())
             result.messages.push_back(juce::String(name) + " is empty");
-        if (!values.empty() && static_cast<int>(values.size()) != editedFrames)
+        if (!values.empty() && expectedFrames > 0 &&
+            static_cast<int>(values.size()) != expectedFrames)
             result.messages.push_back(juce::String(name) + " size mismatch");
     };
 
-    if (editedFrames > 0)
+    if (outputFrames > 0)
     {
-        checkFloat(editedData.basePitch, "editedData.basePitch", true);
-        checkFloat(editedData.deltaPitch, "editedData.deltaPitch", true);
-        checkFloat(editedData.f0, "editedData.f0", true);
-        checkFloat(editedData.tunedF0, "editedData.tunedF0", false);
-        checkBool(editedData.voicedMask, "editedData.voicedMask", true);
-        checkBool(editedData.vadMask, "editedData.vadMask", true);
-        checkFloat(editedData.voicingCurve, "editedData.voicingCurve", true);
-        checkFloat(editedData.breathCurve, "editedData.breathCurve", true);
-        checkFloat(editedData.tensionCurve, "editedData.tensionCurve", true);
-        checkFloat(editedData.baseVoicing, "editedData.baseVoicing", false);
-        checkFloat(editedData.baseBreath, "editedData.baseBreath", false);
-        checkFloat(editedData.baseTension, "editedData.baseTension", false);
+        checkFloat(editedData.basePitch, "editedData.basePitch", true, outputFrames);
+        checkFloat(editedData.deltaPitch, "editedData.deltaPitch", true, outputFrames);
+        checkFloat(editedData.f0, "editedData.f0", true, outputFrames);
+        checkBool(editedData.voicedMask, "editedData.voicedMask", true, outputFrames);
+        checkBool(editedData.vadMask, "editedData.vadMask", true, outputFrames);
+        checkFloat(editedData.voicingCurve, "editedData.voicingCurve", true, outputFrames);
+        checkFloat(editedData.breathCurve, "editedData.breathCurve", true, outputFrames);
+        checkFloat(editedData.tensionCurve, "editedData.tensionCurve", true, outputFrames);
     }
 
     const int analysisFrames = analysisData.getNumFrames();
+    int sourceFrames = analysisFrames;
+    auto useSourceFrameCount = [&](size_t size) {
+        if (sourceFrames == 0 && size > 0)
+            sourceFrames = static_cast<int>(size);
+    };
+    useSourceFrameCount(analysisData.originalMel.size());
+    useSourceFrameCount(editedData.tunedF0.size());
+    useSourceFrameCount(editedData.baseVoicing.size());
+    useSourceFrameCount(editedData.baseBreath.size());
+    useSourceFrameCount(editedData.baseTension.size());
+    useSourceFrameCount(editedData.adjustedMel.size());
+
     auto checkAnalysisFloat = [&](const std::vector<float>& values,
                                   const char* name,
                                   bool required) {
@@ -164,8 +173,16 @@ Project::FrameDataValidation Project::validateFrameData() const
                       "analysisData.originalVoicedMask",
                       requiresAnalysisArrays);
     checkAnalysisBool(analysisData.originalVADMask,
-                      "analysisData.originalVADMask",
-                      requiresAnalysisArrays);
+                       "analysisData.originalVADMask",
+                       requiresAnalysisArrays);
+
+    if (sourceFrames > 0)
+    {
+        checkFloat(editedData.tunedF0, "editedData.tunedF0", false, sourceFrames);
+        checkFloat(editedData.baseVoicing, "editedData.baseVoicing", false, sourceFrames);
+        checkFloat(editedData.baseBreath, "editedData.baseBreath", false, sourceFrames);
+        checkFloat(editedData.baseTension, "editedData.baseTension", false, sourceFrames);
+    }
 
     const int projectFrames = getFrameCount();
     int nonRestNotes = 0;
@@ -197,9 +214,13 @@ Project::FrameDataValidation Project::validateFrameData() const
         result.messages.push_back("analysisData.noteSegments count mismatch");
 
     auto checkMelMatrix = [&](const std::vector<std::vector<float>>& matrix,
-                              const char* name) {
+                              const char* name,
+                              int expectedFrames) {
         if (matrix.empty())
             return;
+        if (expectedFrames > 0 &&
+            static_cast<int>(matrix.size()) != expectedFrames)
+            result.messages.push_back(juce::String(name) + " size mismatch");
         const auto bins = matrix.front().size();
         for (const auto& row : matrix)
         {
@@ -211,9 +232,11 @@ Project::FrameDataValidation Project::validateFrameData() const
         }
     };
 
-    checkMelMatrix(analysisData.originalMel, "analysisData.originalMel");
-    checkMelMatrix(editedData.adjustedMel, "editedData.adjustedMel");
-    checkMelMatrix(editedData.mel, "editedData.mel");
+    checkMelMatrix(analysisData.originalMel, "analysisData.originalMel",
+                   analysisFrames);
+    checkMelMatrix(editedData.adjustedMel, "editedData.adjustedMel",
+                   sourceFrames);
+    checkMelMatrix(editedData.mel, "editedData.mel", outputFrames);
 
     int prevSource = -1;
     int prevOutput = -1;

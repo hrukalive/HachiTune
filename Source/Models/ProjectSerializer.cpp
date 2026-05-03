@@ -6,6 +6,22 @@
 
 #include <algorithm>
 
+namespace {
+
+void populateMissingStagedPipelineOwners(EditedData& data)
+{
+    if (data.tunedF0.empty())
+        data.tunedF0 = data.f0;
+    if (data.baseVoicing.empty())
+        data.baseVoicing = data.voicingCurve;
+    if (data.baseBreath.empty())
+        data.baseBreath = data.breathCurve;
+    if (data.baseTension.empty())
+        data.baseTension = data.tensionCurve;
+}
+
+} // namespace
+
 bool ProjectSerializer::saveToFile(const Project& project, const juce::File& file) {
     auto json = toJson(project);
     auto jsonString = juce::JSON::toString(json, true); // Pretty print
@@ -324,6 +340,8 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
     else
         HNSepCurveProcessor::initializeCurves(project);
 
+    populateMissingStagedPipelineOwners(editedData2);
+
     project.setModified(false);
     return true;
 }
@@ -544,14 +562,7 @@ bool ProjectSerializer::editedDataFromJson(EditedData& data, const juce::var& js
     data.baseBreath = stringToFloatArray(json.getProperty("baseBreath", "").toString());
     data.baseTension = stringToFloatArray(json.getProperty("baseTension", "").toString());
 
-    if (data.tunedF0.empty())
-        data.tunedF0 = data.f0;
-    if (data.baseVoicing.empty())
-        data.baseVoicing = data.voicingCurve;
-    if (data.baseBreath.empty())
-        data.baseBreath = data.breathCurve;
-    if (data.baseTension.empty())
-        data.baseTension = data.tensionCurve;
+    populateMissingStagedPipelineOwners(data);
     return true;
 }
 
@@ -576,10 +587,7 @@ bool ProjectSerializer::legacyPitchDataFromJson(AudioData& audioData,
 
     // Legacy audioData fields removed — data now lives only in editedData
 
-    editedData.tunedF0 = editedData.f0;
-    editedData.baseVoicing = editedData.voicingCurve;
-    editedData.baseBreath = editedData.breathCurve;
-    editedData.baseTension = editedData.tensionCurve;
+    populateMissingStagedPipelineOwners(editedData);
 
     // For legacy files, analysis data = initial edited data (best we can do)
     analysisData.originalF0 = editedData.f0;

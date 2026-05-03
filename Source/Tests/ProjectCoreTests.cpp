@@ -259,6 +259,56 @@ void testSerializerLoadsCompactPipelineState()
                    "load restores baseTension");
 }
 
+void testSerializerBackfillsBaseCurvesAfterNoteHNSepRebuild()
+{
+  auto* root = new juce::DynamicObject();
+  root->setProperty("name", "PipelineNoteCurveLoad");
+  root->setProperty("sampleRate", 44100);
+
+  juce::Array<juce::var> notes;
+  auto* note = new juce::DynamicObject();
+  note->setProperty("startFrame", 0);
+  note->setProperty("endFrame", 3);
+  note->setProperty("midiNote", 60.0);
+  note->setProperty("rest", false);
+  note->setProperty("voicingCurve", "90 91 92");
+  note->setProperty("breathCurve", "80 81 82");
+  note->setProperty("tensionCurve", "1 2 3");
+  notes.add(juce::var(note));
+  root->setProperty("notes", notes);
+
+  auto* analysis = new juce::DynamicObject();
+  analysis->setProperty("originalF0", "100 110 120");
+  analysis->setProperty("originalPitch", "60 61 62");
+  analysis->setProperty("originalDeltaPitch", "0 0.1 0.2");
+  analysis->setProperty("originalVoicedMask", "111");
+  analysis->setProperty("originalVADMask", "111");
+  root->setProperty("analysisData", juce::var(analysis));
+
+  auto* edited = new juce::DynamicObject();
+  edited->setProperty("basePitch", "60 60 60");
+  edited->setProperty("deltaPitch", "0 0.1 0.2");
+  edited->setProperty("f0", "100 110 120");
+  edited->setProperty("voicedMask", "111");
+  edited->setProperty("vadMask", "111");
+  root->setProperty("editedData", juce::var(edited));
+
+  Project project;
+  project.getAudioData().waveform.setSize(1, 2 * HOP_SIZE);
+  require(ProjectSerializer::fromJson(project, juce::var(root)),
+          "note HNSep curve project loads");
+
+  expectVectorNear(project.getEditedData().baseVoicing,
+                   {90.0f, 91.0f, 92.0f}, 0.0001f,
+                   "note HNSep rebuild backfills baseVoicing");
+  expectVectorNear(project.getEditedData().baseBreath,
+                   {80.0f, 81.0f, 82.0f}, 0.0001f,
+                   "note HNSep rebuild backfills baseBreath");
+  expectVectorNear(project.getEditedData().baseTension,
+                   {1.0f, 2.0f, 3.0f}, 0.0001f,
+                   "note HNSep rebuild backfills baseTension");
+}
+
 void testSerializerOmitsNoteCaches()
 {
   auto project = makeProject();
@@ -459,6 +509,21 @@ void testValidation()
   project.getNotes()[0].setSrcEndFrame(0);
   result = project.validateFrameData();
   expect(!result.isValid(), "invalid source range fails without analysis frames");
+
+  project = makeProject();
+  auto& edited = project.getEditedData();
+  edited.f0.push_back(329.63f);
+  edited.basePitch.push_back(60.0f);
+  edited.deltaPitch.push_back(4.0f);
+  edited.voicedMask.push_back(true);
+  edited.vadMask.push_back(true);
+  edited.voicingCurve.push_back(100.0f);
+  edited.breathCurve.push_back(100.0f);
+  edited.tensionCurve.push_back(0.0f);
+  edited.mel.push_back({0.5f, 0.6f});
+  result = project.validateFrameData();
+  expect(result.isValid(),
+         "validation allows source and output pipeline lengths to differ");
 }
 
 void testStretchEditedData()
@@ -1039,6 +1104,7 @@ int main()
   testPipelineOwnershipFields();
   testSerializerSavesCompactPipelineState();
   testSerializerLoadsCompactPipelineState();
+  testSerializerBackfillsBaseCurvesAfterNoteHNSepRebuild();
   testSerializerOmitsNoteCaches();
   testSerializerRestoresSourceRangesFromAnalysisSegments();
   testLegacyLoadClearsAnalysisSegments();
