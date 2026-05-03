@@ -601,6 +601,8 @@ void testWarpEndpoints()
 void testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel()
 {
   auto project = makeProject();
+  const std::vector<std::vector<float>> originalMel = {
+      {100.0f}, {110.0f}, {120.0f}, {130.0f}};
   const std::vector<std::vector<float>> adjustedMel = {
       {0.0f}, {10.0f}, {20.0f}, {30.0f}};
   const std::vector<Project::WarpMarker> current = {
@@ -608,7 +610,7 @@ void testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel()
   const std::vector<Project::WarpMarker> target = {
       {0, 0}, {2, 4}, {4, 6}};
 
-  project.getAnalysisData().originalMel = adjustedMel;
+  project.getAnalysisData().originalMel = originalMel;
   project.getEditedData().adjustedMel = adjustedMel;
   project.getEditedData().mel.assign(5, {999.0f});
 

@@ -588,11 +588,22 @@ void recomputeFromMarkers(Project& project,
 
     const int newTotalFrames = warpMap.back().outputFrame;
     auto& editedData = project.getEditedData();
+    const auto currentAdjustedMel = editedData.adjustedMel;
+    const auto currentOutputMel = editedData.mel;
     if (!mapsAlreadyMatch)
     {
         const int sourceFrames = warpMap.back().sourceFrame;
         auto sourceEditedData =
             unwarpEditedDataToSource(editedData, currentMap, sourceFrames);
+        if (!currentAdjustedMel.empty())
+        {
+            sourceEditedData.adjustedMel = currentAdjustedMel;
+        }
+        else if (!currentOutputMel.empty())
+        {
+            sourceEditedData.adjustedMel =
+                unwarpMelToSource(currentOutputMel, currentMap, sourceFrames);
+        }
         StretchProcessor::stretchEditedData(sourceEditedData, warpMap,
                                             newTotalFrames);
         editedData = std::move(sourceEditedData);
