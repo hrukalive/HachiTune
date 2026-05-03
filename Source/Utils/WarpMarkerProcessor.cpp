@@ -394,6 +394,17 @@ void rebuildSourceDerivedOutput(Project& project,
     const int outputFrames = project.getFrameCount() > 0
         ? project.getFrameCount()
         : warpMap.back().outputFrame;
+    const auto currentOutputMel = editedData.mel;
+    if (editedData.adjustedMel.empty() && !currentOutputMel.empty())
+    {
+        const auto currentMap =
+            buildWarpMapWithEndpoints(project, project.getWarpMarkers());
+        const auto& sourceMap = currentMap.size() >= 2 ? currentMap : warpMap;
+        editedData.adjustedMel =
+            unwarpMelToSource(currentOutputMel, sourceMap,
+                              warpMap.back().sourceFrame);
+    }
+
     if (!editedData.adjustedMel.empty())
     {
         editedData.mel = StretchProcessor::buildOutputMel(

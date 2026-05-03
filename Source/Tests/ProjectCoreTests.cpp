@@ -630,6 +630,24 @@ void testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel()
          "mel recompute preview does not commit project markers");
 }
 
+void testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel()
+{
+  auto project = makeProject();
+  const std::vector<std::vector<float>> finalMel = {
+      {0.0f}, {10.0f}, {20.0f}, {30.0f}};
+
+  project.getAnalysisData().originalMel.clear();
+  project.getEditedData().adjustedMel.clear();
+  project.getEditedData().mel = finalMel;
+
+  WarpMarkerProcessor::rebuildSourceDerivedOutput(project, {});
+
+  expectMelNear(project.getEditedData().adjustedMel, finalMel, 0.0001f,
+                "rebuild backfills adjusted source mel from final mel");
+  expectMelNear(project.getEditedData().mel, finalMel, 0.0001f,
+                "rebuild preserves final mel through identity map");
+}
+
 void testNormalizePreservesEndpointOutputLength()
 {
   auto project = makeProject();
@@ -1117,6 +1135,7 @@ int main()
   testBuildOutputMelUsesRequestedFrameCount();
   testWarpEndpoints();
   testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel();
+  testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();
   testPreviewRecomputeCanAdvanceAndCancel();
