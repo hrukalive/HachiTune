@@ -389,20 +389,21 @@ void rebuildSourceDerivedOutput(Project& project,
     if (warpMap.size() < 2)
         return;
 
-    auto& audioData = project.getAudioData();
+    auto& analysisData = project.getAnalysisData();
+    auto& editedData = project.getEditedData();
     const int outputFrames = project.getFrameCount() > 0
         ? project.getFrameCount()
         : warpMap.back().outputFrame;
-    if (!audioData.sourceMelSpectrogram.empty())
+    if (!editedData.adjustedMel.empty())
     {
-        audioData.melSpectrogram = StretchProcessor::buildOutputMel(
-            audioData.sourceMelSpectrogram, warpMap, outputFrames);
+        editedData.mel = StretchProcessor::buildOutputMel(
+            editedData.adjustedMel, warpMap, outputFrames);
     }
-    else if (!audioData.melSpectrogram.empty())
+    else if (!analysisData.originalMel.empty())
     {
-        audioData.sourceMelSpectrogram = audioData.melSpectrogram;
-        audioData.melSpectrogram = StretchProcessor::buildOutputMel(
-            audioData.sourceMelSpectrogram, warpMap, outputFrames);
+        editedData.adjustedMel = analysisData.originalMel;
+        editedData.mel = StretchProcessor::buildOutputMel(
+            editedData.adjustedMel, warpMap, outputFrames);
     }
 
     project.composeGlobalWaveform();
@@ -599,20 +600,23 @@ void recomputeFromMarkers(Project& project,
     StretchProcessor::remapNoteFrames(project.getNotes(), warpMap);
     project.sortNotes();
 
-    auto& audioData = project.getAudioData();
-    if (audioData.sourceMelSpectrogram.empty() &&
+    auto& analysisData = project.getAnalysisData();
+    if (editedData.adjustedMel.empty() &&
         !mapsAlreadyMatch &&
-        !audioData.melSpectrogram.empty())
+        !editedData.mel.empty())
     {
         const int sourceFrames = warpMap.back().sourceFrame;
-        audioData.sourceMelSpectrogram =
-            unwarpMelToSource(audioData.melSpectrogram, currentMap, sourceFrames);
+        editedData.adjustedMel =
+            unwarpMelToSource(editedData.mel, currentMap, sourceFrames);
     }
 
-    if (!audioData.sourceMelSpectrogram.empty())
+    if (editedData.adjustedMel.empty() && !analysisData.originalMel.empty())
+        editedData.adjustedMel = analysisData.originalMel;
+
+    if (!editedData.adjustedMel.empty())
     {
-        audioData.melSpectrogram =
-            StretchProcessor::buildOutputMel(audioData.sourceMelSpectrogram,
+        editedData.mel =
+            StretchProcessor::buildOutputMel(editedData.adjustedMel,
                                              warpMap, newTotalFrames);
     }
 

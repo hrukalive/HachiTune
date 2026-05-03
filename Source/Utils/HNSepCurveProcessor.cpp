@@ -377,14 +377,11 @@ namespace HNSepCurveProcessor
     void recomputeMelForRange(Project& project, int startFrame, int endFrame)
     {
         auto& audioData = project.getAudioData();
-        const auto& editedData = project.getEditedData();
-        if (audioData.sourceMelSpectrogram.empty() &&
-            !audioData.melSpectrogram.empty() &&
-            hasIdentityWarpMap(project))
-        {
-            audioData.sourceMelSpectrogram = audioData.melSpectrogram;
-        }
-        if (audioData.sourceMelSpectrogram.empty())
+        auto& analysisData = project.getAnalysisData();
+        auto& editedData = project.getEditedData();
+        if (editedData.adjustedMel.empty())
+            editedData.adjustedMel = analysisData.originalMel;
+        if (editedData.adjustedMel.empty())
             return;
 
         const bool hasGlobalHNSep =
@@ -399,7 +396,7 @@ namespace HNSepCurveProcessor
             return;
 
         const int numMels =
-            static_cast<int>(audioData.sourceMelSpectrogram.front().size());
+            static_cast<int>(editedData.adjustedMel.front().size());
 
         TensionProcessor tensionProc;
         MelSpectrogram melComputer(audioData.sampleRate);
@@ -495,14 +492,14 @@ namespace HNSepCurveProcessor
             const int writeStart = std::max(0, sourceStart);
             const int writeEnd = std::min(sourceEnd,
                                           static_cast<int>(
-                                              audioData.sourceMelSpectrogram.size()));
+                                              editedData.adjustedMel.size()));
             for (int f = writeStart; f < writeEnd; ++f)
             {
                 const int noteLocal = f - sourceStart;
                 if (noteLocal >= 0 &&
                     noteLocal < static_cast<int>(srcMel.size()))
                 {
-                    audioData.sourceMelSpectrogram[static_cast<size_t>(f)] =
+                    editedData.adjustedMel[static_cast<size_t>(f)] =
                         srcMel[static_cast<size_t>(noteLocal)];
                     updatedSourceMel = true;
                 }
@@ -515,12 +512,12 @@ namespace HNSepCurveProcessor
         const auto warpMap = buildCurrentOutputWarpMap(project);
         if (warpMap.size() >= 2)
         {
-            audioData.melSpectrogram = StretchProcessor::buildOutputMel(
-                audioData.sourceMelSpectrogram, warpMap, project.getFrameCount());
+            editedData.mel = StretchProcessor::buildOutputMel(
+                editedData.adjustedMel, warpMap, project.getFrameCount());
         }
         else
         {
-            audioData.melSpectrogram = audioData.sourceMelSpectrogram;
+            editedData.mel = editedData.adjustedMel;
         }
     }
 } // namespace HNSepCurveProcessor

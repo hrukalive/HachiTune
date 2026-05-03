@@ -257,7 +257,8 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
   }
 
   auto &audioData = project->getAudioData();
-  if (audioData.melSpectrogram.empty() || project->getEditedData().f0.empty()) {
+  auto& editedData = project->getEditedData();
+  if (editedData.mel.empty() || editedData.f0.empty()) {
     if (onComplete)
       onComplete(false);
     return;
@@ -281,8 +282,7 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
   int startFrame = range.startFrame;
   int endFrame = range.endFrame;
   startFrame = std::max(0, startFrame);
-  endFrame =
-      std::min(static_cast<int>(audioData.melSpectrogram.size()), endFrame);
+  endFrame = std::min(static_cast<int>(editedData.mel.size()), endFrame);
   if (dirtyStart < 0 || dirtyEnd < 0) {
     dirtyStart = startFrame;
     dirtyEnd = endFrame;
@@ -337,7 +337,7 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
   HNSepCurveProcessor::rebuildCurvesForRange(*project, startFrame, endFrame);
 
-  // If curve edits need mel update, recompute mel in global melSpectrogram
+  // If curve edits need mel update, recompute final output-timeline mel.
   const bool hasGlobalHNSep = audioData.harmonicWaveform.getNumSamples() > 0 &&
                                audioData.noiseWaveform.getNumSamples() > 0;
   if (range.needsMelUpdate &&
@@ -352,11 +352,11 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
   // Slice global mel for vocoder input
   std::vector<std::vector<float>> melRange;
-  if (startFrame < static_cast<int>(audioData.melSpectrogram.size()) &&
-      endFrame <= static_cast<int>(audioData.melSpectrogram.size()))
+  if (startFrame < static_cast<int>(editedData.mel.size()) &&
+      endFrame <= static_cast<int>(editedData.mel.size()))
   {
-    melRange.assign(audioData.melSpectrogram.begin() + startFrame,
-                    audioData.melSpectrogram.begin() + endFrame);
+    melRange.assign(editedData.mel.begin() + startFrame,
+                    editedData.mel.begin() + endFrame);
   }
 
   std::vector<float> adjustedF0Range =

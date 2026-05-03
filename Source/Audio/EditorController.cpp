@@ -583,7 +583,7 @@ void EditorController::renderProcessedAudioAsync(
 
   auto f0Snapshot = project.getEditedData().f0;
   auto voicedMaskSnapshot = project.getEditedData().voicedMask;
-  auto melSpecSnapshot = project.getAudioData().melSpectrogram;
+  auto melSpecSnapshot = project.getEditedData().mel;
   Vocoder *voc = vocoder.get();
 
   renderThread = std::thread(
@@ -658,8 +658,7 @@ void EditorController::resynthesizeIncrementalAsync(
     return;
   }
 
-  auto &audioData = project.getAudioData();
-  if (audioData.melSpectrogram.empty() || project.getEditedData().f0.empty())
+  if (project.getEditedData().mel.empty() || project.getEditedData().f0.empty())
   {
     if (onComplete)
       onComplete(false);
@@ -787,10 +786,12 @@ void EditorController::analyzeAudio(
   onProgress(0.35, TR("progress.computing_mel"));
   MelSpectrogram melComputer(audioData.sampleRate, N_FFT, HOP_SIZE, NUM_MELS,
                              FMIN, FMAX);
-  audioData.sourceMelSpectrogram = melComputer.compute(samples, numSamples);
-  audioData.melSpectrogram = audioData.sourceMelSpectrogram;
+  auto& analysis = targetProject.getAnalysisData();
+  analysis.originalMel = melComputer.compute(samples, numSamples);
+  editedData.adjustedMel = analysis.originalMel;
+  editedData.mel = editedData.adjustedMel;
 
-  int targetFrames = static_cast<int>(audioData.melSpectrogram.size());
+  int targetFrames = static_cast<int>(editedData.mel.size());
 
   onProgress(0.55, TR("progress.extracting_f0"));
 
@@ -1031,7 +1032,6 @@ void EditorController::analyzeAudio(
   HNSepCurveProcessor::initializeCurves(targetProject);
 
   // Populate AnalysisData (immutable copy of initial analysis)
-  auto& analysis = targetProject.getAnalysisData();
   analysis.originalF0 = editedData.f0;
   analysis.originalPitch = editedData.basePitch;
   analysis.originalDeltaPitch = editedData.deltaPitch;
@@ -1085,10 +1085,12 @@ void EditorController::analyzeAudioAsync(
 
       const auto existingWarpMarkers = projectShared->getWarpMarkers();
 
-      projectShared->getAudioData().melSpectrogram =
-          projectCopy->getAudioData().melSpectrogram;
-      projectShared->getAudioData().sourceMelSpectrogram =
-          projectCopy->getAudioData().sourceMelSpectrogram;
+      projectShared->getAnalysisData().originalMel =
+          projectCopy->getAnalysisData().originalMel;
+      projectShared->getEditedData().adjustedMel =
+          projectCopy->getEditedData().adjustedMel;
+      projectShared->getEditedData().mel =
+          projectCopy->getEditedData().mel;
       projectShared->getEditedData().f0 = projectCopy->getEditedData().f0;
       projectShared->getEditedData().voicedMask =
           projectCopy->getEditedData().voicedMask;
@@ -1225,9 +1227,9 @@ void EditorController::segmentIntoNotes(Project &targetProject,
 
   auto sliceSourceMelClips = [&]()
   {
-    const auto& sourceMel = !audioData.sourceMelSpectrogram.empty()
-        ? audioData.sourceMelSpectrogram
-        : audioData.melSpectrogram;
+    const auto& sourceMel = !targetProject.getEditedData().adjustedMel.empty()
+        ? targetProject.getEditedData().adjustedMel
+        : targetProject.getAnalysisData().originalMel;
     if (sourceMel.empty())
       return;
 

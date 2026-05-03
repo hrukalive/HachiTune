@@ -95,10 +95,12 @@ void AudioAnalyzer::analyze(Project &project, ProgressCallback onProgress,
     onProgress(0.35, "Computing mel spectrogram...");
   MelSpectrogram melComputer(audioData.sampleRate, N_FFT, HOP_SIZE, NUM_MELS,
                              FMIN, FMAX);
-  audioData.sourceMelSpectrogram = melComputer.compute(samples, numSamples);
-  audioData.melSpectrogram = audioData.sourceMelSpectrogram;
+  auto& analysisData = project.getAnalysisData();
+  analysisData.originalMel = melComputer.compute(samples, numSamples);
+  editedData.adjustedMel = analysisData.originalMel;
+  editedData.mel = editedData.adjustedMel;
 
-  int targetFrames = static_cast<int>(audioData.melSpectrogram.size());
+  int targetFrames = static_cast<int>(editedData.mel.size());
 
   if (cancelFlag.load())
     return;
@@ -383,12 +385,13 @@ void AudioAnalyzer::segmentWithGAME(Project &project)
 {
   auto &audioData = project.getAudioData();
   auto &editedData = project.getEditedData();
+  const auto& originalMel = project.getAnalysisData().originalMel;
   auto &notes = project.getNotes();
 
   const float *samples = audioData.waveform.getReadPointer(0);
   int numSamples = audioData.waveform.getNumSamples();
   const int f0Size = static_cast<int>(editedData.f0.size());
-  const int melSize = static_cast<int>(audioData.melSpectrogram.size());
+  const int melSize = static_cast<int>(originalMel.size());
 
   auto *detector = gameDetector ? gameDetector.get() : externalGAMEDetector;
 
@@ -429,15 +432,15 @@ void AudioAnalyzer::segmentWithGAME(Project &project)
     Note note(f0Start, f0End, midi);
 
     // Extract mel spectrogram clip for this note
-    if (!audioData.melSpectrogram.empty() && f0Start < melSize)
+    if (!originalMel.empty() && f0Start < melSize)
     {
       int melStart = std::max(0, f0Start);
       int melEnd = std::min(f0End, melSize);
       if (melEnd > melStart)
       {
         std::vector<std::vector<float>> melClip(
-            audioData.melSpectrogram.begin() + melStart,
-            audioData.melSpectrogram.begin() + melEnd);
+            originalMel.begin() + melStart,
+            originalMel.begin() + melEnd);
         note.setClipMel(std::move(melClip));
       }
     }
@@ -454,8 +457,9 @@ void AudioAnalyzer::segmentFallback(Project &project)
 {
   auto &audioData = project.getAudioData();
   auto &editedData = project.getEditedData();
+  const auto& originalMel = project.getAnalysisData().originalMel;
   auto &notes = project.getNotes();
-  const int melSize = static_cast<int>(audioData.melSpectrogram.size());
+  const int melSize = static_cast<int>(originalMel.size());
 
   auto finalizeNote = [&](int start, int end)
   {
@@ -480,15 +484,15 @@ void AudioAnalyzer::segmentFallback(Project &project)
     Note note(start, end, midi);
 
     // Extract mel spectrogram clip
-    if (!audioData.melSpectrogram.empty() && start < melSize)
+    if (!originalMel.empty() && start < melSize)
     {
       int melStart = std::max(0, start);
       int melEnd = std::min(end, melSize);
       if (melEnd > melStart)
       {
         std::vector<std::vector<float>> melClip(
-            audioData.melSpectrogram.begin() + melStart,
-            audioData.melSpectrogram.begin() + melEnd);
+            originalMel.begin() + melStart,
+            originalMel.begin() + melEnd);
         note.setClipMel(std::move(melClip));
       }
     }

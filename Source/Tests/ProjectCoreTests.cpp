@@ -598,33 +598,34 @@ void testWarpEndpoints()
   expect(markers.back().outputFrame == 4, "warp ends at output end");
 }
 
-void testRecomputeFromMarkersBuildsMelFromSourceCache()
+void testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel()
 {
   auto project = makeProject();
-  const std::vector<std::vector<float>> sourceMel = {
+  const std::vector<std::vector<float>> adjustedMel = {
       {0.0f}, {10.0f}, {20.0f}, {30.0f}};
   const std::vector<Project::WarpMarker> current = {
       {0, 0}, {2, 3}, {4, 5}};
   const std::vector<Project::WarpMarker> target = {
       {0, 0}, {2, 4}, {4, 6}};
 
-  project.getAudioData().sourceMelSpectrogram = sourceMel;
-  project.getAudioData().melSpectrogram.assign(5, {999.0f});
+  project.getAnalysisData().originalMel = adjustedMel;
+  project.getEditedData().adjustedMel = adjustedMel;
+  project.getEditedData().mel.assign(5, {999.0f});
 
   WarpMarkerProcessor::recomputeFromMarkers(project, current, target, false);
 
   const auto targetMap =
       WarpMarkerProcessor::buildWarpMapWithEndpoints(project, target);
   const auto expected =
-      StretchProcessor::buildOutputMel(sourceMel, targetMap,
+      StretchProcessor::buildOutputMel(adjustedMel, targetMap,
                                        static_cast<int>(
                                            project.getEditedData().f0.size()));
-  expectMelNear(project.getAudioData().melSpectrogram, expected, 0.0001f,
-                "recompute rebuilds output mel from source cache");
-  expectMelNear(project.getAudioData().sourceMelSpectrogram, sourceMel,
-                0.0001f, "recompute preserves source mel cache");
+  expectMelNear(project.getEditedData().mel, expected, 0.0001f,
+                "recompute rebuilds final mel from adjusted source mel");
+  expectMelNear(project.getEditedData().adjustedMel, adjustedMel,
+                0.0001f, "recompute preserves adjusted source mel");
   expect(project.getWarpMarkers().empty(),
-         "source-mel recompute preview does not commit project markers");
+         "mel recompute preview does not commit project markers");
 }
 
 void testNormalizePreservesEndpointOutputLength()
@@ -652,7 +653,7 @@ void testRecomputeFromMarkersIsIdempotent()
   WarpMarkerProcessor::recomputeFromMarkers(project, target, true);
   const auto firstBasePitch = project.getEditedData().basePitch;
   const auto firstDeltaPitch = project.getEditedData().deltaPitch;
-  const auto firstMel = project.getAudioData().melSpectrogram;
+  const auto firstMel = project.getEditedData().mel;
   const auto firstMarkers = project.getWarpMarkers();
 
   WarpMarkerProcessor::recomputeFromMarkers(project, target, true);
@@ -667,11 +668,11 @@ void testRecomputeFromMarkersIsIdempotent()
                    "recompute preserves source original delta cache");
   expect(project.getNotes().front().getDeltaPitch().size() == 6,
          "recompute refreshes output delta cache to stretched length");
-  require(project.getAudioData().melSpectrogram.size() == firstMel.size(),
+  require(project.getEditedData().mel.size() == firstMel.size(),
           "recompute does not change mel length");
-  if (!project.getAudioData().melSpectrogram.empty() && !firstMel.empty())
+  if (!project.getEditedData().mel.empty() && !firstMel.empty())
   {
-    expectVectorNear(project.getAudioData().melSpectrogram[1], firstMel[1],
+    expectVectorNear(project.getEditedData().mel[1], firstMel[1],
                      0.0001f, "recompute does not restretch mel");
   }
   expect(markersEqual(project.getWarpMarkers(), firstMarkers),
@@ -1113,7 +1114,7 @@ int main()
   testStretchEditedData();
   testBuildOutputMelUsesRequestedFrameCount();
   testWarpEndpoints();
-  testRecomputeFromMarkersBuildsMelFromSourceCache();
+  testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();
   testPreviewRecomputeCanAdvanceAndCancel();

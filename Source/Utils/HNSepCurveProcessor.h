@@ -53,8 +53,8 @@ namespace HNSepCurveProcessor
      * For each non-rest note overlapping [startFrame, endFrame), run the
      * TensionProcessor at source rate using per-note harmonic/noise clips and
      * source-duration HNSep curves, recompute mel from the processed audio,
-     * write it into AudioData::sourceMelSpectrogram at source-frame positions,
-     * and rebuild AudioData::melSpectrogram from the current warp map.
+     * write it into EditedData::adjustedMel at source-frame positions,
+     * and rebuild EditedData::mel from the current warp map.
      *
      * Call this after rebuildCurvesForRange() when hasActiveEdits() is true to
      * keep the global mel in sync with current voicing/breath/tension edits.

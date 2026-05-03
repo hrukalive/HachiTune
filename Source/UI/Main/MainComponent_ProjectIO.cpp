@@ -82,6 +82,7 @@ void MainComponent::openProjectFile(const juce::File &file) {
                 projectToUse->setAudioSha256(currentAudioSha);
 
                 auto &audioData = projectToUse->getAudioData();
+                auto &analysisData = projectToUse->getAnalysisData();
                 auto &editedData = projectToUse->getEditedData();
                 audioData.waveform = std::move(buffer);
                 audioData.sampleRate = sampleRate;
@@ -93,9 +94,10 @@ void MainComponent::openProjectFile(const juce::File &file) {
                   const int numSamples = audioData.waveform.getNumSamples();
                   MelSpectrogram melComputer(audioData.sampleRate, N_FFT,
                                              HOP_SIZE, NUM_MELS, FMIN, FMAX);
-                  audioData.sourceMelSpectrogram =
+                  analysisData.originalMel =
                       melComputer.compute(samples, numSamples);
-                  audioData.melSpectrogram = audioData.sourceMelSpectrogram;
+                  editedData.adjustedMel = analysisData.originalMel;
+                  editedData.mel = editedData.adjustedMel;
                 }
 
                 if (editedData.voicedMask.empty() && !editedData.f0.empty()) {
@@ -108,7 +110,7 @@ void MainComponent::openProjectFile(const juce::File &file) {
                   if (!editedData.f0.empty()) {
                     PitchCurveProcessor::rebuildCurvesFromSource(*projectToUse,
                                                                  editedData.f0);
-                  } else if (!audioData.melSpectrogram.empty()) {
+                  } else if (!editedData.mel.empty()) {
                     // Legacy project fallback: rebuild base from notes and use
                     // zero delta so reopening can still synthesize edited notes.
                     PitchCurveProcessor::rebuildBaseFromNotes(*projectToUse);
@@ -207,7 +209,7 @@ void MainComponent::openProjectFile(const juce::File &file) {
 
                 // Skip full re-analysis; run vocoder from loaded edits.
                 const int totalFrames = std::max(
-                    static_cast<int>(activeAudioData.melSpectrogram.size()),
+                    static_cast<int>(project->getEditedData().mel.size()),
                     std::max(static_cast<int>(project->getEditedData().f0.size()),
                              static_cast<int>(project->getEditedData().basePitch.size())));
                 if (totalFrames > 0) {

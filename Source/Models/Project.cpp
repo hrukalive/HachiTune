@@ -1652,6 +1652,7 @@ namespace
     }
 
     std::vector<std::vector<float>> computeSourceMelClip(const AudioData& audioData,
+                                                         const AnalysisData& analysisData,
                                                          const Note& note,
                                                          int numMels)
     {
@@ -1678,17 +1679,17 @@ namespace
                 return sourceMel;
         }
 
-        if (!audioData.melSpectrogram.empty())
+        if (!analysisData.originalMel.empty())
         {
             const int melStart = std::clamp(note.getSrcStartFrame(), 0,
-                                            static_cast<int>(audioData.melSpectrogram.size()));
+                                            static_cast<int>(analysisData.originalMel.size()));
             const int melEnd = std::clamp(note.getSrcEndFrame(), melStart,
-                                          static_cast<int>(audioData.melSpectrogram.size()));
+                                          static_cast<int>(analysisData.originalMel.size()));
             if (melEnd > melStart)
             {
                 return std::vector<std::vector<float>>(
-                    audioData.melSpectrogram.begin() + melStart,
-                    audioData.melSpectrogram.begin() + melEnd);
+                    analysisData.originalMel.begin() + melStart,
+                    analysisData.originalMel.begin() + melEnd);
             }
         }
 
@@ -1699,16 +1700,19 @@ namespace
 
     const std::vector<std::vector<float>>& ensureSourceMelClip(Note& note,
                                                                const AudioData& audioData,
+                                                               const AnalysisData& analysisData,
                                                                int numMels)
     {
         if (!note.hasClipMel())
-            note.setClipMel(computeSourceMelClip(audioData, note, numMels));
+            note.setClipMel(computeSourceMelClip(audioData, analysisData,
+                                                 note, numMels));
         return note.getClipMel();
     }
 
     std::vector<std::vector<float>> resampleMelHybrid(
         Note& note,
         const AudioData& audioData,
+        const AnalysisData& analysisData,
         const EditedData& editedData,
         int targetLength,
         int numMels)
@@ -1716,7 +1720,8 @@ namespace
         if (targetLength <= 0)
             return {};
 
-        const auto& sourceMel = ensureSourceMelClip(note, audioData, numMels);
+        const auto& sourceMel = ensureSourceMelClip(note, audioData,
+                                                    analysisData, numMels);
         if (sourceMel.empty())
         {
             return std::vector<std::vector<float>>(

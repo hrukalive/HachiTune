@@ -204,7 +204,7 @@ void RealtimePitchProcessor::computeInBackground() {
 
     if (proj) {
       auto &audioData = proj->getAudioData();
-      melSnapshot = audioData.melSpectrogram;
+      melSnapshot = proj->getEditedData().mel;
       numChannelsSnapshot = std::max(1, audioData.waveform.getNumChannels());
       volumeDbSnapshot = proj->getVolume();
       adjustedF0Snapshot = proj->getAdjustedF0();

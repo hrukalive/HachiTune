@@ -401,9 +401,11 @@ void ProjectTreeView::updatePropertyItems()
           {"SampleRate: " + juce::String(audioData.sampleRate),
            "Waveform: " +
                juce::String(audioData.waveform.getNumSamples()) + " samples",
-           "audio.sourceMelSpectrogram: " +
-               formatMatrixSize(audioData.sourceMelSpectrogram),
-           "audio.melSpectrogram: " + formatMatrixSize(audioData.melSpectrogram),
+           "analysis.originalMel: " +
+               formatMatrixSize(project->getAnalysisData().originalMel),
+           "edited.adjustedMel: " +
+               formatMatrixSize(project->getEditedData().adjustedMel),
+           "edited.mel: " + formatMatrixSize(project->getEditedData().mel),
            "audio.harmonicWaveform: " +
                juce::String(audioData.harmonicWaveform.getNumSamples()) +
                " samples",

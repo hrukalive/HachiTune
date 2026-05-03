@@ -3,23 +3,12 @@
 #include "../../Utils/CurveResampler.h"
 #include "../../Utils/HNSepCurveProcessor.h"
 #include "../../Utils/PitchCurveProcessor.h"
-#include "../../Utils/WarpMarkerProcessor.h"
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 
 namespace
 {
-bool hasIdentityWarpMap(Project& project)
-{
-    const auto warpMap = WarpMarkerProcessor::buildWarpMapWithEndpoints(
-        project, project.getWarpMarkers());
-    return warpMap.size() == 2 &&
-           warpMap.front().sourceFrame == 0 &&
-           warpMap.front().outputFrame == 0 &&
-           warpMap.back().sourceFrame == warpMap.back().outputFrame;
-}
-
 double computeSplitRatio(int splitFrame, int startFrame, int endFrame)
 {
     const int durationFrames = endFrame - startFrame;
@@ -228,11 +217,12 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
 
     // Ensure clip mel exists before splitting
     if (!note->hasClipMel()) {
-        auto& audioData = project->getAudioData();
-        const auto* sourceMel = !audioData.sourceMelSpectrogram.empty()
-            ? &audioData.sourceMelSpectrogram
-            : (hasIdentityWarpMap(*project) ? &audioData.melSpectrogram
-                                            : nullptr);
+        const auto& editedData = project->getEditedData();
+        const auto& analysisData = project->getAnalysisData();
+        const auto* sourceMel = !editedData.adjustedMel.empty()
+            ? &editedData.adjustedMel
+            : (!analysisData.originalMel.empty() ? &analysisData.originalMel
+                                                  : nullptr);
         if (sourceMel != nullptr && !sourceMel->empty()) {
             int melSize = static_cast<int>(sourceMel->size());
             int melStart = std::max(0, std::min(srcStartFrame, melSize));

@@ -20,8 +20,7 @@ void MelViewComponent::rebuildMelImage()
     return;
   }
 
-  const auto& audioData = project->getAudioData();
-  const auto& mel = audioData.melSpectrogram;
+  const auto& mel = project->getEditedData().mel;
   if (mel.empty())
   {
     melImage = juce::Image();
@@ -87,8 +86,7 @@ void MelViewComponent::paint(juce::Graphics& g)
   if (melImageDirty)
     rebuildMelImage();
 
-  const auto& audioData = project->getAudioData();
-  const auto& mel = audioData.melSpectrogram;
+  const auto& mel = project->getEditedData().mel;
   if (melImage.isNull() || mel.empty() || mel[0].empty())
   {
     g.setColour(juce::Colours::grey);
@@ -257,7 +255,7 @@ int MelViewComponent::getTotalFrames() const
 {
   if (!project)
     return 0;
-  const auto& mel = project->getAudioData().melSpectrogram;
+  const auto& mel = project->getEditedData().mel;
   return static_cast<int>(mel.size());
 }
 
