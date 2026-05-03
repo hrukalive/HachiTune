@@ -78,6 +78,7 @@ struct AudioData
 
     juce::AudioBuffer<float> waveform;
     juce::AudioBuffer<float> originalWaveform; // pristine copy for blend (never modified after analysis)
+    juce::AudioBuffer<float> finalWaveform; // final playback/export output
 
     // Harmonic-noise separation buffers (same length as waveform, set during hnsep analysis)
     juce::AudioBuffer<float> harmonicWaveform;  // harmonic (voiced) component
@@ -99,10 +100,7 @@ struct AudioData
         return static_cast<float>(waveform.getNumSamples()) / sampleRate;
     }
 
-    int getNumFrames() const
-    {
-        return static_cast<int>(melSpectrogram.size());
-    }
+    int getNumFrames() const;
 };
 
 /**

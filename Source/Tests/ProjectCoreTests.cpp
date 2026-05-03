@@ -97,12 +97,18 @@ void resizeEditedData(EditedData& edited, int frames)
 {
   edited.basePitch.resize(static_cast<size_t>(frames), 60.0f);
   edited.deltaPitch.resize(static_cast<size_t>(frames), 0.0f);
+  edited.tunedF0.resize(static_cast<size_t>(frames), 261.63f);
   edited.f0.resize(static_cast<size_t>(frames), 261.63f);
   edited.voicedMask.resize(static_cast<size_t>(frames), true);
   edited.vadMask.resize(static_cast<size_t>(frames), true);
   edited.voicingCurve.resize(static_cast<size_t>(frames), 100.0f);
   edited.breathCurve.resize(static_cast<size_t>(frames), 100.0f);
   edited.tensionCurve.resize(static_cast<size_t>(frames), 0.0f);
+  edited.baseVoicing.resize(static_cast<size_t>(frames), 100.0f);
+  edited.baseBreath.resize(static_cast<size_t>(frames), 100.0f);
+  edited.baseTension.resize(static_cast<size_t>(frames), 0.0f);
+  edited.adjustedMel.assign(static_cast<size_t>(frames), {0.0f, 0.0f});
+  edited.mel.assign(static_cast<size_t>(frames), {0.0f, 0.0f});
 }
 
 Project makeProject()
@@ -110,9 +116,7 @@ Project makeProject()
   Project project;
   project.setName("CoreTest");
   project.getAudioData().sampleRate = 44100;
-  project.getAudioData().sourceMelSpectrogram = {
-      {0.1f, 0.2f}, {0.2f, 0.3f}, {0.3f, 0.4f}, {0.4f, 0.5f}};
-  project.getAudioData().melSpectrogram = {
+  const std::vector<std::vector<float>> originalMel = {
       {0.1f, 0.2f}, {0.2f, 0.3f}, {0.3f, 0.4f}, {0.4f, 0.5f}};
 
   Note note(0, 4, 60.0f);
@@ -132,6 +136,7 @@ Project makeProject()
   analysis.originalDeltaPitch = {0.0f, 0.1f, 0.2f, 0.3f};
   analysis.originalVoicedMask = {true, true, true, true};
   analysis.originalVADMask = {true, true, true, false};
+  analysis.originalMel = originalMel;
   analysis.noteSegments.push_back({0, 4});
 
   auto& edited = project.getEditedData();
@@ -143,9 +148,43 @@ Project makeProject()
   edited.voicingCurve = {100.0f, 100.0f, 100.0f, 100.0f};
   edited.breathCurve = {100.0f, 100.0f, 100.0f, 100.0f};
   edited.tensionCurve = {0.0f, 0.0f, 0.0f, 0.0f};
+  edited.adjustedMel = originalMel;
+  edited.mel = originalMel;
+  edited.tunedF0 = edited.f0;
+  edited.baseVoicing = edited.voicingCurve;
+  edited.baseBreath = edited.breathCurve;
+  edited.baseTension = edited.tensionCurve;
 
   project.refreshNoteCaches();
   return project;
+}
+
+void testPipelineOwnershipFields()
+{
+  auto project = makeProject();
+  const auto& analysis = project.getAnalysisData();
+  const auto& edited = project.getEditedData();
+  auto& audioData = project.getAudioData();
+
+  expectMelNear(analysis.originalMel,
+                {{0.1f, 0.2f}, {0.2f, 0.3f}, {0.3f, 0.4f}, {0.4f, 0.5f}},
+                0.0001f,
+                "analysis owns immutable original mel");
+  expectVectorNear(edited.tunedF0, edited.f0, 0.0001f,
+                   "edited owns tunedF0 source pitch stage");
+  expectMelNear(edited.mel, analysis.originalMel, 0.0001f,
+                "edited owns final mel stage");
+  expect(edited.baseVoicing.size() == edited.f0.size(),
+         "edited owns source base voicing curve");
+  expect(edited.baseBreath.size() == edited.f0.size(),
+         "edited owns source base breath curve");
+  expect(edited.baseTension.size() == edited.f0.size(),
+         "edited owns source base tension curve");
+
+  audioData.finalWaveform.setSize(1, 8);
+  audioData.finalWaveform.clear();
+  expect(audioData.finalWaveform.getNumSamples() == 8,
+         "audio data has separate final waveform buffer");
 }
 
 void testSerializerOmitsNoteCaches()
@@ -925,6 +964,7 @@ void testTensionProcessorComputesSTFTCache()
 
 int main()
 {
+  testPipelineOwnershipFields();
   testSerializerOmitsNoteCaches();
   testSerializerRestoresSourceRangesFromAnalysisSegments();
   testLegacyLoadClearsAnalysisSegments();

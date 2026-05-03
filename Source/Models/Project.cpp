@@ -51,12 +51,23 @@ Project::Project()
 {
 }
 
+int AudioData::getNumFrames() const
+{
+    if (waveform.getNumSamples() == 0)
+        return 0;
+    return waveform.getNumSamples() / HOP_SIZE + 1;
+}
+
 int Project::getFrameCount() const
 {
     if (!editedData.f0.empty())
         return static_cast<int>(editedData.f0.size());
-    if (!audioData.melSpectrogram.empty())
-        return static_cast<int>(audioData.melSpectrogram.size());
+    if (!editedData.mel.empty())
+        return static_cast<int>(editedData.mel.size());
+    if (!editedData.tunedF0.empty())
+        return static_cast<int>(editedData.tunedF0.size());
+    if (!analysisData.originalMel.empty())
+        return static_cast<int>(analysisData.originalMel.size());
     return audioData.getNumFrames();
 }
 

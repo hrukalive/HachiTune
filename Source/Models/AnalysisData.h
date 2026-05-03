@@ -14,6 +14,7 @@ struct AnalysisData
   std::vector<float> originalDeltaPitch;  // [T] semitone deviation from base
   std::vector<bool>  originalVoicedMask;  // [T] true = voiced
   std::vector<bool>  originalVADMask;     // [T] true = has audio energy
+  std::vector<std::vector<float>> originalMel; // source timeline [T, NUM_MELS]
 
   struct NoteSegment {
     int srcStartFrame = 0;
@@ -35,6 +36,7 @@ struct AnalysisData
     originalDeltaPitch.clear();
     originalVoicedMask.clear();
     originalVADMask.clear();
+    originalMel.clear();
     noteSegments.clear();
   }
 };
