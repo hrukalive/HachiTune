@@ -330,6 +330,14 @@ namespace
             if (sharedFrames <= 0)
                 continue;
 
+            const float leftCenterMidi = getNoteCenterMidi(leftNote);
+            const float rightCenterMidi = getNoteCenterMidi(rightNote);
+
+            // Skip smoothing when adjacent notes have the same pitch —
+            // nothing to transition between (e.g. after note split).
+            if (std::abs(leftCenterMidi - rightCenterMidi) < 1.0e-4f)
+                continue;
+
             const int leftExtent =
                 std::min(sharedFrames, leftNote.getDurationFrames());
             const int rightExtent =
@@ -356,8 +364,6 @@ namespace
             // The ideal connection should slide on the note center line, so
             // max smoothing still anchors to the note's own base pitch instead
             // of inheriting neighboring transition curvature from basePitch.
-            const float leftCenterMidi = getNoteCenterMidi(leftNote);
-            const float rightCenterMidi = getNoteCenterMidi(rightNote);
             const float startMidi = leftCenterMidi;
             const float endMidi = rightCenterMidi;
             const float controlX =

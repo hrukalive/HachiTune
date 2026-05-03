@@ -208,20 +208,33 @@ void MelViewComponent::resized() {}
 void MelViewComponent::mouseWheelMove(const juce::MouseEvent& e,
                                        const juce::MouseWheelDetails& wheel)
 {
-  juce::ignoreUnused(e);
-
   if (wheel.deltaY != 0.0f)
   {
+    const int totalFrames = getTotalFrames();
+    if (totalFrames <= 0 || getWidth() <= 0)
+      return;
+
+    const float w = static_cast<float>(getWidth());
+    const float maxFpp = static_cast<float>(totalFrames) / w;
+    constexpr float minVisibleFrames = 20.0f;
+    const float minFpp = minVisibleFrames / w;
+
+    const float mouseX = e.position.x;
+    const float frameAtMouse = scrollOffsetFrames + mouseX * framesPerPixel;
+
     const float zoomFactor = (wheel.deltaY > 0) ? 0.8f : 1.25f;
-    framesPerPixel = juce::jlimit(0.1f, 100.0f,
+    framesPerPixel = juce::jlimit(minFpp, maxFpp,
                                    framesPerPixel * zoomFactor);
+
+    scrollOffsetFrames = frameAtMouse - mouseX * framesPerPixel;
+    clampView();
     repaint();
   }
 
   if (wheel.deltaX != 0.0f)
   {
     scrollOffsetFrames -= wheel.deltaX * 50.0f;
-    scrollOffsetFrames = std::max(0.0f, scrollOffsetFrames);
+    clampView();
     repaint();
   }
 }
@@ -235,9 +248,33 @@ void MelViewComponent::mouseDown(const juce::MouseEvent& e)
 void MelViewComponent::mouseDrag(const juce::MouseEvent& e)
 {
   const float dx = e.position.x - dragStartPos.x;
-  scrollOffsetFrames = std::max(0.0f,
-                                 dragStartScrollOffset - dx * framesPerPixel);
+  scrollOffsetFrames = dragStartScrollOffset - dx * framesPerPixel;
+  clampView();
   repaint();
+}
+
+int MelViewComponent::getTotalFrames() const
+{
+  if (!project)
+    return 0;
+  const auto& mel = project->getAudioData().melSpectrogram;
+  return static_cast<int>(mel.size());
+}
+
+void MelViewComponent::clampView()
+{
+  const int totalFrames = getTotalFrames();
+  if (totalFrames <= 0 || getWidth() <= 0)
+  {
+    scrollOffsetFrames = 0.0f;
+    return;
+  }
+
+  const float w = static_cast<float>(getWidth());
+  const float visibleFrames = w * framesPerPixel;
+  const float maxScroll = std::max(0.0f,
+      static_cast<float>(totalFrames) - visibleFrames);
+  scrollOffsetFrames = juce::jlimit(0.0f, maxScroll, scrollOffsetFrames);
 }
 
 juce::Colour MelViewComponent::viridisColour(float t)

@@ -25,6 +25,8 @@ private:
   std::vector<float> melCenterFreqs;
   int cachedNumMels = 0;
   void ensureMelCenterFreqs(int numMels);
+  void clampView();
+  int getTotalFrames() const;
 
   Project* project = nullptr;
   juce::Image melImage;
