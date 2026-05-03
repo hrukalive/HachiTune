@@ -856,8 +856,66 @@ namespace PitchCurveProcessor
     {
         auto composed = composeF0(project, applyUvMask, globalPitchOffset);
         auto& editedData = project.getEditedData();
+        editedData.tunedF0 = composed;
         editedData.f0 = std::move(composed);
 
         project.notifyListeners(ProjectChangeType::EditedDataChanged);
+    }
+
+    void composeTunedF0InPlace(Project& project,
+                               bool applyUvMask,
+                               float globalPitchOffset)
+    {
+        auto composed = composeF0(project, applyUvMask, globalPitchOffset);
+        auto& editedData = project.getEditedData();
+        editedData.tunedF0 = std::move(composed);
+        if (editedData.f0.empty())
+            editedData.f0 = editedData.tunedF0;
+        project.notifyListeners(ProjectChangeType::EditedDataChanged);
+    }
+
+    void refreshNotePitchCachesFromFinalF0(Project& project,
+                                           int startFrame,
+                                           int endFrame)
+    {
+        auto& editedData = project.getEditedData();
+        if (editedData.f0.empty())
+            return;
+
+        const int totalFrames = static_cast<int>(editedData.f0.size());
+        const int clampedStart = std::max(0, startFrame);
+        const int clampedEnd = std::min(totalFrames, endFrame);
+        if (clampedEnd <= clampedStart)
+            return;
+
+        for (auto& note : project.getNotes())
+        {
+            if (note.isRest())
+                continue;
+            if (note.getEndFrame() <= clampedStart ||
+                note.getStartFrame() >= clampedEnd)
+                continue;
+
+            const int noteStart = note.getStartFrame();
+            const int noteEnd = std::min(note.getEndFrame(), totalFrames);
+            const int len = noteEnd - noteStart;
+            if (len <= 0)
+                continue;
+
+            std::vector<float> finalDelta(static_cast<size_t>(len), 0.0f);
+            for (int i = 0; i < len; ++i)
+            {
+                const int frame = noteStart + i;
+                const bool hasBasePitch =
+                    frame < static_cast<int>(editedData.basePitch.size());
+                const float base = hasBasePitch
+                                       ? editedData.basePitch[static_cast<size_t>(frame)]
+                                       : note.getAdjustedMidiNote();
+                const float freq = editedData.f0[static_cast<size_t>(frame)];
+                finalDelta[static_cast<size_t>(i)] =
+                    freq > 0.0f ? freqToMidi(freq) - base : 0.0f;
+            }
+            note.setDeltaPitch(std::move(finalDelta));
+        }
     }
 } // namespace PitchCurveProcessor

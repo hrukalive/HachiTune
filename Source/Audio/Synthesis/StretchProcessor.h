@@ -33,7 +33,7 @@ public:
    * Stretch all arrays in editedData using warp markers.
    *   basePitch/masks -> nearest neighbor
    *   deltaPitch/curves -> linear interpolation
-   *   Recomputes f0 from basePitch + deltaPitch.
+   *   f0 -> log-frequency resampling from source tunedF0.
    */
   static void stretchEditedData(
       EditedData& edited,

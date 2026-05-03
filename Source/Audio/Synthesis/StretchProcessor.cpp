@@ -190,6 +190,33 @@ void StretchProcessor::stretchEditedData(
     return dst;
   };
 
+  auto resampleFrequencyLog = [&](const std::vector<float>& src) {
+    std::vector<float> dst(static_cast<size_t>(newTotalFrames), 0.0f);
+    for (int i = 0; i < newTotalFrames; ++i)
+    {
+      float srcF = inverseMapFrame(markers, static_cast<float>(i));
+      int srcIdx = static_cast<int>(std::floor(srcF));
+      float frac = srcF - static_cast<float>(srcIdx);
+      int srcMax = static_cast<int>(src.size()) - 1;
+      if (src.empty())
+        continue;
+      srcIdx = std::clamp(srcIdx, 0, std::max(0, srcMax));
+      int srcNext = std::min(srcIdx + 1, std::max(0, srcMax));
+      const float a = src[static_cast<size_t>(srcIdx)];
+      const float b = src[static_cast<size_t>(srcNext)];
+      if (a > 0.0f && b > 0.0f)
+      {
+        dst[static_cast<size_t>(i)] =
+            std::exp(std::log(a) * (1.0f - frac) + std::log(b) * frac);
+      }
+      else
+      {
+        dst[static_cast<size_t>(i)] = frac < 0.5f ? a : b;
+      }
+    }
+    return dst;
+  };
+
   // basePitch, masks -> nearest neighbor
   edited.basePitch = resampleNearest(edited.basePitch);
   edited.voicedMask = resampleNearestBool(edited.voicedMask);
@@ -201,13 +228,7 @@ void StretchProcessor::stretchEditedData(
   edited.breathCurve = resampleLinear(edited.breathCurve);
   edited.tensionCurve = resampleLinear(edited.tensionCurve);
 
-  // Recompute f0 from basePitch + deltaPitch
-  edited.f0.resize(static_cast<size_t>(newTotalFrames));
-  for (int i = 0; i < newTotalFrames; ++i)
-  {
-    float midi = edited.basePitch[static_cast<size_t>(i)] +
-                 edited.deltaPitch[static_cast<size_t>(i)];
-    edited.f0[static_cast<size_t>(i)] =
-        440.0f * std::pow(2.0f, (midi - 69.0f) / 12.0f);
-  }
+  const auto& sourceTunedF0 =
+      !edited.tunedF0.empty() ? edited.tunedF0 : edited.f0;
+  edited.f0 = resampleFrequencyLog(sourceTunedF0);
 }

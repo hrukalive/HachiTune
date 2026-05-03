@@ -1,4 +1,5 @@
 #include "WarpMarkerProcessor.h"
+#include "PitchCurveProcessor.h"
 #include "../Audio/Synthesis/StretchProcessor.h"
 #include "../Utils/Constants.h"
 #include <algorithm>
@@ -643,6 +644,8 @@ void recomputeFromMarkers(Project& project,
     }
 
     project.refreshNoteCaches();
+    PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(
+        project, 0, static_cast<int>(editedData.f0.size()));
     project.composeGlobalWaveform();
     rebuildVadMaskFromWaveform(project);
 

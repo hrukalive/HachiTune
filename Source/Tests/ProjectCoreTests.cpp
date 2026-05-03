@@ -531,6 +531,7 @@ void testStretchEditedData()
   EditedData data;
   data.basePitch = {60.0f, 62.0f, 64.0f};
   data.deltaPitch = {0.0f, 1.0f, 2.0f};
+  data.tunedF0 = {100.0f, 200.0f, 400.0f};
   data.f0 = {261.63f, 293.66f, 329.63f};
   data.voicedMask = {true, false, true};
   data.vadMask = {true, true, false};
@@ -544,7 +545,9 @@ void testStretchEditedData()
 
   expect(data.basePitch.size() == 4, "stretched basePitch size");
   expect(data.deltaPitch.size() == 4, "stretched deltaPitch size");
-  expect(data.f0.size() == 4, "stretched f0 size");
+  expect(data.tunedF0.size() == 3,
+         "stretch keeps tunedF0 on source timeline");
+  expect(data.f0.size() == 4, "stretch writes output f0 size");
   expect(data.voicedMask.size() == 4, "stretched voiced size");
   expect(data.vadMask.size() == 4, "stretched vad size");
   expect(data.voicingCurve.size() == 4, "stretched voicing size");
@@ -552,6 +555,8 @@ void testStretchEditedData()
   expect(data.tensionCurve.size() == 4, "stretched tension size");
   expectNear(data.deltaPitch[1], 0.5f, 0.0001f,
              "deltaPitch uses linear interpolation");
+  expectNear(data.f0[1], 141.42136f, 0.001f,
+             "final f0 is stretched from tunedF0 in log frequency space");
   expect(data.basePitch[1] == 62.0f, "basePitch uses nearest interpolation");
 }
 

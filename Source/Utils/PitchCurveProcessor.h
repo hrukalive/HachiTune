@@ -102,6 +102,21 @@ namespace PitchCurveProcessor
     void composeF0InPlace(Project& project,
                           bool applyUvMask,
                           float globalPitchOffset = 0.0f);
+
+    /**
+     * Compose source/non-stretched tunedF0 from current basePitch/deltaPitch
+     * and note tools. Does not apply stretch.
+     */
+    void composeTunedF0InPlace(Project& project,
+                               bool applyUvMask,
+                               float globalPitchOffset = 0.0f);
+
+    /**
+     * Reload note-local display pitch caches from final EditedData.f0.
+     */
+    void refreshNotePitchCachesFromFinalF0(Project& project,
+                                           int startFrame,
+                                           int endFrame);
 } // namespace PitchCurveProcessor
 
 
