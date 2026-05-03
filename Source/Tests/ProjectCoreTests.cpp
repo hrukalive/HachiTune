@@ -635,6 +635,29 @@ void testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel()
          "mel recompute preview does not commit project markers");
 }
 
+void testRecomputeFromMarkersPreservesSourceTunedF0()
+{
+  auto project = makeProject();
+  auto& edited = project.getEditedData();
+  edited.tunedF0 = {100.0f, 200.0f, 400.0f, 800.0f};
+  edited.f0 = {261.63f, 277.18f, 293.66f, 311.13f, 329.63f};
+
+  const std::vector<Project::WarpMarker> current = {
+      {0, 0}, {2, 3}, {4, 5}};
+  const std::vector<Project::WarpMarker> target = {
+      {0, 0}, {2, 4}, {4, 6}};
+
+  WarpMarkerProcessor::recomputeFromMarkers(project, current, target, false);
+
+  expectVectorNear(project.getEditedData().tunedF0,
+                   {100.0f, 200.0f, 400.0f, 800.0f}, 0.0001f,
+                   "recompute preserves source tunedF0");
+  expect(project.getEditedData().f0.size() == 6,
+         "recompute writes final f0 on output timeline");
+  expectNear(project.getEditedData().f0[1], 141.42136f, 0.001f,
+             "recompute stretches final f0 from source tunedF0");
+}
+
 void testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel()
 {
   auto project = makeProject();
@@ -1140,6 +1163,7 @@ int main()
   testBuildOutputMelUsesRequestedFrameCount();
   testWarpEndpoints();
   testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel();
+  testRecomputeFromMarkersPreservesSourceTunedF0();
   testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();

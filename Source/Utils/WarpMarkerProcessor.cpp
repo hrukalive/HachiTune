@@ -600,6 +600,7 @@ void recomputeFromMarkers(Project& project,
 
     const int newTotalFrames = warpMap.back().outputFrame;
     auto& editedData = project.getEditedData();
+    const auto currentTunedF0 = editedData.tunedF0;
     const auto currentAdjustedMel = editedData.adjustedMel;
     const auto currentOutputMel = editedData.mel;
     if (!mapsAlreadyMatch)
@@ -607,6 +608,8 @@ void recomputeFromMarkers(Project& project,
         const int sourceFrames = warpMap.back().sourceFrame;
         auto sourceEditedData =
             unwarpEditedDataToSource(editedData, currentMap, sourceFrames);
+        if (!currentTunedF0.empty())
+            sourceEditedData.tunedF0 = currentTunedF0;
         if (!currentAdjustedMel.empty())
         {
             sourceEditedData.adjustedMel = currentAdjustedMel;
