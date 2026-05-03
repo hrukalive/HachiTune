@@ -88,6 +88,7 @@ Project::FrameDataValidation Project::validateFrameData() const
     };
 
     useEditedFrameCount(editedData.f0.size());
+    useEditedFrameCount(editedData.tunedF0.size());
     useEditedFrameCount(editedData.basePitch.size());
     useEditedFrameCount(editedData.deltaPitch.size());
     useEditedFrameCount(editedData.voicedMask.size());
@@ -95,6 +96,9 @@ Project::FrameDataValidation Project::validateFrameData() const
     useEditedFrameCount(editedData.voicingCurve.size());
     useEditedFrameCount(editedData.breathCurve.size());
     useEditedFrameCount(editedData.tensionCurve.size());
+    useEditedFrameCount(editedData.baseVoicing.size());
+    useEditedFrameCount(editedData.baseBreath.size());
+    useEditedFrameCount(editedData.baseTension.size());
 
     auto checkFloat = [&](const std::vector<float>& values,
                           const char* name,
@@ -119,11 +123,15 @@ Project::FrameDataValidation Project::validateFrameData() const
         checkFloat(editedData.basePitch, "editedData.basePitch", true);
         checkFloat(editedData.deltaPitch, "editedData.deltaPitch", true);
         checkFloat(editedData.f0, "editedData.f0", true);
+        checkFloat(editedData.tunedF0, "editedData.tunedF0", false);
         checkBool(editedData.voicedMask, "editedData.voicedMask", true);
         checkBool(editedData.vadMask, "editedData.vadMask", true);
         checkFloat(editedData.voicingCurve, "editedData.voicingCurve", true);
         checkFloat(editedData.breathCurve, "editedData.breathCurve", true);
         checkFloat(editedData.tensionCurve, "editedData.tensionCurve", true);
+        checkFloat(editedData.baseVoicing, "editedData.baseVoicing", false);
+        checkFloat(editedData.baseBreath, "editedData.baseBreath", false);
+        checkFloat(editedData.baseTension, "editedData.baseTension", false);
     }
 
     const int analysisFrames = analysisData.getNumFrames();
@@ -188,18 +196,24 @@ Project::FrameDataValidation Project::validateFrameData() const
         static_cast<int>(analysisData.noteSegments.size()) != nonRestNotes)
         result.messages.push_back("analysisData.noteSegments count mismatch");
 
-    if (!audioData.melSpectrogram.empty())
-    {
-        const auto bins = audioData.melSpectrogram.front().size();
-        for (const auto& row : audioData.melSpectrogram)
+    auto checkMelMatrix = [&](const std::vector<std::vector<float>>& matrix,
+                              const char* name) {
+        if (matrix.empty())
+            return;
+        const auto bins = matrix.front().size();
+        for (const auto& row : matrix)
         {
             if (row.size() != bins)
             {
-                result.messages.push_back("audioData.melSpectrogram ragged rows");
+                result.messages.push_back(juce::String(name) + " ragged rows");
                 break;
             }
         }
-    }
+    };
+
+    checkMelMatrix(analysisData.originalMel, "analysisData.originalMel");
+    checkMelMatrix(editedData.adjustedMel, "editedData.adjustedMel");
+    checkMelMatrix(editedData.mel, "editedData.mel");
 
     int prevSource = -1;
     int prevOutput = -1;

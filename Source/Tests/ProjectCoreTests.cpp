@@ -187,6 +187,78 @@ void testPipelineOwnershipFields()
          "audio data has separate final waveform buffer");
 }
 
+void testSerializerSavesCompactPipelineState()
+{
+  auto project = makeProject();
+  const auto json = ProjectSerializer::toJson(project);
+  const auto analysis = json.getProperty("analysisData", juce::var());
+  const auto edited = json.getProperty("editedData", juce::var());
+
+  require(analysis.isObject(), "analysisData is an object");
+  require(edited.isObject(), "editedData is an object");
+
+  expect(!hasProperty(analysis, "originalMel"),
+         "analysis originalMel is not serialized as a large matrix");
+  expect(hasProperty(edited, "tunedF0"), "edited tunedF0 is serialized");
+  expect(hasProperty(edited, "baseVoicing"), "edited baseVoicing is serialized");
+  expect(hasProperty(edited, "baseBreath"), "edited baseBreath is serialized");
+  expect(hasProperty(edited, "baseTension"), "edited baseTension is serialized");
+  expect(hasProperty(edited, "f0"), "edited final f0 is serialized");
+  expect(!hasProperty(edited, "adjustedSTFT"),
+         "edited adjustedSTFT is not serialized");
+  expect(!hasProperty(edited, "adjustedMel"),
+         "edited adjustedMel is not serialized as a large matrix");
+  expect(!hasProperty(edited, "mel"),
+         "edited final mel is not serialized as a large matrix");
+}
+
+void testSerializerLoadsCompactPipelineState()
+{
+  auto* root = new juce::DynamicObject();
+  root->setProperty("name", "PipelineLoad");
+  root->setProperty("sampleRate", 44100);
+
+  auto* analysis = new juce::DynamicObject();
+  analysis->setProperty("originalF0", "100 110 120");
+  analysis->setProperty("originalPitch", "60 61 62");
+  analysis->setProperty("originalDeltaPitch", "0 0.1 0.2");
+  analysis->setProperty("originalVoicedMask", "111");
+  analysis->setProperty("originalVADMask", "111");
+  root->setProperty("analysisData", juce::var(analysis));
+
+  auto* edited = new juce::DynamicObject();
+  edited->setProperty("basePitch", "60 60 60");
+  edited->setProperty("deltaPitch", "0 0.1 0.2");
+  edited->setProperty("tunedF0", "100 110 120");
+  edited->setProperty("f0", "100 110 120");
+  edited->setProperty("voicedMask", "111");
+  edited->setProperty("vadMask", "111");
+  edited->setProperty("voicingCurve", "100 100 100");
+  edited->setProperty("breathCurve", "100 100 100");
+  edited->setProperty("tensionCurve", "0 0 0");
+  edited->setProperty("baseVoicing", "90 91 92");
+  edited->setProperty("baseBreath", "80 81 82");
+  edited->setProperty("baseTension", "1 2 3");
+  root->setProperty("editedData", juce::var(edited));
+
+  Project project;
+  require(ProjectSerializer::fromJson(project, juce::var(root)),
+          "compact pipeline json loads");
+
+  expectVectorNear(project.getEditedData().tunedF0,
+                   {100.0f, 110.0f, 120.0f}, 0.0001f,
+                   "load restores tunedF0");
+  expectVectorNear(project.getEditedData().baseVoicing,
+                   {90.0f, 91.0f, 92.0f}, 0.0001f,
+                   "load restores baseVoicing");
+  expectVectorNear(project.getEditedData().baseBreath,
+                   {80.0f, 81.0f, 82.0f}, 0.0001f,
+                   "load restores baseBreath");
+  expectVectorNear(project.getEditedData().baseTension,
+                   {1.0f, 2.0f, 3.0f}, 0.0001f,
+                   "load restores baseTension");
+}
+
 void testSerializerOmitsNoteCaches()
 {
   auto project = makeProject();
@@ -965,6 +1037,8 @@ void testTensionProcessorComputesSTFTCache()
 int main()
 {
   testPipelineOwnershipFields();
+  testSerializerSavesCompactPipelineState();
+  testSerializerLoadsCompactPipelineState();
   testSerializerOmitsNoteCaches();
   testSerializerRestoresSourceRangesFromAnalysisSegments();
   testLegacyLoadClearsAnalysisSegments();

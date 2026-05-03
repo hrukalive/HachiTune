@@ -514,12 +514,16 @@ juce::var ProjectSerializer::editedDataToJson(const EditedData& data)
     auto* obj = new juce::DynamicObject();
     obj->setProperty("basePitch", floatArrayToString(data.basePitch, 4));
     obj->setProperty("deltaPitch", floatArrayToString(data.deltaPitch, 4));
+    obj->setProperty("tunedF0", floatArrayToString(data.tunedF0, 2));
     obj->setProperty("f0", floatArrayToString(data.f0, 2));
     obj->setProperty("voicedMask", boolArrayToString(data.voicedMask));
     obj->setProperty("vadMask", boolArrayToString(data.vadMask));
     obj->setProperty("voicingCurve", floatArrayToString(data.voicingCurve, 2));
     obj->setProperty("breathCurve", floatArrayToString(data.breathCurve, 2));
     obj->setProperty("tensionCurve", floatArrayToString(data.tensionCurve, 2));
+    obj->setProperty("baseVoicing", floatArrayToString(data.baseVoicing, 2));
+    obj->setProperty("baseBreath", floatArrayToString(data.baseBreath, 2));
+    obj->setProperty("baseTension", floatArrayToString(data.baseTension, 2));
     return juce::var(obj);
 }
 
@@ -529,12 +533,25 @@ bool ProjectSerializer::editedDataFromJson(EditedData& data, const juce::var& js
         return false;
     data.basePitch = stringToFloatArray(json.getProperty("basePitch", "").toString());
     data.deltaPitch = stringToFloatArray(json.getProperty("deltaPitch", "").toString());
+    data.tunedF0 = stringToFloatArray(json.getProperty("tunedF0", "").toString());
     data.f0 = stringToFloatArray(json.getProperty("f0", "").toString());
     data.voicedMask = stringToBoolArray(json.getProperty("voicedMask", "").toString());
     data.vadMask = stringToBoolArray(json.getProperty("vadMask", "").toString());
     data.voicingCurve = stringToFloatArray(json.getProperty("voicingCurve", "").toString());
     data.breathCurve = stringToFloatArray(json.getProperty("breathCurve", "").toString());
     data.tensionCurve = stringToFloatArray(json.getProperty("tensionCurve", "").toString());
+    data.baseVoicing = stringToFloatArray(json.getProperty("baseVoicing", "").toString());
+    data.baseBreath = stringToFloatArray(json.getProperty("baseBreath", "").toString());
+    data.baseTension = stringToFloatArray(json.getProperty("baseTension", "").toString());
+
+    if (data.tunedF0.empty())
+        data.tunedF0 = data.f0;
+    if (data.baseVoicing.empty())
+        data.baseVoicing = data.voicingCurve;
+    if (data.baseBreath.empty())
+        data.baseBreath = data.breathCurve;
+    if (data.baseTension.empty())
+        data.baseTension = data.tensionCurve;
     return true;
 }
 
@@ -558,6 +575,11 @@ bool ProjectSerializer::legacyPitchDataFromJson(AudioData& audioData,
     editedData.vadMask = stringToBoolArray(json.getProperty("vadMask", "").toString());
 
     // Legacy audioData fields removed — data now lives only in editedData
+
+    editedData.tunedF0 = editedData.f0;
+    editedData.baseVoicing = editedData.voicingCurve;
+    editedData.baseBreath = editedData.breathCurve;
+    editedData.baseTension = editedData.tensionCurve;
 
     // For legacy files, analysis data = initial edited data (best we can do)
     analysisData.originalF0 = editedData.f0;
