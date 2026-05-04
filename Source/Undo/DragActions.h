@@ -3,6 +3,7 @@
 #include "UndoableAction.h"
 #include "SnapshotHelper.h"
 #include "../Models/Note.h"
+#include "../Utils/PitchCurveProcessor.h"
 #include <vector>
 #include <functional>
 
@@ -92,6 +93,9 @@ public:
       notes[noteIndex].markSynthDirty();
     }
     SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project,
+                                                           startFrame,
+                                                           endFrame);
     if (onChanged)
       onChanged();
   }
@@ -109,6 +113,9 @@ public:
       notes[noteIndex].markSynthDirty();
     }
     SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project,
+                                                           startFrame,
+                                                           endFrame);
     if (onChanged)
       onChanged();
   }
@@ -169,6 +176,9 @@ public:
       }
     }
     SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project,
+                                                           startFrame,
+                                                           endFrame);
     if (onChanged)
       onChanged();
   }
@@ -190,6 +200,9 @@ public:
       }
     }
     SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project,
+                                                           startFrame,
+                                                           endFrame);
     if (onChanged)
       onChanged();
   }

@@ -75,6 +75,10 @@ void resetNoteToOriginal(Project& project, Note& note)
 
   // 6. Rebuild global pitch curves from notes
   PitchCurveProcessor::rebuildBaseFromNotes(project);
+  project.refreshNoteCachesForRange(startFrame, endFrame);
+  PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project,
+                                                         startFrame,
+                                                         endFrame);
 }
 
 }

@@ -220,6 +220,7 @@ void DrawHandler::commitPitchDrawing() {
 
   if (owner_.project)
     owner_.project->setF0DirtyRange(rangeStart, rangeEnd);
+  owner_.refreshPitchCachesAfterGlobalEdit(rangeStart, rangeEnd);
 
   // Create undo action with before/after snapshots
   if (owner_.undoManager && owner_.project) {

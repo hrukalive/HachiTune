@@ -2,6 +2,7 @@
 
 #include "UndoableAction.h"
 #include "SnapshotHelper.h"
+#include "../Utils/PitchCurveProcessor.h"
 #include <vector>
 #include <functional>
 #include <limits>
@@ -32,6 +33,9 @@ public:
     SnapshotHelper::restoreFloatRange(editedData.deltaPitch, startFrame, beforeDelta);
     SnapshotHelper::restoreBoolRange(editedData.voicedMask, startFrame, beforeVoiced);
     SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project,
+                                                           startFrame,
+                                                           endFrame);
     if (onChanged)
       onChanged(startFrame, endFrame);
   }
@@ -43,6 +47,9 @@ public:
     SnapshotHelper::restoreFloatRange(editedData.deltaPitch, startFrame, afterDelta);
     SnapshotHelper::restoreBoolRange(editedData.voicedMask, startFrame, afterVoiced);
     SnapshotHelper::refreshNoteCache(project, startFrame, endFrame);
+    PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project,
+                                                           startFrame,
+                                                           endFrame);
     if (onChanged)
       onChanged(startFrame, endFrame);
   }

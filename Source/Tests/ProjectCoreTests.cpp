@@ -743,6 +743,21 @@ void testRefreshNotePitchCachesFromFinalF0ClampsNegativeFrames()
                    "negative frame refresh clamps to valid final f0");
 }
 
+void testNotePitchCacheReloadsFromFinalF0()
+{
+  auto project = makeProject();
+  auto& edited = project.getEditedData();
+  edited.basePitch = {60.0f, 60.0f, 60.0f, 60.0f};
+  edited.f0 = {261.63f, 293.66f, 329.63f, 349.23f};
+
+  project.getNotes()[0].setDeltaPitch({9.0f, 9.0f, 9.0f, 9.0f});
+  PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project, 0, 4);
+
+  expectVectorNear(project.getNotes()[0].getDeltaPitch(),
+                   {0.0f, 2.0f, 4.0f, 5.0f}, 0.02f,
+                   "note display cache reloads from final f0");
+}
+
 void testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel()
 {
   auto project = makeProject();
@@ -1275,6 +1290,7 @@ int main()
   testRecomputeFromMarkersPreservesSourceTunedF0();
   testRecomputeFromMarkersKeepsVadOnOutputTimeline();
   testRefreshNotePitchCachesFromFinalF0ClampsNegativeFrames();
+  testNotePitchCacheReloadsFromFinalF0();
   testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();

@@ -99,6 +99,7 @@ public:
   void setProject(Project *proj);
   Project *getProject() const { return project; }
   std::vector<Note *> getSelectedNotes() const;
+  void refreshPitchCachesAfterGlobalEdit(int startFrame, int endFrame);
 
   // Undo Manager
   void setUndoManager(PitchUndoManager *manager);

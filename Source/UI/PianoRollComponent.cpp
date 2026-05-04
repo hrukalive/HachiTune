@@ -2871,6 +2871,18 @@ void PianoRollComponent::setProject(Project *proj)
   repaint();
 }
 
+void PianoRollComponent::refreshPitchCachesAfterGlobalEdit(int startFrame,
+                                                           int endFrame)
+{
+  if (!project)
+    return;
+
+  project->refreshNoteCachesForRange(startFrame, endFrame);
+  PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(*project,
+                                                         startFrame,
+                                                         endFrame);
+}
+
 void PianoRollComponent::setScaleMode(ScaleMode mode)
 {
   if (selectedScaleMode == mode && !previewScaleMode.has_value())
@@ -3091,6 +3103,7 @@ bool PianoRollComponent::nudgeSelectedNotesBySemitones(int semitoneDelta)
       const int smoothStart = std::max(0, dirtyStartFrame - 60);
       const int smoothEnd = std::min(f0Size, dirtyEndFrame + 60);
       project->setF0DirtyRange(smoothStart, smoothEnd);
+      refreshPitchCachesAfterGlobalEdit(smoothStart, smoothEnd);
     }
 
     if (onPitchEdited)
@@ -3713,6 +3726,7 @@ void PianoRollComponent::reapplyBasePitchForNote(Note *note)
   int smoothStart = std::max(0, startFrame - 60);
   int smoothEnd = std::min(f0Size, endFrame + 60);
   project->setF0DirtyRange(smoothStart, smoothEnd);
+  refreshPitchCachesAfterGlobalEdit(smoothStart, smoothEnd);
 
   // Trigger repaint
   repaint();

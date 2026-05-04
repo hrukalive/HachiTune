@@ -70,6 +70,9 @@ private:
                     maxFrame = std::max(maxFrame, note->getEndFrame());
                 }
                 project->setF0DirtyRange(minFrame, maxFrame);
+                project->refreshNoteCachesForRange(minFrame, maxFrame);
+                PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(
+                    *project, minFrame, maxFrame);
             }
 
             if (onRangeChanged && !dependentNotes.empty())
@@ -153,6 +156,9 @@ private:
                     maxFrame = std::max(maxFrame, note->getEndFrame());
                 }
                 project->setF0DirtyRange(minFrame, maxFrame);
+                project->refreshNoteCachesForRange(minFrame, maxFrame);
+                PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(
+                    *project, minFrame, maxFrame);
 
                 if (onRangeChanged)
                     onRangeChanged(minFrame, maxFrame);

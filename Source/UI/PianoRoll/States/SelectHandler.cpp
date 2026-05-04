@@ -411,6 +411,7 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
       int smoothStart = std::max(0, expandedStart - 60);
       int smoothEnd = std::min(f0Size, expandedEnd + 60);
       project->setF0DirtyRange(smoothStart, smoothEnd);
+      owner_.refreshPitchCachesAfterGlobalEdit(smoothStart, smoothEnd);
 
       // Create undo action
       if (owner_.undoManager)
@@ -447,6 +448,8 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
                                          capturedExpandedEnd + 60);
                 ownerPtr->project->setF0DirtyRange(smoothStart,
                                                     smoothEnd);
+                ownerPtr->refreshPitchCachesAfterGlobalEdit(smoothStart,
+                                                            smoothEnd);
               }
             });
         owner_.undoManager->addAction(std::move(action));
@@ -773,7 +776,10 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
             }
           }
           if (minFrame <= maxFrame)
+          {
             project->setF0DirtyRange(minFrame, maxFrame);
+            owner_.refreshPitchCachesAfterGlobalEdit(minFrame, maxFrame);
+          }
 
           owner_.updatePitchToolHandlesFromSelection();
           if (owner_.onPitchEdited)
@@ -1102,6 +1108,9 @@ void SelectHandler::cancel()
 void SelectHandler::rebuildAndNotify()
 {
   PitchCurveProcessor::rebuildBaseFromNotes(*owner_.project);
+  const int totalFrames =
+      static_cast<int>(owner_.project->getEditedData().f0.size());
+  owner_.refreshPitchCachesAfterGlobalEdit(0, totalFrames);
   if (owner_.onPitchEdited)
     owner_.onPitchEdited();
   if (owner_.onPitchEditFinished)

@@ -89,7 +89,12 @@ void refreshProjectAfterSplit(Project* project,
             const int smoothStart = std::max(0, dirtyStartFrame - 60);
             const int smoothEnd = std::min(f0Size, dirtyEndFrame + 60);
             if (smoothEnd > smoothStart)
+            {
                 project->setF0DirtyRange(smoothStart, smoothEnd);
+                project->refreshNoteCachesForRange(smoothStart, smoothEnd);
+                PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(
+                    *project, smoothStart, smoothEnd);
+            }
         }
 
         project->setParamDirtyRange(dirtyStartFrame, dirtyEndFrame);

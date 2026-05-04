@@ -217,6 +217,13 @@ void emitFilterPreview(
   callback(note, sourceCurve, std::move(result));
 }
 
+void refreshPitchCachesFromFinal(Project& project, int startFrame, int endFrame) {
+  project.refreshNoteCachesForRange(startFrame, endFrame);
+  PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project,
+                                                         startFrame,
+                                                         endFrame);
+}
+
 }  // namespace
 
 PitchToolController::PitchToolController() {
@@ -384,6 +391,20 @@ bool PitchToolController::mouseUp(
       if (note) {
         onRangeChanged(note->getStartFrame(), note->getEndFrame());
       }
+    }
+  }
+
+  if (hasMeaningfulChange && project != nullptr && !affectedNotes.empty()) {
+    const auto dependentNotes =
+        PitchCurveProcessor::collectDependentNotes(*project, affectedNotes);
+    if (!dependentNotes.empty()) {
+      int minFrame = std::numeric_limits<int>::max();
+      int maxFrame = std::numeric_limits<int>::min();
+      for (const auto* note : dependentNotes) {
+        minFrame = std::min(minFrame, note->getStartFrame());
+        maxFrame = std::max(maxFrame, note->getEndFrame());
+      }
+      refreshPitchCachesFromFinal(*project, minFrame, maxFrame);
     }
   }
 
@@ -660,6 +681,7 @@ void PitchToolController::cancel() {
         maxFrame = std::max(maxFrame, note->getEndFrame());
       }
       project->setF0DirtyRange(minFrame, maxFrame);
+      refreshPitchCachesFromFinal(*project, minFrame, maxFrame);
     }
 
     if (onPitchEdited) {

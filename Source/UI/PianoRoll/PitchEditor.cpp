@@ -27,6 +27,15 @@ void rebuildBoundarySmoothingPreview(Project& project,
   PitchCurveProcessor::rebuildBaseFromNotesForDrag(project, dependentNotes);
 }
 
+void refreshPitchCachesAfterGlobalEdit(Project& project,
+                                       int startFrame,
+                                       int endFrame) {
+  project.refreshNoteCachesForRange(startFrame, endFrame);
+  PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project,
+                                                         startFrame,
+                                                         endFrame);
+}
+
 }  // namespace
 
 PitchEditor::PitchEditor() = default;
@@ -130,6 +139,7 @@ void PitchEditor::endDrawing()
       }
     }
     project->setF0DirtyRange(rangeStart, rangeEnd);
+    refreshPitchCachesAfterGlobalEdit(*project, rangeStart, rangeEnd);
   }
 
   // Create undo action
@@ -158,6 +168,8 @@ void PitchEditor::endDrawing()
         [this](int minFrame, int maxFrame) {
           if (project) {
             project->setF0DirtyRange(minFrame, maxFrame + 1);
+            refreshPitchCachesAfterGlobalEdit(*project, minFrame,
+                                              maxFrame + 1);
             if (onPitchEditFinished)
               onPitchEditFinished();
           }
@@ -517,6 +529,7 @@ void PitchEditor::endMultiNoteDrag()
     int smoothStart = std::max(0, expandedStart - 60);
     int smoothEnd = std::min(f0Size, expandedEnd + 60);
     project->setF0DirtyRange(smoothStart, smoothEnd);
+    refreshPitchCachesAfterGlobalEdit(*project, smoothStart, smoothEnd);
 
     // Create undo action for multi-note drag
     if (undoManager)
@@ -559,6 +572,8 @@ void PitchEditor::endMultiNoteDrag()
               int smoothEnd =
                   std::min(capturedF0Size, capturedExpandedEnd + 60);
               project->setF0DirtyRange(smoothStart, smoothEnd);
+              refreshPitchCachesAfterGlobalEdit(*project, smoothStart,
+                                                smoothEnd);
             }
           });
       undoManager->addAction(std::move(action));
