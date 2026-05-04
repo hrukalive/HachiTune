@@ -342,9 +342,9 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
                                audioData.noiseWaveform.getNumSamples() > 0;
   if (range.needsMelUpdate &&
       hasGlobalHNSep &&
-      !project->getEditedData().voicingCurve.empty() &&
-      !project->getEditedData().breathCurve.empty() &&
-      !project->getEditedData().tensionCurve.empty() &&
+      !editedData.baseVoicing.empty() &&
+      !editedData.baseBreath.empty() &&
+      !editedData.baseTension.empty() &&
       HNSepCurveProcessor::hasActiveEdits(*project, startFrame, endFrame))
   {
     HNSepCurveProcessor::recomputeMelForRange(*project, startFrame, endFrame);

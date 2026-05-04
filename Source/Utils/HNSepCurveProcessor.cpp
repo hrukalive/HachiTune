@@ -462,11 +462,37 @@ namespace HNSepCurveProcessor
     bool hasActiveEdits(const Project& project, int startFrame, int endFrame)
     {
         const auto& editedData = project.getEditedData();
-        return curveDiffersFrom(editedData.voicingCurve, startFrame, endFrame,
+        bool checkedNoteSourceRange = false;
+        for (const auto& note : project.getNotes())
+        {
+            if (note.isRest())
+                continue;
+            if (note.getEndFrame() <= startFrame ||
+                note.getStartFrame() >= endFrame)
+                continue;
+
+            checkedNoteSourceRange = true;
+            const int sourceStart = note.getSrcStartFrame();
+            const int sourceEnd = note.getSrcEndFrame();
+            if (curveDiffersFrom(editedData.baseVoicing, sourceStart, sourceEnd,
+                                 kDefaultVoicing) ||
+                curveDiffersFrom(editedData.baseBreath, sourceStart, sourceEnd,
+                                 kDefaultBreath) ||
+                curveDiffersFrom(editedData.baseTension, sourceStart, sourceEnd,
+                                 kDefaultTension))
+            {
+                return true;
+            }
+        }
+
+        if (checkedNoteSourceRange)
+            return false;
+
+        return curveDiffersFrom(editedData.baseVoicing, startFrame, endFrame,
                                 kDefaultVoicing) ||
-               curveDiffersFrom(editedData.breathCurve, startFrame, endFrame,
+               curveDiffersFrom(editedData.baseBreath, startFrame, endFrame,
                                 kDefaultBreath) ||
-               curveDiffersFrom(editedData.tensionCurve, startFrame, endFrame,
+               curveDiffersFrom(editedData.baseTension, startFrame, endFrame,
                                 kDefaultTension);
     }
 

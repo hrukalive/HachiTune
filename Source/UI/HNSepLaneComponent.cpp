@@ -955,16 +955,22 @@ void HNSepLaneComponent::commitEdits() {
       auto& notes = project->getNotes();
       int minFrame = std::numeric_limits<int>::max();
       int maxFrame = std::numeric_limits<int>::min();
+      int minSourceFrame = std::numeric_limits<int>::max();
+      int maxSourceFrame = std::numeric_limits<int>::min();
 
       for (int i = minN; i <= maxN && i < static_cast<int>(notes.size()); ++i) {
         if (i < 0)
           continue;
         minFrame = std::min(minFrame, notes[i].getStartFrame());
         maxFrame = std::max(maxFrame, notes[i].getEndFrame());
+        minSourceFrame = std::min(minSourceFrame, notes[i].getSrcStartFrame());
+        maxSourceFrame = std::max(maxSourceFrame, notes[i].getSrcEndFrame());
       }
 
       if (minFrame <= maxFrame) {
-        HNSepCurveProcessor::rebuildBaseCurvesForRange(*project, minFrame, maxFrame);
+        if (minSourceFrame <= maxSourceFrame)
+          HNSepCurveProcessor::rebuildBaseCurvesForRange(
+              *project, minSourceFrame, maxSourceFrame);
         HNSepCurveProcessor::rebuildCurvesForRange(*project, minFrame, maxFrame);
         project->setParamDirtyRange(minFrame, maxFrame);
       }

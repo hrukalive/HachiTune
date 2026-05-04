@@ -4,6 +4,7 @@
 #include "../Models/Project.h"
 #include "../Models/ProjectSerializer.h"
 #include "../Utils/Constants.h"
+#include "../Utils/HNSepCurveProcessor.h"
 #include "../Utils/PitchCurveProcessor.h"
 #include "../Utils/WarpMarkerProcessor.h"
 
@@ -588,6 +589,24 @@ void testHNSepBaseCurvesStaySourceTimelineDuringStretch()
     return;
   expectVectorNear(data.mel[1], {5.0f}, 0.0001f,
                    "final mel stretches from adjusted source mel");
+}
+
+void testHNSepActiveEditsUseSourceBaseCurves()
+{
+  auto project = makeProject();
+  auto& edited = project.getEditedData();
+  edited.voicingCurve.assign(edited.voicingCurve.size(),
+                             HNSepCurveProcessor::kDefaultVoicing);
+  edited.breathCurve.assign(edited.breathCurve.size(),
+                            HNSepCurveProcessor::kDefaultBreath);
+  edited.tensionCurve.assign(edited.tensionCurve.size(),
+                             HNSepCurveProcessor::kDefaultTension);
+  edited.baseVoicing = {100.0f, 80.0f, 100.0f, 100.0f};
+  edited.baseBreath = {100.0f, 100.0f, 100.0f, 100.0f};
+  edited.baseTension = {0.0f, 0.0f, 0.0f, 0.0f};
+
+  expect(HNSepCurveProcessor::hasActiveEdits(project, 0, 4),
+         "HNSep active edit detection reads source base curves");
 }
 
 void testBuildOutputMelUsesRequestedFrameCount()
@@ -1212,6 +1231,7 @@ int main()
   testValidation();
   testStretchEditedData();
   testHNSepBaseCurvesStaySourceTimelineDuringStretch();
+  testHNSepActiveEditsUseSourceBaseCurves();
   testBuildOutputMelUsesRequestedFrameCount();
   testWarpEndpoints();
   testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel();
