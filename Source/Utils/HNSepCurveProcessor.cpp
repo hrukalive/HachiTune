@@ -74,6 +74,15 @@ namespace
         if (editedData.tensionCurve.size() != static_cast<size_t>(totalFrames))
             editedData.tensionCurve.assign(static_cast<size_t>(totalFrames),
                                           HNSepCurveProcessor::kDefaultTension);
+        if (editedData.baseVoicing.size() != static_cast<size_t>(totalFrames))
+            editedData.baseVoicing.assign(static_cast<size_t>(totalFrames),
+                                          HNSepCurveProcessor::kDefaultVoicing);
+        if (editedData.baseBreath.size() != static_cast<size_t>(totalFrames))
+            editedData.baseBreath.assign(static_cast<size_t>(totalFrames),
+                                         HNSepCurveProcessor::kDefaultBreath);
+        if (editedData.baseTension.size() != static_cast<size_t>(totalFrames))
+            editedData.baseTension.assign(static_cast<size_t>(totalFrames),
+                                          HNSepCurveProcessor::kDefaultTension);
     }
 
     std::vector<float> fitCurveToLength(const std::vector<float>& source,
@@ -215,6 +224,12 @@ namespace HNSepCurveProcessor
                   kDefaultBreath);
         std::fill(editedData.tensionCurve.begin(), editedData.tensionCurve.end(),
                   kDefaultTension);
+        std::fill(editedData.baseVoicing.begin(), editedData.baseVoicing.end(),
+                  kDefaultVoicing);
+        std::fill(editedData.baseBreath.begin(), editedData.baseBreath.end(),
+                  kDefaultBreath);
+        std::fill(editedData.baseTension.begin(), editedData.baseTension.end(),
+                  kDefaultTension);
 
         for (const auto& note : project.getNotes())
         {
@@ -229,6 +244,47 @@ namespace HNSepCurveProcessor
                             kDefaultBreath);
             writeCurveRange(editedData.tensionCurve, note.getTensionCurve(),
                             note.getStartFrame(), note.getEndFrame(),
+                            kDefaultTension);
+            writeCurveRange(editedData.baseVoicing, note.getVoicingCurve(),
+                            note.getSrcStartFrame(), note.getSrcEndFrame(),
+                            kDefaultVoicing);
+            writeCurveRange(editedData.baseBreath, note.getBreathCurve(),
+                            note.getSrcStartFrame(), note.getSrcEndFrame(),
+                            kDefaultBreath);
+            writeCurveRange(editedData.baseTension, note.getTensionCurve(),
+                            note.getSrcStartFrame(), note.getSrcEndFrame(),
+                            kDefaultTension);
+        }
+
+        project.notifyListeners(ProjectChangeType::NoteCurveChanged);
+    }
+
+    void rebuildBaseCurvesFromNotes(Project& project)
+    {
+        auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
+        ensureCurveSizes(editedData, totalFrames);
+
+        std::fill(editedData.baseVoicing.begin(), editedData.baseVoicing.end(),
+                  kDefaultVoicing);
+        std::fill(editedData.baseBreath.begin(), editedData.baseBreath.end(),
+                  kDefaultBreath);
+        std::fill(editedData.baseTension.begin(), editedData.baseTension.end(),
+                  kDefaultTension);
+
+        for (const auto& note : project.getNotes())
+        {
+            if (note.isRest())
+                continue;
+
+            writeCurveRange(editedData.baseVoicing, note.getVoicingCurve(),
+                            note.getSrcStartFrame(), note.getSrcEndFrame(),
+                            kDefaultVoicing);
+            writeCurveRange(editedData.baseBreath, note.getBreathCurve(),
+                            note.getSrcStartFrame(), note.getSrcEndFrame(),
+                            kDefaultBreath);
+            writeCurveRange(editedData.baseTension, note.getTensionCurve(),
+                            note.getSrcStartFrame(), note.getSrcEndFrame(),
                             kDefaultTension);
         }
 
@@ -289,6 +345,62 @@ namespace HNSepCurveProcessor
         project.notifyListeners(ProjectChangeType::NoteCurveChanged, -1, startFrame, endFrame);
     }
 
+    void rebuildBaseCurvesForRange(Project& project, int startFrame, int endFrame)
+    {
+        auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
+        ensureCurveSizes(editedData, totalFrames);
+
+        const int clampedStart = std::max(0, startFrame);
+        const int clampedEnd = std::min(totalFrames, endFrame);
+        if (clampedEnd <= clampedStart)
+            return;
+
+        std::fill(editedData.baseVoicing.begin() + clampedStart,
+                  editedData.baseVoicing.begin() + clampedEnd, kDefaultVoicing);
+        std::fill(editedData.baseBreath.begin() + clampedStart,
+                  editedData.baseBreath.begin() + clampedEnd, kDefaultBreath);
+        std::fill(editedData.baseTension.begin() + clampedStart,
+                  editedData.baseTension.begin() + clampedEnd, kDefaultTension);
+
+        for (const auto& note : project.getNotes())
+        {
+            if (note.isRest())
+                continue;
+
+            const int overlapStart =
+                std::max(clampedStart, note.getSrcStartFrame());
+            const int overlapEnd = std::min(clampedEnd, note.getSrcEndFrame());
+            if (overlapEnd <= overlapStart)
+                continue;
+
+            const int sourceLength = note.getSrcDurationFrames();
+            if (sourceLength <= 0)
+                continue;
+
+            const auto voicing = fitCurveToLength(note.getVoicingCurve(),
+                                                   sourceLength, kDefaultVoicing);
+            const auto breath = fitCurveToLength(note.getBreathCurve(),
+                                                  sourceLength, kDefaultBreath);
+            const auto tension = fitCurveToLength(note.getTensionCurve(),
+                                                   sourceLength, kDefaultTension);
+
+            for (int frame = overlapStart; frame < overlapEnd; ++frame)
+            {
+                const int localFrame = frame - note.getSrcStartFrame();
+                editedData.baseVoicing[static_cast<size_t>(frame)] =
+                    voicing[static_cast<size_t>(localFrame)];
+                editedData.baseBreath[static_cast<size_t>(frame)] =
+                    breath[static_cast<size_t>(localFrame)];
+                editedData.baseTension[static_cast<size_t>(frame)] =
+                    tension[static_cast<size_t>(localFrame)];
+            }
+        }
+
+        project.notifyListeners(ProjectChangeType::NoteCurveChanged, -1,
+                                startFrame, endFrame);
+    }
+
     void extractNoteCurvesFromMaster(Project& project)
     {
         auto& editedData = project.getEditedData();
@@ -315,6 +427,35 @@ namespace HNSepCurveProcessor
             note.setTensionCurve(std::vector<float>(
                 editedData.tensionCurve.begin() + startFrame,
                 editedData.tensionCurve.begin() + endFrame));
+        }
+    }
+
+    void extractNoteCurvesFromBaseCurves(Project& project)
+    {
+        auto& editedData = project.getEditedData();
+        const int totalFrames = project.getAudioData().getNumFrames();
+        ensureCurveSizes(editedData, totalFrames);
+
+        for (auto& note : project.getNotes())
+        {
+            if (note.isRest())
+                continue;
+
+            const int startFrame = std::max(0, note.getSrcStartFrame());
+            const int endFrame = std::min(totalFrames, note.getSrcEndFrame());
+            const int length = std::max(0, endFrame - startFrame);
+            if (length <= 0)
+                continue;
+
+            note.setVoicingCurve(std::vector<float>(
+                editedData.baseVoicing.begin() + startFrame,
+                editedData.baseVoicing.begin() + endFrame));
+            note.setBreathCurve(std::vector<float>(
+                editedData.baseBreath.begin() + startFrame,
+                editedData.baseBreath.begin() + endFrame));
+            note.setTensionCurve(std::vector<float>(
+                editedData.baseTension.begin() + startFrame,
+                editedData.baseTension.begin() + endFrame));
         }
     }
 
@@ -389,8 +530,9 @@ namespace HNSepCurveProcessor
             audioData.noiseWaveform.getNumSamples() > 0;
         if (!hasGlobalHNSep)
             return;
-        if (editedData.voicingCurve.empty() || editedData.breathCurve.empty() ||
-            editedData.tensionCurve.empty())
+        if (editedData.baseVoicing.empty() ||
+            editedData.baseBreath.empty() ||
+            editedData.baseTension.empty())
             return;
         if (!hasActiveEdits(project, startFrame, endFrame))
             return;
@@ -426,26 +568,33 @@ namespace HNSepCurveProcessor
                 continue;
 
             std::vector<float> srcVoicing, srcBreath, srcTension;
-            if (note.hasVoicingCurve())
-                srcVoicing = CurveResampler::resampleLinear(
-                    note.getVoicingCurve(), srcDurationFrames);
-            else
-                srcVoicing.assign(static_cast<size_t>(srcDurationFrames),
-                                  kDefaultVoicing);
+            const int sourceStart = note.getSrcStartFrame();
+            const int sourceEnd = note.getSrcEndFrame();
+            const int sourceFrames = std::min(
+                {static_cast<int>(editedData.baseVoicing.size()),
+                 static_cast<int>(editedData.baseBreath.size()),
+                 static_cast<int>(editedData.baseTension.size())});
+            const int writeStart = std::max(0, sourceStart);
+            const int writeEnd = std::min(sourceEnd, sourceFrames);
+            if (writeEnd <= writeStart)
+                continue;
 
-            if (note.hasBreathCurve())
-                srcBreath = CurveResampler::resampleLinear(
-                    note.getBreathCurve(), srcDurationFrames);
-            else
-                srcBreath.assign(static_cast<size_t>(srcDurationFrames),
-                                 kDefaultBreath);
+            srcVoicing.assign(editedData.baseVoicing.begin() + writeStart,
+                              editedData.baseVoicing.begin() + writeEnd);
+            srcBreath.assign(editedData.baseBreath.begin() + writeStart,
+                             editedData.baseBreath.begin() + writeEnd);
+            srcTension.assign(editedData.baseTension.begin() + writeStart,
+                              editedData.baseTension.begin() + writeEnd);
 
-            if (note.hasTensionCurve())
-                srcTension = CurveResampler::resampleLinear(
-                    note.getTensionCurve(), srcDurationFrames);
-            else
-                srcTension.assign(static_cast<size_t>(srcDurationFrames),
-                                  kDefaultTension);
+            if (static_cast<int>(srcVoicing.size()) != srcDurationFrames)
+                srcVoicing = CurveResampler::resampleLinear(srcVoicing,
+                                                            srcDurationFrames);
+            if (static_cast<int>(srcBreath.size()) != srcDurationFrames)
+                srcBreath = CurveResampler::resampleLinear(srcBreath,
+                                                           srcDurationFrames);
+            if (static_cast<int>(srcTension.size()) != srcDurationFrames)
+                srcTension = CurveResampler::resampleLinear(srcTension,
+                                                            srcDurationFrames);
 
             if (!tensionProc.hasActiveEdits(
                     srcVoicing.data(), srcBreath.data(), srcTension.data(),
@@ -487,13 +636,10 @@ namespace HNSepCurveProcessor
                           std::vector<float>(static_cast<size_t>(numMels),
                                              0.0f));
 
-            const int sourceStart = note.getSrcStartFrame();
-            const int sourceEnd = note.getSrcEndFrame();
-            const int writeStart = std::max(0, sourceStart);
-            const int writeEnd = std::min(sourceEnd,
-                                          static_cast<int>(
-                                              editedData.adjustedMel.size()));
-            for (int f = writeStart; f < writeEnd; ++f)
+            const int melWriteEnd = std::min(sourceEnd,
+                                             static_cast<int>(
+                                                 editedData.adjustedMel.size()));
+            for (int f = writeStart; f < melWriteEnd; ++f)
             {
                 const int noteLocal = f - sourceStart;
                 if (noteLocal >= 0 &&

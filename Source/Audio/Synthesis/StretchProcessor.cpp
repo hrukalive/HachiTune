@@ -222,13 +222,24 @@ void StretchProcessor::stretchEditedData(
   edited.voicedMask = resampleNearestBool(edited.voicedMask);
   edited.vadMask = resampleNearestBool(edited.vadMask);
 
-  // deltaPitch, curves -> linear interpolation
+  // deltaPitch, compatibility curves -> linear interpolation
   edited.deltaPitch = resampleLinear(edited.deltaPitch);
-  edited.voicingCurve = resampleLinear(edited.voicingCurve);
-  edited.breathCurve = resampleLinear(edited.breathCurve);
-  edited.tensionCurve = resampleLinear(edited.tensionCurve);
+  edited.voicingCurve =
+      resampleLinear(!edited.baseVoicing.empty()
+                         ? edited.baseVoicing
+                         : edited.voicingCurve);
+  edited.breathCurve =
+      resampleLinear(!edited.baseBreath.empty()
+                         ? edited.baseBreath
+                         : edited.breathCurve);
+  edited.tensionCurve =
+      resampleLinear(!edited.baseTension.empty()
+                         ? edited.baseTension
+                         : edited.tensionCurve);
 
   const auto& sourceTunedF0 =
       !edited.tunedF0.empty() ? edited.tunedF0 : edited.f0;
   edited.f0 = resampleFrequencyLog(sourceTunedF0);
+  if (!edited.adjustedMel.empty())
+    edited.mel = buildOutputMel(edited.adjustedMel, markers, newTotalFrames);
 }

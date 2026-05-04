@@ -273,6 +273,18 @@ namespace
             unwarpLinearToSource(editedData.breathCurve, currentMap, sourceFrames);
         sourceData.tensionCurve =
             unwarpLinearToSource(editedData.tensionCurve, currentMap, sourceFrames);
+        sourceData.baseVoicing =
+            !editedData.baseVoicing.empty()
+                ? editedData.baseVoicing
+                : sourceData.voicingCurve;
+        sourceData.baseBreath =
+            !editedData.baseBreath.empty()
+                ? editedData.baseBreath
+                : sourceData.breathCurve;
+        sourceData.baseTension =
+            !editedData.baseTension.empty()
+                ? editedData.baseTension
+                : sourceData.tensionCurve;
         return sourceData;
     }
 

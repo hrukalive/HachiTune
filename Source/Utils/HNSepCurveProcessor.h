@@ -21,18 +21,21 @@ namespace HNSepCurveProcessor
      * duration so stretch operations keep hnsep edits aligned.
      */
     void rebuildCurvesFromNotes(Project& project);
+    void rebuildBaseCurvesFromNotes(Project& project);
 
     /**
      * Partial rebuild for a specific global frame range.
      * Only the affected dense master frames are rewritten.
      */
     void rebuildCurvesForRange(Project& project, int startFrame, int endFrame);
+    void rebuildBaseCurvesForRange(Project& project, int startFrame, int endFrame);
 
     /**
      * Backfill note-local editable copies from existing dense editedData curves.
      * This is primarily used for project loading / backward compatibility.
      */
     void extractNoteCurvesFromMaster(Project& project);
+    void extractNoteCurvesFromBaseCurves(Project& project);
 
     /**
      * Returns true when any dense hnsep control in [startFrame, endFrame) differs

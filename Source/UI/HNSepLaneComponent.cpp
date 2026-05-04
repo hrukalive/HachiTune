@@ -964,6 +964,7 @@ void HNSepLaneComponent::commitEdits() {
       }
 
       if (minFrame <= maxFrame) {
+        HNSepCurveProcessor::rebuildBaseCurvesForRange(*project, minFrame, maxFrame);
         HNSepCurveProcessor::rebuildCurvesForRange(*project, minFrame, maxFrame);
         project->setParamDirtyRange(minFrame, maxFrame);
       }

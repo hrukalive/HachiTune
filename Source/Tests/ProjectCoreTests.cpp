@@ -561,6 +561,35 @@ void testStretchEditedData()
   expect(data.basePitch[1] == 62.0f, "basePitch uses nearest interpolation");
 }
 
+void testHNSepBaseCurvesStaySourceTimelineDuringStretch()
+{
+  EditedData data;
+  data.basePitch = {60.0f, 60.0f, 60.0f};
+  data.deltaPitch = {0.0f, 0.0f, 0.0f};
+  data.tunedF0 = {100.0f, 200.0f, 400.0f};
+  data.f0 = data.tunedF0;
+  data.voicedMask = {true, true, true};
+  data.vadMask = {true, true, true};
+  data.baseVoicing = {100.0f, 80.0f, 60.0f};
+  data.baseBreath = {50.0f, 70.0f, 90.0f};
+  data.baseTension = {0.0f, 10.0f, 20.0f};
+  data.adjustedMel = {{0.0f}, {10.0f}, {20.0f}};
+
+  const std::vector<Project::WarpMarker> markers = {{0, 0}, {2, 4}};
+  StretchProcessor::stretchEditedData(data, markers, 4);
+
+  expectVectorNear(data.baseVoicing, {100.0f, 80.0f, 60.0f}, 0.0001f,
+                   "base voicing remains source timeline");
+  expectVectorNear(data.baseBreath, {50.0f, 70.0f, 90.0f}, 0.0001f,
+                   "base breath remains source timeline");
+  expectVectorNear(data.baseTension, {0.0f, 10.0f, 20.0f}, 0.0001f,
+                   "base tension remains source timeline");
+  if (!require(data.mel.size() == 4, "final mel stretches to output timeline"))
+    return;
+  expectVectorNear(data.mel[1], {5.0f}, 0.0001f,
+                   "final mel stretches from adjusted source mel");
+}
+
 void testBuildOutputMelUsesRequestedFrameCount()
 {
   const std::vector<std::vector<float>> sourceMel = {
@@ -1182,6 +1211,7 @@ int main()
   testLoadWithoutPitchPayloadClearsProjectData();
   testValidation();
   testStretchEditedData();
+  testHNSepBaseCurvesStaySourceTimelineDuringStretch();
   testBuildOutputMelUsesRequestedFrameCount();
   testWarpEndpoints();
   testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel();
