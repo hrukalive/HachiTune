@@ -128,6 +128,9 @@ void DrawHandler::cancel() {
           i >= 0 && i < static_cast<int>(editedData.voicedMask.size()))
         editedData.voicedMask[i] = beforeVoiced[bi];
     }
+
+    owner_.refreshPitchCachesAfterGlobalEdit(minEditedFrame,
+                                             maxEditedFrame + 1);
   }
 
   isDrawing = false;
