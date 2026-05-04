@@ -4,6 +4,7 @@
 #include "../Models/Project.h"
 #include "../Models/ProjectSerializer.h"
 #include "../Utils/Constants.h"
+#include "../Utils/PitchCurveProcessor.h"
 #include "../Utils/WarpMarkerProcessor.h"
 
 #include <cmath>
@@ -658,6 +659,27 @@ void testRecomputeFromMarkersPreservesSourceTunedF0()
              "recompute stretches final f0 from source tunedF0");
 }
 
+void testRefreshNotePitchCachesFromFinalF0ClampsNegativeFrames()
+{
+  Project project;
+  auto& edited = project.getEditedData();
+  edited.basePitch = {60.0f, 60.0f, 60.0f};
+  edited.f0 = {261.63f, 293.66f, 329.63f};
+
+  Note note(-1, 2, 60.0f);
+  note.setSrcStartFrame(0);
+  note.setSrcEndFrame(3);
+  project.addNote(std::move(note));
+
+  PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project, 0, 3);
+
+  require(project.getNotes().size() == 1,
+          "negative frame refresh keeps one note");
+  expectVectorNear(project.getNotes()[0].getDeltaPitch(),
+                   {0.0f, 2.0f}, 0.01f,
+                   "negative frame refresh clamps to valid final f0");
+}
+
 void testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel()
 {
   auto project = makeProject();
@@ -1164,6 +1186,7 @@ int main()
   testWarpEndpoints();
   testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel();
   testRecomputeFromMarkersPreservesSourceTunedF0();
+  testRefreshNotePitchCachesFromFinalF0ClampsNegativeFrames();
   testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();
