@@ -266,27 +266,57 @@ void IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
   auto& audioData = project.getAudioData();
   auto& finalWaveform = audioData.finalWaveform;
   const auto& sourceWaveform = audioData.waveform;
-  if (finalWaveform.getNumChannels() == 0 ||
-      finalWaveform.getNumSamples() == 0)
+  const auto& originalWaveform = audioData.originalWaveform;
+  const bool hasSourceBaseline =
+      (sourceWaveform.getNumChannels() > 0 &&
+       sourceWaveform.getNumSamples() > 0) ||
+      (originalWaveform.getNumChannels() > 0 &&
+       originalWaveform.getNumSamples() > 0);
+  const bool needsFullBaseline =
+      finalWaveform.getNumChannels() == 0 ||
+      finalWaveform.getNumSamples() == 0;
+
+  int numChannels = finalWaveform.getNumChannels();
+  if (numChannels == 0)
   {
     if (sourceWaveform.getNumChannels() > 0 &&
         sourceWaveform.getNumSamples() > 0)
-    {
-      finalWaveform.makeCopyOf(sourceWaveform);
-    }
+      numChannels = sourceWaveform.getNumChannels();
     else if (audioData.originalWaveform.getNumChannels() > 0 &&
              audioData.originalWaveform.getNumSamples() > 0)
-    {
-      finalWaveform.makeCopyOf(audioData.originalWaveform);
-    }
+      numChannels = audioData.originalWaveform.getNumChannels();
+    else
+      numChannels = 1;
   }
 
-  const int numChannels = finalWaveform.getNumChannels();
   if (numChannels == 0)
     return;
 
-  if (finalWaveform.getNumSamples() != requiredSamples)
+  if (finalWaveform.getNumChannels() != numChannels ||
+      finalWaveform.getNumSamples() != requiredSamples)
     finalWaveform.setSize(numChannels, requiredSamples, true, true, false);
+
+  auto refreshBaseline = [&](int sampleStart, int sampleCount)
+  {
+    if (!hasSourceBaseline || sampleCount <= 0)
+      return;
+
+    auto baseline =
+        project.renderMappedBaseWaveformSegment(sampleStart, sampleCount);
+    if (baseline.empty())
+      return;
+
+    const int samplesToCopy =
+        std::min(sampleCount, static_cast<int>(baseline.size()));
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+      float* dst = finalWaveform.getWritePointer(ch, sampleStart);
+      std::copy_n(baseline.data(), samplesToCopy, dst);
+    }
+  };
+
+  if (needsFullBaseline)
+    refreshBaseline(0, requiredSamples);
 
   const int rawStartSample = startFrame * hopSize;
   const int rawEndSample = endFrame * hopSize;
@@ -308,6 +338,8 @@ void IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
   const int numSamples = std::min(
       endSample - startSample, sourceSamples - sourceOffset);
   const int fade = std::min(hopSize, sourceSamples / 2);
+
+  refreshBaseline(startSample, numSamples);
 
   for (int ch = 0; ch < numChannels; ++ch)
   {

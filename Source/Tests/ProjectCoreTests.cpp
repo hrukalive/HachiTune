@@ -917,6 +917,26 @@ void testBlendSynthesizedRangeWritesFinalWaveformOnly()
              "source waveform is not overwritten by final blend");
 }
 
+void testBlendRefreshesFinalBaselineFromMappedSource()
+{
+  Project project;
+  auto& audioData = project.getAudioData();
+  audioData.waveform.setSize(1, 16);
+  audioData.finalWaveform.setSize(1, 16);
+  for (int i = 0; i < 16; ++i)
+  {
+    audioData.waveform.setSample(0, i, 1.0f);
+    audioData.finalWaveform.setSample(0, i, 9.0f);
+  }
+
+  resizeEditedData(project.getEditedData(), 4);
+  IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+      project, std::vector<float>(8, 5.0f), 1, 3, 4);
+
+  expectNear(audioData.finalWaveform.getSample(0, 5), 2.0f, 0.0001f,
+             "blend refreshes dirty baseline from mapped source waveform");
+}
+
 void testBlendSynthesizedRangeResizesToOutputDuration()
 {
   Project project;
@@ -1222,6 +1242,7 @@ int main()
   testPreviewRecomputeCanAdvanceAndCancel();
   testRefreshNoteCachesUsesNonRestAnalysisSegments();
   testBlendSynthesizedRangeWritesFinalWaveformOnly();
+  testBlendRefreshesFinalBaselineFromMappedSource();
   testBlendSynthesizedRangeResizesToOutputDuration();
   testBlendSynthesizedRangeWritesAllChannels();
   testBlendSynthesizedRangeOffsetsClampedNegativeStart();

@@ -763,6 +763,8 @@ void EditorController::analyzeAudio(
   if (audioData.waveform.getNumSamples() == 0)
     return;
 
+  audioData.finalWaveform.setSize(0, 0);
+
   auto showMissingModelAndAbort = [](const juce::String &modelName,
                                      const juce::File &path)
   {
@@ -1116,6 +1118,7 @@ void EditorController::analyzeAudioAsync(
           projectCopy->getAudioData().harmonicWaveform);
       projectShared->getAudioData().noiseWaveform.makeCopyOf(
           projectCopy->getAudioData().noiseWaveform);
+      projectShared->getAudioData().finalWaveform.setSize(0, 0);
       projectShared->getNotes() = projectCopy->getNotes();
       projectShared->getAnalysisData() = projectCopy->getAnalysisData();
 
