@@ -350,3 +350,10 @@ The refactor is complete when:
   final data after commit/recompute.
 - New and legacy project files load into the new ownership model.
 - Core tests cover the new ownership and processing invariants.
+
+## Implementation Notes
+
+Implementation is tracked by
+`docs/superpowers/plans/2026-05-03-strict-staged-pipeline-refactor.md`.
+Large mel/STFT matrices are in-memory pipeline fields and are recomputed after
+load in the initial implementation.

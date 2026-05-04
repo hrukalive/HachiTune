@@ -378,6 +378,8 @@ void ProjectTreeView::updatePropertyItems()
                    juce::String(static_cast<int>(ed.deltaPitch.size())));
     rows.push_back("f0 size: " +
                    juce::String(static_cast<int>(ed.f0.size())));
+    rows.push_back("tunedF0 size: " +
+                   juce::String(static_cast<int>(ed.tunedF0.size())));
     rows.push_back("voicedMask size: " +
                    juce::String(static_cast<int>(ed.voicedMask.size())));
     rows.push_back("vadMask size: " +
@@ -388,6 +390,16 @@ void ProjectTreeView::updatePropertyItems()
                    juce::String(static_cast<int>(ed.breathCurve.size())));
     rows.push_back("tensionCurve size: " +
                    juce::String(static_cast<int>(ed.tensionCurve.size())));
+    rows.push_back("baseVoicing size: " +
+                   juce::String(static_cast<int>(ed.baseVoicing.size())));
+    rows.push_back("baseBreath size: " +
+                   juce::String(static_cast<int>(ed.baseBreath.size())));
+    rows.push_back("baseTension size: " +
+                   juce::String(static_cast<int>(ed.baseTension.size())));
+    rows.push_back("adjustedSTFT size: " +
+                   juce::String(static_cast<int>(ed.adjustedSTFT.size())));
+    rows.push_back("adjustedMel: " + formatMatrixSize(ed.adjustedMel));
+    rows.push_back("mel: " + formatMatrixSize(ed.mel));
     rows.push_back("VoicedFrames: " + juce::String(voicedCount));
     rows.push_back("NonZeroF0: " + juce::String(nonZeroF0));
     rows.push_back("NonZeroBasePitch: " + juce::String(nonZeroBP));
@@ -401,6 +413,9 @@ void ProjectTreeView::updatePropertyItems()
           {"SampleRate: " + juce::String(audioData.sampleRate),
            "Waveform: " +
                juce::String(audioData.waveform.getNumSamples()) + " samples",
+           "audio.finalWaveform: " +
+               juce::String(audioData.finalWaveform.getNumSamples()) +
+               " samples",
            "analysis.originalMel: " +
                formatMatrixSize(project->getAnalysisData().originalMel),
            "edited.adjustedMel: " +

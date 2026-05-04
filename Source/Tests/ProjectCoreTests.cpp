@@ -497,6 +497,12 @@ void testValidation()
   expect(!result.isValid(), "empty editedData.f0 with other arrays fails validation");
 
   project = makeProject();
+  project.getEditedData().baseVoicing.pop_back();
+  result = project.validateFrameData();
+  expect(!result.isValid(),
+         "mismatched editedData.baseVoicing fails source validation");
+
+  project = makeProject();
   project.getAnalysisData().noteSegments.clear();
   result = project.validateFrameData();
   expect(!result.isValid(), "missing analyzed note segments fails validation");
@@ -527,6 +533,11 @@ void testValidation()
   result = project.validateFrameData();
   expect(result.isValid(),
          "validation allows source and output pipeline lengths to differ");
+
+  project = makeProject();
+  project.getEditedData().mel.push_back({1.0f, 2.0f, 3.0f});
+  result = project.validateFrameData();
+  expect(!result.isValid(), "ragged editedData.mel fails validation");
 }
 
 void testStretchEditedData()
