@@ -119,6 +119,13 @@ void MainComponent::openProjectFile(const juce::File &file) {
                   PitchCurveProcessor::composeF0InPlace(*projectToUse,
                                                         /*applyUvMask=*/false);
                 }
+                if (!editedData.f0.empty()) {
+                  const int pitchFrames =
+                      static_cast<int>(editedData.f0.size());
+                  projectToUse->refreshNoteCachesForRange(0, pitchFrames);
+                  PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(
+                      *projectToUse, 0, pitchFrames);
+                }
 
                 // If the project has warp markers, mel was just recomputed
                 // from raw audio (source-aligned), while saved pitch curves
