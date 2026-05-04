@@ -3,6 +3,8 @@
 #include "CurveResampler.h"
 #include "FourierPitchFilter.h"
 #include "PitchToolOperations.h"
+#include "WarpMarkerProcessor.h"
+#include "../Audio/Synthesis/StretchProcessor.h"
 #include "../Utils/Constants.h"
 #include <algorithm>
 #include <cmath>
@@ -27,6 +29,36 @@ namespace
             editedData.basePitch.assign(static_cast<size_t>(totalFrames), 0.0f);
         if (editedData.deltaPitch.size() != static_cast<size_t>(totalFrames))
             editedData.deltaPitch.assign(static_cast<size_t>(totalFrames), 0.0f);
+    }
+
+    void writeFinalF0FromTuned(Project& project)
+    {
+        auto& editedData = project.getEditedData();
+        if (editedData.tunedF0.empty())
+        {
+            editedData.f0.clear();
+            return;
+        }
+
+        if (project.getWarpMarkers().empty())
+        {
+            editedData.f0 = editedData.tunedF0;
+            PitchCurveProcessor::applyNoteVibratoToFinalF0(project);
+            return;
+        }
+
+        const auto warpMap = WarpMarkerProcessor::buildWarpMapWithEndpoints(
+            project, project.getWarpMarkers());
+        if (warpMap.size() < 2)
+        {
+            editedData.f0 = editedData.tunedF0;
+            PitchCurveProcessor::applyNoteVibratoToFinalF0(project);
+            return;
+        }
+
+        StretchProcessor::stretchEditedData(editedData, warpMap,
+                                            warpMap.back().outputFrame);
+        PitchCurveProcessor::applyNoteVibratoToFinalF0(project);
     }
 
     std::vector<float> getNoteSourceDelta(const Note& note)
@@ -858,8 +890,8 @@ namespace PitchCurveProcessor
     {
         auto composed = composeF0(project, applyUvMask, globalPitchOffset);
         auto& editedData = project.getEditedData();
-        editedData.tunedF0 = composed;
-        editedData.f0 = std::move(composed);
+        editedData.tunedF0 = std::move(composed);
+        writeFinalF0FromTuned(project);
 
         project.notifyListeners(ProjectChangeType::EditedDataChanged);
     }
@@ -874,6 +906,65 @@ namespace PitchCurveProcessor
         if (editedData.f0.empty())
             editedData.f0 = editedData.tunedF0;
         project.notifyListeners(ProjectChangeType::EditedDataChanged);
+    }
+
+    void applyNoteVibratoToFinalF0(Project& project)
+    {
+        auto& editedData = project.getEditedData();
+        auto& finalF0 = editedData.f0;
+        if (finalF0.empty())
+            return;
+
+        for (const auto& note : project.getNotes())
+        {
+            const bool hasVibrato = note.isVibratoEnabled() &&
+                                    note.getVibratoLengthFrames() > 0 &&
+                                    note.getVibratoDepthSemitones() > 0.0001f &&
+                                    note.getVibratoRateHz() > 0.0001f;
+            if (!hasVibrato)
+                continue;
+
+            const int noteStart = std::max(0, note.getStartFrame());
+            const int noteEnd =
+                std::min(note.getEndFrame(), static_cast<int>(finalF0.size()));
+            const int vibAbsStart = noteStart + note.getVibratoStartFrame();
+            const int vibAbsEnd = vibAbsStart + note.getVibratoLengthFrames();
+            const int fadeIn = note.getVibratoFadeInFrames();
+            const int fadeOut = note.getVibratoFadeOutFrames();
+            const int vibLength = note.getVibratoLengthFrames();
+            const float mix = note.getVibratoMix();
+            const float depth = note.getVibratoDepthSemitones();
+            const float rate = note.getVibratoRateHz();
+            const float phase = note.getVibratoPhaseRadians();
+
+            for (int frame = noteStart; frame < noteEnd; ++frame)
+            {
+                if (frame < vibAbsStart || frame >= vibAbsEnd)
+                    continue;
+                if (frame < static_cast<int>(editedData.voicedMask.size()) &&
+                    !editedData.voicedMask[static_cast<size_t>(frame)])
+                    continue;
+
+                const int localT = frame - vibAbsStart;
+                float envelope = 1.0f;
+                if (localT < fadeIn && fadeIn > 0)
+                    envelope = static_cast<float>(localT) /
+                               static_cast<float>(fadeIn);
+                if (localT >= (vibLength - fadeOut) && fadeOut > 0)
+                    envelope = static_cast<float>(vibLength - 1 - localT) /
+                               static_cast<float>(fadeOut);
+                envelope = juce::jlimit(0.0f, 1.0f, envelope);
+
+                const float vibratoSemitones =
+                    depth *
+                    std::sin(juce::MathConstants<float>::twoPi * rate *
+                                 framesToSeconds(localT) +
+                             phase) *
+                    envelope * mix;
+                finalF0[static_cast<size_t>(frame)] *=
+                    std::pow(2.0f, vibratoSemitones / 12.0f);
+            }
+        }
     }
 
     void refreshNotePitchCachesFromFinalF0(Project& project,

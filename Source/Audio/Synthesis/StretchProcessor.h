@@ -30,6 +30,14 @@ public:
       int outputFrameCount);
 
   /**
+   * Build output-timeline f0 from source/non-stretched tuned f0.
+   */
+  static std::vector<float> buildOutputF0(
+      const std::vector<float>& sourceF0,
+      const std::vector<Project::WarpMarker>& warpMap,
+      int outputFrameCount);
+
+  /**
    * Stretch all arrays in editedData using warp markers.
    *   basePitch/masks -> nearest neighbor
    *   deltaPitch/curves -> linear interpolation

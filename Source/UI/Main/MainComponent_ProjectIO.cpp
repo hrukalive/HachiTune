@@ -116,8 +116,12 @@ void MainComponent::openProjectFile(const juce::File &file) {
                     PitchCurveProcessor::rebuildBaseFromNotes(*projectToUse);
                   }
                 } else {
-                  PitchCurveProcessor::composeF0InPlace(*projectToUse,
-                                                        /*applyUvMask=*/false);
+                  if (editedData.tunedF0.empty()) {
+                    PitchCurveProcessor::composeF0InPlace(
+                        *projectToUse, /*applyUvMask=*/false);
+                  } else if (editedData.f0.empty()) {
+                    editedData.f0 = editedData.tunedF0;
+                  }
                 }
                 if (!editedData.f0.empty()) {
                   const int pitchFrames =

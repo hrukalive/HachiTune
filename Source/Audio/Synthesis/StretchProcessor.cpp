@@ -136,6 +136,47 @@ std::vector<std::vector<float>> StretchProcessor::buildOutputMel(
   return result;
 }
 
+std::vector<float> StretchProcessor::buildOutputF0(
+    const std::vector<float>& sourceF0,
+    const std::vector<Project::WarpMarker>& warpMap,
+    int outputFrameCount)
+{
+  if (sourceF0.empty() || outputFrameCount <= 0)
+    return {};
+
+  if (warpMap.size() < 2)
+  {
+    auto result = sourceF0;
+    result.resize(static_cast<size_t>(outputFrameCount), 0.0f);
+    return result;
+  }
+
+  std::vector<float> result(static_cast<size_t>(outputFrameCount), 0.0f);
+  const int sourceMax = static_cast<int>(sourceF0.size()) - 1;
+  for (int i = 0; i < outputFrameCount; ++i)
+  {
+    const float sourceFrame =
+        inverseMapFrame(warpMap, static_cast<float>(i));
+    int sourceIndex = static_cast<int>(std::floor(sourceFrame));
+    const float frac = sourceFrame - static_cast<float>(sourceIndex);
+    sourceIndex = std::clamp(sourceIndex, 0, std::max(0, sourceMax));
+    const int nextIndex = std::min(sourceIndex + 1, std::max(0, sourceMax));
+
+    const float a = sourceF0[static_cast<size_t>(sourceIndex)];
+    const float b = sourceF0[static_cast<size_t>(nextIndex)];
+    if (a > 0.0f && b > 0.0f)
+    {
+      result[static_cast<size_t>(i)] =
+          std::exp(std::log(a) * (1.0f - frac) + std::log(b) * frac);
+    }
+    else
+    {
+      result[static_cast<size_t>(i)] = frac < 0.5f ? a : b;
+    }
+  }
+  return result;
+}
+
 void StretchProcessor::stretchEditedData(
     EditedData& edited,
     const std::vector<Project::WarpMarker>& markers,
@@ -190,33 +231,6 @@ void StretchProcessor::stretchEditedData(
     return dst;
   };
 
-  auto resampleFrequencyLog = [&](const std::vector<float>& src) {
-    std::vector<float> dst(static_cast<size_t>(newTotalFrames), 0.0f);
-    for (int i = 0; i < newTotalFrames; ++i)
-    {
-      float srcF = inverseMapFrame(markers, static_cast<float>(i));
-      int srcIdx = static_cast<int>(std::floor(srcF));
-      float frac = srcF - static_cast<float>(srcIdx);
-      int srcMax = static_cast<int>(src.size()) - 1;
-      if (src.empty())
-        continue;
-      srcIdx = std::clamp(srcIdx, 0, std::max(0, srcMax));
-      int srcNext = std::min(srcIdx + 1, std::max(0, srcMax));
-      const float a = src[static_cast<size_t>(srcIdx)];
-      const float b = src[static_cast<size_t>(srcNext)];
-      if (a > 0.0f && b > 0.0f)
-      {
-        dst[static_cast<size_t>(i)] =
-            std::exp(std::log(a) * (1.0f - frac) + std::log(b) * frac);
-      }
-      else
-      {
-        dst[static_cast<size_t>(i)] = frac < 0.5f ? a : b;
-      }
-    }
-    return dst;
-  };
-
   // basePitch, masks -> nearest neighbor
   edited.basePitch = resampleNearest(edited.basePitch);
   edited.voicedMask = resampleNearestBool(edited.voicedMask);
@@ -239,7 +253,7 @@ void StretchProcessor::stretchEditedData(
 
   const auto& sourceTunedF0 =
       !edited.tunedF0.empty() ? edited.tunedF0 : edited.f0;
-  edited.f0 = resampleFrequencyLog(sourceTunedF0);
+  edited.f0 = buildOutputF0(sourceTunedF0, markers, newTotalFrames);
   if (!edited.adjustedMel.empty())
     edited.mel = buildOutputMel(edited.adjustedMel, markers, newTotalFrames);
 }

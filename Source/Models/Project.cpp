@@ -616,144 +616,22 @@ std::pair<int, int> Project::getDirtyFrameRange() const
 
 std::vector<float> Project::getAdjustedF0() const
 {
-    if (editedData.basePitch.empty() || editedData.deltaPitch.empty())
-        return {};
-
-    // Compose base + delta as dense curve; UV blending is handled downstream
-    // by synthesis masks, so we do not zero F0 here.
-    std::vector<float> adjustedF0 = PitchCurveProcessor::composeF0(*this,
-                                                                   /*applyUvMask=*/false,
-                                                                   globalPitchOffset);
-
-    // Apply vibrato per note on top of composed curve
-    for (const auto &note : notes)
-    {
-        const bool hasVibrato = note.isVibratoEnabled() &&
-                                note.getVibratoLengthFrames() > 0 &&
-                                note.getVibratoDepthSemitones() > 0.0001f &&
-                                note.getVibratoRateHz() > 0.0001f;
-        if (!hasVibrato)
-            continue;
-
-        const int noteStart = std::max(0, note.getStartFrame());
-        const int noteEnd = std::min(note.getEndFrame(), static_cast<int>(adjustedF0.size()));
-        const int vibAbsStart = noteStart + note.getVibratoStartFrame();
-        const int vibAbsEnd = vibAbsStart + note.getVibratoLengthFrames();
-        const int fadeIn = note.getVibratoFadeInFrames();
-        const int fadeOut = note.getVibratoFadeOutFrames();
-        const int vibLength = note.getVibratoLengthFrames();
-        const float mix = note.getVibratoMix();
-        const float depth = note.getVibratoDepthSemitones();
-        const float rate = note.getVibratoRateHz();
-        const float phase = note.getVibratoPhaseRadians();
-
-        for (int i = noteStart; i < noteEnd; ++i)
-        {
-            if (i < vibAbsStart || i >= vibAbsEnd)
-                continue;
-
-            if (i < static_cast<int>(editedData.voicedMask.size()) && !editedData.voicedMask[i])
-                continue;
-
-            const int localT = i - vibAbsStart;
-
-            // Compute fade envelope
-            float envelope = 1.0f;
-            if (localT < fadeIn && fadeIn > 0)
-                envelope = static_cast<float>(localT) / static_cast<float>(fadeIn);
-            if (localT >= (vibLength - fadeOut) && fadeOut > 0)
-                envelope = static_cast<float>(vibLength - 1 - localT) / static_cast<float>(fadeOut);
-            envelope = juce::jlimit(0.0f, 1.0f, envelope);
-
-            // Compute vibrato signal
-            float vibratoSemitones = depth *
-                std::sin(twoPi * rate * framesToSeconds(localT) + phase) * envelope;
-
-            // Apply mix
-            float finalVibrato = vibratoSemitones * mix;
-            adjustedF0[static_cast<size_t>(i)] *= std::pow(2.0f, finalVibrato / 12.0f);
-        }
-    }
-
-    return adjustedF0;
+    return editedData.f0;
 }
 
 std::vector<float> Project::getAdjustedF0ForRange(int startFrame, int endFrame) const
 {
-    if (editedData.basePitch.empty() || editedData.deltaPitch.empty())
+    if (editedData.f0.empty())
         return {};
 
-    // Clamp range
     startFrame = std::max(0, startFrame);
-    endFrame = std::min(endFrame, static_cast<int>(editedData.basePitch.size()));
+    endFrame = std::min(endFrame, static_cast<int>(editedData.f0.size()));
 
     if (startFrame >= endFrame)
         return {};
 
-    const int rangeSize = endFrame - startFrame;
-    std::vector<float> adjustedF0(static_cast<size_t>(rangeSize), 0.0f);
-
-    for (int i = 0; i < rangeSize; ++i)
-    {
-        const int globalIdx = startFrame + i;
-        const float base = editedData.basePitch[static_cast<size_t>(globalIdx)];
-        const float delta = (globalIdx < static_cast<int>(editedData.deltaPitch.size()))
-                                ? editedData.deltaPitch[static_cast<size_t>(globalIdx)]
-                                : 0.0f;
-        float midi = base + delta + globalPitchOffset;
-        adjustedF0[static_cast<size_t>(i)] = midiToFreq(midi);
-    }
-
-    // Apply vibrato for overlapping notes
-    for (const auto &note : notes)
-    {
-        const bool hasVibrato = note.isVibratoEnabled() &&
-                                note.getVibratoLengthFrames() > 0 &&
-                                note.getVibratoDepthSemitones() > 0.0001f &&
-                                note.getVibratoRateHz() > 0.0001f;
-        if (!hasVibrato)
-            continue;
-
-        const int noteStart = note.getStartFrame();
-        const int vibAbsStart = noteStart + note.getVibratoStartFrame();
-        const int vibAbsEnd = vibAbsStart + note.getVibratoLengthFrames();
-        const int fadeIn = note.getVibratoFadeInFrames();
-        const int fadeOut = note.getVibratoFadeOutFrames();
-        const int vibLength = note.getVibratoLengthFrames();
-        const float mix = note.getVibratoMix();
-        const float depth = note.getVibratoDepthSemitones();
-        const float rate = note.getVibratoRateHz();
-        const float phase = note.getVibratoPhaseRadians();
-
-        const int overlapStart = std::max({vibAbsStart, startFrame});
-        const int overlapEnd = std::min({vibAbsEnd, endFrame, note.getEndFrame()});
-        for (int frame = overlapStart; frame < overlapEnd; ++frame)
-        {
-            const int localIdx = frame - startFrame;
-            if (frame < static_cast<int>(editedData.voicedMask.size()) && !editedData.voicedMask[frame])
-                continue;
-
-            const int localT = frame - vibAbsStart;
-
-            // Compute fade envelope
-            float envelope = 1.0f;
-            if (localT < fadeIn && fadeIn > 0)
-                envelope = static_cast<float>(localT) / static_cast<float>(fadeIn);
-            if (localT >= (vibLength - fadeOut) && fadeOut > 0)
-                envelope = static_cast<float>(vibLength - 1 - localT) / static_cast<float>(fadeOut);
-            envelope = juce::jlimit(0.0f, 1.0f, envelope);
-
-            // Compute vibrato signal
-            float vibratoSemitones = depth *
-                std::sin(twoPi * rate * framesToSeconds(localT) + phase) * envelope;
-
-            // Apply mix
-            float finalVibrato = vibratoSemitones * mix;
-            adjustedF0[static_cast<size_t>(localIdx)] *= std::pow(2.0f, finalVibrato / 12.0f);
-        }
-    }
-
-    return adjustedF0;
+    return {editedData.f0.begin() + startFrame,
+            editedData.f0.begin() + endFrame};
 }
 
 void Project::setLoopRange(double startSeconds, double endSeconds)

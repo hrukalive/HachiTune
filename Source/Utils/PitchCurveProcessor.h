@@ -112,6 +112,12 @@ namespace PitchCurveProcessor
                                float globalPitchOffset = 0.0f);
 
     /**
+     * Apply note-level pitch effects that live on Note objects into the final
+     * output-timeline EditedData.f0 stage.
+     */
+    void applyNoteVibratoToFinalF0(Project& project);
+
+    /**
      * Reload note-local display pitch caches from final EditedData.f0.
      */
     void refreshNotePitchCachesFromFinalF0(Project& project,

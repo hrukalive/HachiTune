@@ -574,6 +574,65 @@ void testStretchEditedData()
   expect(data.basePitch[1] == 62.0f, "basePitch uses nearest interpolation");
 }
 
+void testAdjustedF0AccessorsReadFinalEditedF0()
+{
+  auto project = makeProject();
+  auto& edited = project.getEditedData();
+  edited.basePitch = {72.0f, 72.0f, 72.0f, 72.0f};
+  edited.deltaPitch = {0.0f, 0.0f, 0.0f, 0.0f};
+  edited.f0 = {100.0f, 200.0f, 400.0f, 800.0f};
+
+  expectVectorNear(project.getAdjustedF0(), edited.f0, 0.0001f,
+                   "full adjusted f0 accessor reads final EditedData.f0");
+  expectVectorNear(project.getAdjustedF0ForRange(1, 3),
+                   {200.0f, 400.0f}, 0.0001f,
+                   "range adjusted f0 accessor slices final EditedData.f0");
+}
+
+void testComposeF0InPlaceStretchesFinalF0FromTunedF0()
+{
+  auto project = makeProject();
+  project.setWarpMarkers({{2, 4}, {4, 6}});
+
+  auto& edited = project.getEditedData();
+  edited.basePitch = {freqToMidi(100.0f), freqToMidi(200.0f),
+                      freqToMidi(400.0f), freqToMidi(800.0f)};
+  edited.deltaPitch = {0.0f, 0.0f, 0.0f, 0.0f};
+  edited.f0 = {9.0f, 9.0f, 9.0f, 9.0f, 9.0f, 9.0f};
+
+  PitchCurveProcessor::composeF0InPlace(project, false);
+
+  expectVectorNear(edited.tunedF0,
+                   {100.0f, 200.0f, 400.0f, 800.0f}, 0.01f,
+                   "compose writes source tunedF0");
+  expect(edited.f0.size() == 6,
+         "compose writes final f0 on output timeline");
+  expectNear(edited.f0[1], 141.42136f, 0.001f,
+             "compose stretches final f0 from source tunedF0");
+}
+
+void testComposeF0InPlaceBakesVibratoIntoFinalF0()
+{
+  auto project = makeProject();
+  auto& note = project.getNotes()[0];
+  note.setVibratoEnabled(true);
+  note.setVibratoStartFrame(1);
+  note.setVibratoLengthFrames(2);
+  note.setVibratoDepthSemitones(12.0f);
+  note.setVibratoRateHz(1.0f);
+  note.setVibratoPhaseRadians(juce::MathConstants<float>::halfPi);
+  note.setVibratoMix(1.0f);
+
+  auto& edited = project.getEditedData();
+  edited.basePitch = {60.0f, 60.0f, 60.0f, 60.0f};
+  edited.deltaPitch = {0.0f, 0.0f, 0.0f, 0.0f};
+
+  PitchCurveProcessor::composeF0InPlace(project, false);
+
+  expectNear(edited.f0[1], midiToFreq(72.0f), 0.01f,
+             "compose bakes note vibrato into final f0");
+}
+
 void testHNSepBaseCurvesStaySourceTimelineDuringStretch()
 {
   EditedData data;
@@ -824,6 +883,26 @@ void testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel()
                 "rebuild backfills adjusted source mel from final mel");
   expectMelNear(project.getEditedData().mel, finalMel, 0.0001f,
                 "rebuild preserves final mel through identity map");
+}
+
+void testRebuildSourceDerivedOutputStretchesFinalF0FromTunedF0()
+{
+  auto project = makeProject();
+  project.setWarpMarkers({{2, 4}, {4, 6}});
+  auto& edited = project.getEditedData();
+  edited.tunedF0 = {100.0f, 200.0f, 400.0f, 800.0f};
+  edited.f0 = {9.0f, 9.0f, 9.0f};
+
+  WarpMarkerProcessor::rebuildSourceDerivedOutput(project,
+                                                  project.getWarpMarkers());
+
+  expectVectorNear(edited.tunedF0,
+                   {100.0f, 200.0f, 400.0f, 800.0f}, 0.0001f,
+                   "source rebuild preserves tunedF0");
+  expect(edited.f0.size() == 6,
+         "source rebuild writes final f0 on output timeline");
+  expectNear(edited.f0[1], 141.42136f, 0.001f,
+             "source rebuild stretches f0 from tunedF0");
 }
 
 void testNormalizePreservesEndpointOutputLength()
@@ -1318,6 +1397,36 @@ void testTensionProcessorComputesSTFTCache()
   expect(TensionProcessor::computeSTFT(juce::AudioBuffer<float>{}).empty(),
          "tension processor STFT cache is empty for empty input");
 }
+
+void testHNSepRecomputePopulatesAdjustedSTFT()
+{
+  auto project = makeProject();
+  auto& audio = project.getAudioData();
+  const int samples = 4 * HOP_SIZE;
+  audio.harmonicWaveform.setSize(1, samples);
+  audio.noiseWaveform.setSize(1, samples);
+  for (int i = 0; i < samples; ++i)
+  {
+    audio.harmonicWaveform.setSample(
+        0, i, std::sin(static_cast<float>(i) * 0.01f));
+    audio.noiseWaveform.setSample(
+        0, i, 0.25f * std::cos(static_cast<float>(i) * 0.017f));
+  }
+
+  HNSepCurveProcessor::ensureNoteHNClips(project);
+  auto& edited = project.getEditedData();
+  edited.baseVoicing = {50.0f, 50.0f, 50.0f, 50.0f};
+  edited.baseBreath = {100.0f, 100.0f, 100.0f, 100.0f};
+  edited.baseTension = {0.0f, 0.0f, 0.0f, 0.0f};
+  edited.adjustedSTFT.clear();
+
+  HNSepCurveProcessor::recomputeMelForRange(project, 0, 4);
+
+  const int stftBins = (N_FFT / 2 + 1) * 2;
+  expect(edited.adjustedSTFT.size() ==
+             static_cast<size_t>(4 * stftBins),
+         "HNSep recompute writes source adjustedSTFT");
+}
 } // namespace
 
 int main()
@@ -1332,6 +1441,9 @@ int main()
   testLoadWithoutPitchPayloadClearsProjectData();
   testValidation();
   testStretchEditedData();
+  testAdjustedF0AccessorsReadFinalEditedF0();
+  testComposeF0InPlaceStretchesFinalF0FromTunedF0();
+  testComposeF0InPlaceBakesVibratoIntoFinalF0();
   testHNSepBaseCurvesStaySourceTimelineDuringStretch();
   testHNSepActiveEditsUseSourceBaseCurves();
   testBuildOutputMelUsesRequestedFrameCount();
@@ -1344,6 +1456,7 @@ int main()
   testPartialFinalF0RefreshReloadsWholeNoteCache();
   testSourcePitchRebuildReloadsNoteCacheFromFinalF0();
   testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel();
+  testRebuildSourceDerivedOutputStretchesFinalF0FromTunedF0();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();
   testPreviewRecomputeCanAdvanceAndCancel();
@@ -1361,6 +1474,7 @@ int main()
   testDirtySnapshotDoesNotClearReplacementNoteAtSameIndex();
   testTensionProcessorReturnsSeparateHarmonicAndNoise();
   testTensionProcessorComputesSTFTCache();
+  testHNSepRecomputePopulatesAdjustedSTFT();
 
   if (failures != 0)
   {

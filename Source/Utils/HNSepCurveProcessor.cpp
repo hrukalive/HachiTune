@@ -565,6 +565,15 @@ namespace HNSepCurveProcessor
 
         const int numMels =
             static_cast<int>(editedData.adjustedMel.front().size());
+        const int stftBins = (N_FFT / 2 + 1) * 2;
+        const int stftFrames = static_cast<int>(editedData.adjustedMel.size());
+        if (stftFrames > 0 &&
+            editedData.adjustedSTFT.size() !=
+                static_cast<size_t>(stftFrames * stftBins))
+        {
+            editedData.adjustedSTFT.assign(
+                static_cast<size_t>(stftFrames * stftBins), 0.0f);
+        }
 
         TensionProcessor tensionProc;
         MelSpectrogram melComputer(audioData.sampleRate);
@@ -650,6 +659,14 @@ namespace HNSepCurveProcessor
             if (mixed.empty())
                 continue;
 
+            juce::AudioBuffer<float> mixedBuffer(1,
+                                                 static_cast<int>(mixed.size()));
+            mixedBuffer.copyFrom(0, 0, mixed.data(),
+                                 static_cast<int>(mixed.size()));
+            const auto srcSTFT = TensionProcessor::computeSTFT(mixedBuffer);
+            const int srcSTFTFrames =
+                static_cast<int>(srcSTFT.size()) / stftBins;
+
             auto srcMel = melComputer.compute(
                 mixed.data(), static_cast<int>(mixed.size()));
             if (srcMel.empty())
@@ -673,6 +690,18 @@ namespace HNSepCurveProcessor
                 {
                     editedData.adjustedMel[static_cast<size_t>(f)] =
                         srcMel[static_cast<size_t>(noteLocal)];
+                    if (noteLocal < srcSTFTFrames &&
+                        f < stftFrames &&
+                        editedData.adjustedSTFT.size() >=
+                            static_cast<size_t>((f + 1) * stftBins))
+                    {
+                        std::copy_n(
+                            srcSTFT.begin() +
+                                static_cast<size_t>(noteLocal * stftBins),
+                            stftBins,
+                            editedData.adjustedSTFT.begin() +
+                                static_cast<size_t>(f * stftBins));
+                    }
                     updatedSourceMel = true;
                 }
             }

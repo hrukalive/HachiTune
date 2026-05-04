@@ -370,9 +370,7 @@ void rebuildSourceDerivedOutput(Project& project,
 
     auto& analysisData = project.getAnalysisData();
     auto& editedData = project.getEditedData();
-    const int outputFrames = project.getFrameCount() > 0
-        ? project.getFrameCount()
-        : warpMap.back().outputFrame;
+    const int outputFrames = warpMap.back().outputFrame;
     const auto currentOutputMel = editedData.mel;
     if (editedData.adjustedMel.empty() && !currentOutputMel.empty())
     {
@@ -394,6 +392,13 @@ void rebuildSourceDerivedOutput(Project& project,
         editedData.adjustedMel = analysisData.originalMel;
         editedData.mel = StretchProcessor::buildOutputMel(
             editedData.adjustedMel, warpMap, outputFrames);
+    }
+
+    if (!editedData.tunedF0.empty())
+    {
+        editedData.f0 = StretchProcessor::buildOutputF0(
+            editedData.tunedF0, warpMap, outputFrames);
+        PitchCurveProcessor::applyNoteVibratoToFinalF0(project);
     }
 
     if (!editedData.f0.empty())
