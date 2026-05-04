@@ -773,6 +773,30 @@ void testPartialFinalF0RefreshReloadsWholeNoteCache()
                    "partial final f0 refresh reloads full overlapping note");
 }
 
+void testSourcePitchRebuildReloadsNoteCacheFromFinalF0()
+{
+  auto project = makeProject();
+  project.getNotes()[0].setDeltaPitch({9.0f, 9.0f, 9.0f, 9.0f});
+
+  PitchCurveProcessor::rebuildCurvesFromSource(
+      project, {261.63f, 293.66f, 329.63f, 349.23f});
+
+  const auto& edited = project.getEditedData();
+  std::vector<float> expectedDelta;
+  for (int i = 0; i < static_cast<int>(edited.f0.size()); ++i)
+  {
+    const float base = i < static_cast<int>(edited.basePitch.size())
+                           ? edited.basePitch[static_cast<size_t>(i)]
+                           : 0.0f;
+    expectedDelta.push_back(freqToMidi(edited.f0[static_cast<size_t>(i)]) -
+                            base);
+  }
+
+  expectVectorNear(project.getNotes()[0].getDeltaPitch(),
+                   expectedDelta, 0.02f,
+                   "source pitch rebuild reloads note cache from final f0");
+}
+
 void testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel()
 {
   auto project = makeProject();
@@ -1307,6 +1331,7 @@ int main()
   testRefreshNotePitchCachesFromFinalF0ClampsNegativeFrames();
   testNotePitchCacheReloadsFromFinalF0();
   testPartialFinalF0RefreshReloadsWholeNoteCache();
+  testSourcePitchRebuildReloadsNoteCacheFromFinalF0();
   testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();

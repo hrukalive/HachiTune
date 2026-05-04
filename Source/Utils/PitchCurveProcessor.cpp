@@ -763,6 +763,8 @@ namespace PitchCurveProcessor
         }
 
         composeF0InPlace(project, /*applyUvMask=*/false);
+        project.refreshNoteCachesForRange(0, totalFrames);
+        refreshNotePitchCachesFromFinalF0(project, 0, totalFrames);
     }
 
     void rebuildBaseFromNotes(Project& project)
