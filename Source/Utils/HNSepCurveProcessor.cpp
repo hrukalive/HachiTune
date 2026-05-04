@@ -60,6 +60,58 @@ namespace
                                                               noteMarkers);
     }
 
+    std::vector<float> buildBaselineAdjustedSTFT(Project& project,
+                                                 int stftFrames,
+                                                 int stftBins)
+    {
+        if (stftFrames <= 0 || stftBins <= 0)
+            return {};
+
+        const auto targetSize = static_cast<size_t>(stftFrames * stftBins);
+        std::vector<float> baseline(targetSize, 0.0f);
+        const auto& harmonicSTFT = project.getHarmonicSTFT();
+        const auto& noiseSTFT = project.getNoiseSTFT();
+        if (harmonicSTFT.size() == targetSize || noiseSTFT.size() == targetSize)
+        {
+            for (size_t i = 0; i < targetSize; ++i)
+            {
+                const float harmonic =
+                    i < harmonicSTFT.size() ? harmonicSTFT[i] : 0.0f;
+                const float noise =
+                    i < noiseSTFT.size() ? noiseSTFT[i] : 0.0f;
+                baseline[i] = harmonic + noise;
+            }
+            return baseline;
+        }
+
+        const auto& audioData = project.getAudioData();
+        const int samples = std::max(audioData.harmonicWaveform.getNumSamples(),
+                                     audioData.noiseWaveform.getNumSamples());
+        if (samples <= 0)
+            return baseline;
+
+        juce::AudioBuffer<float> mixed(1, samples);
+        mixed.clear();
+        for (int i = 0; i < samples; ++i)
+        {
+            const float harmonic =
+                i < audioData.harmonicWaveform.getNumSamples()
+                    ? audioData.harmonicWaveform.getSample(0, i)
+                    : 0.0f;
+            const float noise =
+                i < audioData.noiseWaveform.getNumSamples()
+                    ? audioData.noiseWaveform.getSample(0, i)
+                    : 0.0f;
+            mixed.setSample(0, i, harmonic + noise);
+        }
+
+        const auto mixedSTFT = TensionProcessor::computeSTFT(mixed);
+        std::copy_n(mixedSTFT.begin(),
+                    std::min(targetSize, mixedSTFT.size()),
+                    baseline.begin());
+        return baseline;
+    }
+
     void ensureCurveSizes(EditedData& editedData, int totalFrames)
     {
         if (totalFrames <= 0)
@@ -571,8 +623,8 @@ namespace HNSepCurveProcessor
             editedData.adjustedSTFT.size() !=
                 static_cast<size_t>(stftFrames * stftBins))
         {
-            editedData.adjustedSTFT.assign(
-                static_cast<size_t>(stftFrames * stftBins), 0.0f);
+            editedData.adjustedSTFT =
+                buildBaselineAdjustedSTFT(project, stftFrames, stftBins);
         }
 
         TensionProcessor tensionProc;
@@ -678,6 +730,8 @@ namespace HNSepCurveProcessor
             srcMel.resize(static_cast<size_t>(srcDurationFrames),
                           std::vector<float>(static_cast<size_t>(numMels),
                                              0.0f));
+            for (auto& row : srcMel)
+                row.resize(static_cast<size_t>(numMels), 0.0f);
 
             const int melWriteEnd = std::min(sourceEnd,
                                              static_cast<int>(

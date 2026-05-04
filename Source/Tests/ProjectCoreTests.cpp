@@ -778,6 +778,31 @@ void testRecomputeFromMarkersPreservesSourceTunedF0()
              "recompute stretches final f0 from source tunedF0");
 }
 
+void testRecomputeFromMarkersBakesVibratoIntoFinalF0()
+{
+  auto project = makeProject();
+  auto& note = project.getNotes()[0];
+  note.setVibratoEnabled(true);
+  note.setVibratoStartFrame(1);
+  note.setVibratoLengthFrames(2);
+  note.setVibratoDepthSemitones(12.0f);
+  note.setVibratoRateHz(1.0f);
+  note.setVibratoPhaseRadians(juce::MathConstants<float>::halfPi);
+  note.setVibratoMix(1.0f);
+
+  auto& edited = project.getEditedData();
+  edited.tunedF0 = {midiToFreq(60.0f), midiToFreq(60.0f),
+                    midiToFreq(60.0f), midiToFreq(60.0f)};
+  edited.f0 = edited.tunedF0;
+
+  const std::vector<Project::WarpMarker> current = {{0, 0}, {4, 4}};
+  const std::vector<Project::WarpMarker> target = {{0, 0}, {2, 4}, {4, 6}};
+  WarpMarkerProcessor::recomputeFromMarkers(project, current, target, false);
+
+  expectNear(project.getEditedData().f0[1], midiToFreq(72.0f), 0.01f,
+             "warp recompute bakes note vibrato into final f0");
+}
+
 void testRecomputeFromMarkersKeepsVadOnOutputTimeline()
 {
   auto project = makeProject();
@@ -903,6 +928,28 @@ void testRebuildSourceDerivedOutputStretchesFinalF0FromTunedF0()
          "source rebuild writes final f0 on output timeline");
   expectNear(edited.f0[1], 141.42136f, 0.001f,
              "source rebuild stretches f0 from tunedF0");
+}
+
+void testRebuildSourceDerivedOutputReloadsNoteCacheFromFinalF0()
+{
+  auto project = makeProject();
+  project.setWarpMarkers({{2, 4}, {4, 6}});
+  auto& note = project.getNotes()[0];
+  note.setEndFrame(6);
+  note.setDeltaPitch({9.0f, 9.0f, 9.0f, 9.0f, 9.0f, 9.0f});
+
+  auto& edited = project.getEditedData();
+  edited.basePitch = {60.0f, 60.0f, 60.0f, 60.0f, 60.0f, 60.0f};
+  edited.tunedF0 = {midiToFreq(60.0f), midiToFreq(60.0f),
+                    midiToFreq(60.0f), midiToFreq(60.0f)};
+  edited.f0 = edited.tunedF0;
+
+  WarpMarkerProcessor::rebuildSourceDerivedOutput(project,
+                                                  project.getWarpMarkers());
+
+  expectVectorNear(project.getNotes()[0].getDeltaPitch(),
+                   {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f}, 0.01f,
+                   "source rebuild reloads note cache from final f0");
 }
 
 void testNormalizePreservesEndpointOutputLength()
@@ -1402,7 +1449,8 @@ void testHNSepRecomputePopulatesAdjustedSTFT()
 {
   auto project = makeProject();
   auto& audio = project.getAudioData();
-  const int samples = 4 * HOP_SIZE;
+  const int sourceFrames = 6;
+  const int samples = sourceFrames * HOP_SIZE;
   audio.harmonicWaveform.setSize(1, samples);
   audio.noiseWaveform.setSize(1, samples);
   for (int i = 0; i < samples; ++i)
@@ -1415,17 +1463,28 @@ void testHNSepRecomputePopulatesAdjustedSTFT()
 
   HNSepCurveProcessor::ensureNoteHNClips(project);
   auto& edited = project.getEditedData();
-  edited.baseVoicing = {50.0f, 50.0f, 50.0f, 50.0f};
-  edited.baseBreath = {100.0f, 100.0f, 100.0f, 100.0f};
-  edited.baseTension = {0.0f, 0.0f, 0.0f, 0.0f};
+  edited.adjustedMel.resize(static_cast<size_t>(sourceFrames), {0.0f, 0.0f});
+  edited.baseVoicing = {50.0f, 50.0f, 50.0f, 50.0f, 100.0f, 100.0f};
+  edited.baseBreath = {100.0f, 100.0f, 100.0f, 100.0f, 100.0f, 100.0f};
+  edited.baseTension = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
   edited.adjustedSTFT.clear();
+
+  const int stftBins = (N_FFT / 2 + 1) * 2;
+  project.getHarmonicSTFT().assign(
+      static_cast<size_t>(sourceFrames * stftBins), 1.0f);
+  project.getNoiseSTFT().assign(
+      static_cast<size_t>(sourceFrames * stftBins), 2.0f);
 
   HNSepCurveProcessor::recomputeMelForRange(project, 0, 4);
 
-  const int stftBins = (N_FFT / 2 + 1) * 2;
-  expect(edited.adjustedSTFT.size() ==
-             static_cast<size_t>(4 * stftBins),
-         "HNSep recompute writes source adjustedSTFT");
+  if (require(edited.adjustedSTFT.size() ==
+                  static_cast<size_t>(sourceFrames * stftBins),
+              "HNSep recompute writes source adjustedSTFT"))
+  {
+    expectNear(edited.adjustedSTFT[static_cast<size_t>(5 * stftBins)],
+               3.0f, 0.0001f,
+               "HNSep adjustedSTFT preserves unchanged source frames");
+  }
 }
 } // namespace
 
@@ -1450,6 +1509,7 @@ int main()
   testWarpEndpoints();
   testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel();
   testRecomputeFromMarkersPreservesSourceTunedF0();
+  testRecomputeFromMarkersBakesVibratoIntoFinalF0();
   testRecomputeFromMarkersKeepsVadOnOutputTimeline();
   testRefreshNotePitchCachesFromFinalF0ClampsNegativeFrames();
   testNotePitchCacheReloadsFromFinalF0();
@@ -1457,6 +1517,7 @@ int main()
   testSourcePitchRebuildReloadsNoteCacheFromFinalF0();
   testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel();
   testRebuildSourceDerivedOutputStretchesFinalF0FromTunedF0();
+  testRebuildSourceDerivedOutputReloadsNoteCacheFromFinalF0();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();
   testPreviewRecomputeCanAdvanceAndCancel();

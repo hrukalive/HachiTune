@@ -405,6 +405,8 @@ void rebuildSourceDerivedOutput(Project& project,
     {
         project.setF0DirtyRange(0,
                                 static_cast<int>(editedData.f0.size()));
+        PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(
+            project, 0, static_cast<int>(editedData.f0.size()));
     }
     if (!editedData.mel.empty())
     {
@@ -617,6 +619,8 @@ void recomputeFromMarkers(Project& project,
     }
     StretchProcessor::remapNoteFrames(project.getNotes(), warpMap);
     project.sortNotes();
+    if (!mapsAlreadyMatch && !editedData.f0.empty())
+        PitchCurveProcessor::applyNoteVibratoToFinalF0(project);
 
     auto& analysisData = project.getAnalysisData();
     if (editedData.adjustedMel.empty() &&
@@ -645,6 +649,8 @@ void recomputeFromMarkers(Project& project,
     {
         project.setF0DirtyRange(0,
                                 static_cast<int>(editedData.f0.size()));
+        PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(
+            project, 0, static_cast<int>(editedData.f0.size()));
     }
     if (!editedData.mel.empty())
     {
