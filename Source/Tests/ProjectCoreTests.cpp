@@ -758,6 +758,21 @@ void testNotePitchCacheReloadsFromFinalF0()
                    "note display cache reloads from final f0");
 }
 
+void testPartialFinalF0RefreshReloadsWholeNoteCache()
+{
+  auto project = makeProject();
+  auto& edited = project.getEditedData();
+  edited.basePitch = {60.0f, 60.0f, 60.0f, 60.0f};
+  edited.f0 = {261.63f, 293.66f, 329.63f, 349.23f};
+
+  project.getNotes()[0].setDeltaPitch({9.0f, 9.0f, 9.0f, 9.0f});
+  PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(project, 1, 2);
+
+  expectVectorNear(project.getNotes()[0].getDeltaPitch(),
+                   {0.0f, 2.0f, 4.0f, 5.0f}, 0.02f,
+                   "partial final f0 refresh reloads full overlapping note");
+}
+
 void testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel()
 {
   auto project = makeProject();
@@ -1291,6 +1306,7 @@ int main()
   testRecomputeFromMarkersKeepsVadOnOutputTimeline();
   testRefreshNotePitchCachesFromFinalF0ClampsNegativeFrames();
   testNotePitchCacheReloadsFromFinalF0();
+  testPartialFinalF0RefreshReloadsWholeNoteCache();
   testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel();
   testNormalizePreservesEndpointOutputLength();
   testRecomputeFromMarkersIsIdempotent();

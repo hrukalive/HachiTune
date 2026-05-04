@@ -896,10 +896,8 @@ namespace PitchCurveProcessor
                 note.getStartFrame() >= clampedEnd)
                 continue;
 
-            const int noteStart = std::max({note.getStartFrame(),
-                                            clampedStart, 0});
-            const int noteEnd = std::min({note.getEndFrame(),
-                                          clampedEnd, totalFrames});
+            const int noteStart = std::max(note.getStartFrame(), 0);
+            const int noteEnd = std::min(note.getEndFrame(), totalFrames);
             const int len = noteEnd - noteStart;
             if (len <= 0)
                 continue;
