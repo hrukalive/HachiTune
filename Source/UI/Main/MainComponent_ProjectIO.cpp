@@ -153,7 +153,11 @@ void MainComponent::openProjectFile(const juce::File &file) {
                                                ? safeThis->editorController->getAudioEngine()
                                                : nullptr) {
                   try {
-                    engine->loadWaveform(activeAudioData.waveform,
+                    const auto &playbackWaveform =
+                        activeAudioData.finalWaveform.getNumSamples() > 0
+                            ? activeAudioData.finalWaveform
+                            : activeAudioData.waveform;
+                    engine->loadWaveform(playbackWaveform,
                                          activeAudioData.sampleRate);
                     const auto &loopRange = project->getLoopRange();
                     if (loopRange.enabled)
@@ -368,7 +372,11 @@ void MainComponent::loadAudioFile(const juce::File &file) {
                                        ? safeThis->editorController->getAudioEngine()
                                        : nullptr) {
           try {
-            engine->loadWaveform(audioData.waveform, audioData.sampleRate);
+            const auto &playbackWaveform =
+                audioData.finalWaveform.getNumSamples() > 0
+                    ? audioData.finalWaveform
+                    : audioData.waveform;
+            engine->loadWaveform(playbackWaveform, audioData.sampleRate);
             const auto &loopRange = project->getLoopRange();
             if (loopRange.enabled)
               engine->setLoopRange(loopRange.startSeconds,

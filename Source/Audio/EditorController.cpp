@@ -726,9 +726,13 @@ void EditorController::resynthesizeIncrementalAsync(
         if (audioEnginePtr && !isPluginMode)
         {
           auto &audioData = projectPtr->getAudioData();
+          const auto &playbackWaveform =
+              audioData.finalWaveform.getNumSamples() > 0
+                  ? audioData.finalWaveform
+                  : audioData.waveform;
           try
           {
-            audioEnginePtr->loadWaveform(audioData.waveform,
+            audioEnginePtr->loadWaveform(playbackWaveform,
                                          audioData.sampleRate, true);
           }
           catch (...)

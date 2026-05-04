@@ -51,6 +51,13 @@ public:
   void cancel();
   bool isSynthesizing() const { return isBusy.load(); }
 
+  static void blendSynthesizedRangeIntoFinalWaveform(
+      Project& project,
+      const std::vector<float>& synthesized,
+      int startFrame,
+      int endFrame,
+      int hopSize);
+
 private:
   /// Compute synthesis range: find voiced segments overlapping dirty range,
   /// expand to include complete segments + padding frames.

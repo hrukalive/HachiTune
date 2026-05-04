@@ -918,8 +918,12 @@ void MainComponent::exportFile()
             file = file.withFileExtension(extension);
 
           auto &audioData = activeProject->getAudioData();
+          const auto &exportWaveform =
+              audioData.finalWaveform.getNumSamples() > 0
+                  ? audioData.finalWaveform
+                  : audioData.waveform;
           juce::AudioBuffer<float> sourceBuffer;
-          sourceBuffer.makeCopyOf(audioData.waveform);
+          sourceBuffer.makeCopyOf(exportWaveform);
           const int sourceRate = audioData.sampleRate;
 
           safeThis->toolbar.showProgress(TR("progress.exporting_audio"));

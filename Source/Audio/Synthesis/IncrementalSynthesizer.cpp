@@ -245,6 +245,89 @@ IncrementalSynthesizer::generateBlendMask(int startFrame, int endFrame,
   return mask;
 }
 
+void IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+    Project& project,
+    const std::vector<float>& synthesized,
+    int startFrame,
+    int endFrame,
+    int hopSize)
+{
+  if (synthesized.empty() || hopSize <= 0)
+    return;
+
+  const int outputFrames = project.getFrameCount();
+  const int requiredFrames = outputFrames > 0
+                                 ? std::max(outputFrames, endFrame)
+                                 : endFrame;
+  const int requiredSamples = std::max(0, requiredFrames * hopSize);
+  if (requiredSamples <= 0)
+    return;
+
+  auto& audioData = project.getAudioData();
+  auto& finalWaveform = audioData.finalWaveform;
+  const auto& sourceWaveform = audioData.waveform;
+  if (finalWaveform.getNumChannels() == 0 ||
+      finalWaveform.getNumSamples() == 0)
+  {
+    if (sourceWaveform.getNumChannels() > 0 &&
+        sourceWaveform.getNumSamples() > 0)
+    {
+      finalWaveform.makeCopyOf(sourceWaveform);
+    }
+    else if (audioData.originalWaveform.getNumChannels() > 0 &&
+             audioData.originalWaveform.getNumSamples() > 0)
+    {
+      finalWaveform.makeCopyOf(audioData.originalWaveform);
+    }
+  }
+
+  const int numChannels = finalWaveform.getNumChannels();
+  if (numChannels == 0)
+    return;
+
+  if (finalWaveform.getNumSamples() != requiredSamples)
+    finalWaveform.setSize(numChannels, requiredSamples, true, true, false);
+
+  const int rawStartSample = startFrame * hopSize;
+  const int rawEndSample = endFrame * hopSize;
+  const int rangeSamples = rawEndSample - rawStartSample;
+  if (rangeSamples <= 0)
+    return;
+
+  const int sourceSamples =
+      std::min(rangeSamples, static_cast<int>(synthesized.size()));
+  const int sourceOffset = std::max(0, -rawStartSample);
+  if (sourceOffset >= sourceSamples)
+    return;
+
+  const int startSample = std::max(0, rawStartSample);
+  const int endSample = std::min(finalWaveform.getNumSamples(), rawEndSample);
+  if (endSample <= startSample)
+    return;
+
+  const int numSamples = std::min(
+      endSample - startSample, sourceSamples - sourceOffset);
+  const int fade = std::min(hopSize, sourceSamples / 2);
+
+  for (int ch = 0; ch < numChannels; ++ch)
+  {
+    float* dst = finalWaveform.getWritePointer(ch, startSample);
+    for (int i = 0; i < numSamples; ++i)
+    {
+      const int sourceIndex = sourceOffset + i;
+      float mix = 1.0f;
+      if (fade > 0 && sourceIndex < fade)
+        mix = static_cast<float>(sourceIndex) / static_cast<float>(fade);
+      if (fade > 0 && sourceSamples - 1 - sourceIndex < fade)
+        mix = std::min(mix,
+                       static_cast<float>(sourceSamples - 1 - sourceIndex) /
+                           static_cast<float>(fade));
+      const float synth = synthesized[static_cast<size_t>(sourceIndex)];
+      dst[i] = dst[i] + mix * (synth - dst[i]);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // synthesizeRegion: Voiced-Only Blend approach.
 // ---------------------------------------------------------------------------
@@ -453,8 +536,9 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
             std::lock_guard<std::mutex> lock(jobStateMutex);
             if (!isCurrentJob(currentJobId, capturedCancelFlag))
               return;
-            capturedProject->blendSynthesizedRangeIntoAuditionBuffer(
-                synthesizedAudio, capturedStartFrame, capturedEndFrame, hopSize);
+            IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+                *capturedProject, synthesizedAudio, capturedStartFrame,
+                capturedEndFrame, hopSize);
             if (!finishJobIfCurrent(currentJobId))
               return;
           }

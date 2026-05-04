@@ -430,7 +430,16 @@ void rebuildSourceDerivedOutput(Project& project,
             editedData.adjustedMel, warpMap, outputFrames);
     }
 
-    project.composeGlobalWaveform();
+    if (!editedData.f0.empty())
+    {
+        project.setF0DirtyRange(0,
+                                static_cast<int>(editedData.f0.size()));
+    }
+    if (!editedData.mel.empty())
+    {
+        project.setParamDirtyRange(0,
+                                   static_cast<int>(editedData.mel.size()));
+    }
 }
 
 bool hasMarkerAtSourceFrame(const std::vector<Project::WarpMarker>& markers,
@@ -661,7 +670,16 @@ void recomputeFromMarkers(Project& project,
     project.refreshNoteCaches();
     PitchCurveProcessor::refreshNotePitchCachesFromFinalF0(
         project, 0, static_cast<int>(editedData.f0.size()));
-    project.composeGlobalWaveform();
+    if (!editedData.f0.empty())
+    {
+        project.setF0DirtyRange(0,
+                                static_cast<int>(editedData.f0.size()));
+    }
+    if (!editedData.mel.empty())
+    {
+        project.setParamDirtyRange(0,
+                                   static_cast<int>(editedData.mel.size()));
+    }
     rebuildVadMaskFromWaveform(project);
 
     if (updateProjectMarkers)

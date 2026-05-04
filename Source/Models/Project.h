@@ -243,11 +243,6 @@ public:
     juce::AudioBuffer<float>& getAuditionBuffer() { return auditionBuffer; }
     const juce::AudioBuffer<float>& getAuditionBuffer() const { return auditionBuffer; }
     void initAuditionBufferFromOriginal();
-    void blendSynthesizedRangeIntoAuditionBuffer(
-        const std::vector<float>& synthesized,
-        int startFrame,
-        int endFrame,
-        int hopSize);
     void applyNoteVolumeToSynthesizedRange(std::vector<float>& synthesized,
                                            int startFrame,
                                            int endFrame,
@@ -324,14 +319,8 @@ public:
     // Check if any notes are dirty
     bool hasDirtyNotes() const;
 
-    // Compose the global waveform from originalWaveform + per-note synthWaveforms.
-    // Fills audioData.waveform with originalWaveform as base, then overlays each
-    // note's synthWaveform at its output position with edge crossfades.
-    void composeGlobalWaveform();
-
     // Render the current note/gap time mapping without synth overlays.
-    // This matches the base layer used by composeGlobalWaveform() and is used
-    // to build boundary-safe incremental resynthesis targets after warp.
+    // This builds boundary-safe incremental resynthesis targets after warp.
     std::vector<float> renderMappedBaseWaveformSegment(int startSample,
                                                        int numSamples) const;
 

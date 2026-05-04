@@ -1,5 +1,6 @@
 #include "../JuceHeader.h"
 #include "../Audio/TensionProcessor.h"
+#include "../Audio/Synthesis/IncrementalSynthesizer.h"
 #include "../Audio/Synthesis/StretchProcessor.h"
 #include "../Models/Project.h"
 #include "../Models/ProjectSerializer.h"
@@ -877,69 +878,43 @@ void testRefreshNoteCachesUsesNonRestAnalysisSegments()
                    "refresh caches slices original delta from non-rest segment");
 }
 
-void testComposeWaveformFollowsOutputFrameCount()
-{
-  auto project = makeProject();
-  constexpr int sourceFrames = 4;
-  auto& audioData = project.getAudioData();
-  audioData.originalWaveform.setSize(1, sourceFrames * HOP_SIZE);
-  audioData.waveform.setSize(1, sourceFrames * HOP_SIZE);
-  for (int i = 0; i < sourceFrames * HOP_SIZE; ++i)
-  {
-    audioData.originalWaveform.setSample(0, i,
-                                         static_cast<float>(i % 97) / 97.0f);
-  }
-
-  resizeEditedData(project.getEditedData(), 6);
-  project.getNotes().front().setStartFrame(0);
-  project.getNotes().front().setEndFrame(6);
-  project.composeGlobalWaveform();
-  expect(audioData.waveform.getNumSamples() == 6 * HOP_SIZE,
-         "compose waveform grows to warped endpoint");
-
-  resizeEditedData(project.getEditedData(), 3);
-  project.getNotes().front().setEndFrame(3);
-  project.composeGlobalWaveform();
-  expect(audioData.waveform.getNumSamples() == 3 * HOP_SIZE,
-         "compose waveform shrinks to warped endpoint");
-}
-
-void testBlendSynthesizedRangeIntoAuditionBuffer()
+void testBlendSynthesizedRangeWritesFinalWaveformOnly()
 {
   Project project;
   auto& audioData = project.getAudioData();
-  audioData.originalWaveform.setSize(1, 16);
   audioData.waveform.setSize(1, 16);
+  audioData.finalWaveform.setSize(1, 16);
   for (int i = 0; i < 16; ++i)
   {
-    audioData.originalWaveform.setSample(0, i, 1.0f);
     audioData.waveform.setSample(0, i, 1.0f);
+    audioData.finalWaveform.setSample(0, i, 1.0f);
   }
 
   resizeEditedData(project.getEditedData(), 4);
-  project.blendSynthesizedRangeIntoAuditionBuffer(
-      std::vector<float>(8, 5.0f), 1, 3, 4);
+  IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+      project, std::vector<float>(8, 5.0f), 1, 3, 4);
 
-  const auto& audition = project.getAuditionBuffer();
-  require(audition.getNumSamples() == 16, "blend initializes audition buffer");
-  expectNear(audition.getSample(0, 3), 1.0f, 0.0001f,
+  const auto& finalWaveform = audioData.finalWaveform;
+  require(finalWaveform.getNumSamples() == 16,
+          "blend initializes final waveform");
+  expectNear(finalWaveform.getSample(0, 3), 1.0f, 0.0001f,
              "blend leaves samples before range unchanged");
-  expectNear(audition.getSample(0, 4), 1.0f, 0.0001f,
+  expectNear(finalWaveform.getSample(0, 4), 1.0f, 0.0001f,
              "blend fades in from existing sample");
-  expectNear(audition.getSample(0, 5), 2.0f, 0.0001f,
+  expectNear(finalWaveform.getSample(0, 5), 2.0f, 0.0001f,
              "blend applies fade-in mix");
-  expectNear(audition.getSample(0, 7), 4.0f, 0.0001f,
+  expectNear(finalWaveform.getSample(0, 7), 4.0f, 0.0001f,
              "blend reaches high mix before center");
-  expectNear(audition.getSample(0, 8), 4.0f, 0.0001f,
+  expectNear(finalWaveform.getSample(0, 8), 4.0f, 0.0001f,
              "blend fades out after center");
-  expectNear(audition.getSample(0, 10), 2.0f, 0.0001f,
+  expectNear(finalWaveform.getSample(0, 10), 2.0f, 0.0001f,
              "blend applies fade-out mix");
-  expectNear(audition.getSample(0, 11), 1.0f, 0.0001f,
+  expectNear(finalWaveform.getSample(0, 11), 1.0f, 0.0001f,
              "blend fades out to existing sample");
-  expectNear(audition.getSample(0, 12), 1.0f, 0.0001f,
+  expectNear(finalWaveform.getSample(0, 12), 1.0f, 0.0001f,
              "blend leaves samples after range unchanged");
-  expectNear(audioData.waveform.getSample(0, 8), audition.getSample(0, 8),
-             0.0001f, "blend syncs audio waveform from audition buffer");
+  expectNear(audioData.waveform.getSample(0, 8), 1.0f, 0.0001f,
+             "source waveform is not overwritten by final blend");
 }
 
 void testBlendSynthesizedRangeResizesToOutputDuration()
@@ -955,22 +930,22 @@ void testBlendSynthesizedRangeResizesToOutputDuration()
   }
 
   resizeEditedData(project.getEditedData(), 4);
-  project.blendSynthesizedRangeIntoAuditionBuffer(
-      std::vector<float>(16, 5.0f), 0, 4, 4);
+  IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+      project, std::vector<float>(16, 5.0f), 0, 4, 4);
 
-  expect(project.getAuditionBuffer().getNumSamples() == 16,
-         "blend grows audition buffer to output duration");
-  expect(audioData.waveform.getNumSamples() == 16,
-         "blend grows audio waveform to output duration");
+  expect(audioData.finalWaveform.getNumSamples() == 16,
+         "blend grows final waveform to output duration");
+  expect(audioData.waveform.getNumSamples() == 8,
+         "blend leaves source waveform duration unchanged");
 
   resizeEditedData(project.getEditedData(), 2);
-  project.blendSynthesizedRangeIntoAuditionBuffer(
-      std::vector<float>(8, 2.0f), 0, 2, 4);
+  IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+      project, std::vector<float>(8, 2.0f), 0, 2, 4);
 
-  expect(project.getAuditionBuffer().getNumSamples() == 8,
-         "blend shrinks audition buffer to output duration");
+  expect(audioData.finalWaveform.getNumSamples() == 8,
+         "blend removes stale final waveform tail after shrink");
   expect(audioData.waveform.getNumSamples() == 8,
-         "blend removes stale waveform tail after shrink");
+         "source waveform remains unchanged after shrink");
 }
 
 void testBlendSynthesizedRangeWritesAllChannels()
@@ -988,16 +963,16 @@ void testBlendSynthesizedRangeWritesAllChannels()
   }
 
   resizeEditedData(project.getEditedData(), 3);
-  project.blendSynthesizedRangeIntoAuditionBuffer(
-      std::vector<float>(12, 5.0f), 0, 3, 4);
+  IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+      project, std::vector<float>(12, 5.0f), 0, 3, 4);
 
-  const auto& audition = project.getAuditionBuffer();
-  expectNear(audition.getSample(0, 4), 5.0f, 0.0001f,
+  const auto& finalWaveform = audioData.finalWaveform;
+  expectNear(finalWaveform.getSample(0, 4), 5.0f, 0.0001f,
              "blend writes synthesized audio to channel 0");
-  expectNear(audition.getSample(1, 4), 5.0f, 0.0001f,
+  expectNear(finalWaveform.getSample(1, 4), 5.0f, 0.0001f,
              "blend duplicates synthesized audio to channel 1");
-  expectNear(audioData.waveform.getSample(1, 4), 5.0f, 0.0001f,
-             "blend syncs all channels to audio waveform");
+  expectNear(audioData.waveform.getSample(1, 4), 2.0f, 0.0001f,
+             "blend leaves all source waveform channels unchanged");
 }
 
 void testBlendSynthesizedRangeOffsetsClampedNegativeStart()
@@ -1013,41 +988,44 @@ void testBlendSynthesizedRangeOffsetsClampedNegativeStart()
   }
 
   resizeEditedData(project.getEditedData(), 1);
-  project.blendSynthesizedRangeIntoAuditionBuffer(
+  IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+      project,
       {10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f, 80.0f},
       -1, 1, 4);
 
-  const auto& audition = project.getAuditionBuffer();
-  expectNear(audition.getSample(0, 0), 37.75f, 0.0001f,
+  const auto& finalWaveform = audioData.finalWaveform;
+  expectNear(finalWaveform.getSample(0, 0), 37.75f, 0.0001f,
              "negative start skips offscreen synthesized samples");
-  expectNear(audition.getSample(0, 1), 30.5f, 0.0001f,
+  expectNear(finalWaveform.getSample(0, 1), 30.5f, 0.0001f,
              "negative start preserves fade alignment");
-  expectNear(audition.getSample(0, 3), 1.0f, 0.0001f,
+  expectNear(finalWaveform.getSample(0, 3), 1.0f, 0.0001f,
              "negative start uses aligned fade-out sample");
 }
 
-void testBlendUsesCurrentWaveformWhenAuditionBufferIsStale()
+void testBlendUsesCurrentFinalWaveformWhenPresent()
 {
   Project project;
   auto& audioData = project.getAudioData();
-  audioData.originalWaveform.setSize(1, 8);
   audioData.waveform.setSize(1, 8);
+  audioData.finalWaveform.setSize(1, 8);
   project.getAuditionBuffer().setSize(1, 8);
   for (int i = 0; i < 8; ++i)
   {
-    audioData.originalWaveform.setSample(0, i, 1.0f);
     audioData.waveform.setSample(0, i, 2.0f);
+    audioData.finalWaveform.setSample(0, i, 3.0f);
     project.getAuditionBuffer().setSample(0, i, 99.0f);
   }
 
   resizeEditedData(project.getEditedData(), 2);
-  project.blendSynthesizedRangeIntoAuditionBuffer(
-      std::vector<float>(4, 6.0f), 1, 2, 4);
+  IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+      project, std::vector<float>(4, 6.0f), 1, 2, 4);
 
-  expectNear(project.getAuditionBuffer().getSample(0, 0), 2.0f, 0.0001f,
-             "blend baseline uses current waveform before range");
+  expectNear(audioData.finalWaveform.getSample(0, 0), 3.0f, 0.0001f,
+             "blend baseline uses current final waveform before range");
   expectNear(audioData.waveform.getSample(0, 0), 2.0f, 0.0001f,
-             "blend does not copy stale audition data to waveform");
+             "blend does not copy stale final data to source waveform");
+  expectNear(project.getAuditionBuffer().getSample(0, 0), 99.0f, 0.0001f,
+             "blend does not use stale audition buffer");
 }
 
 void testApplyNoteVolumeToSynthesizedRangeBeforeBlend()
@@ -1074,9 +1052,10 @@ void testApplyNoteVolumeToSynthesizedRangeBeforeBlend()
   expectNear(synthesized[4], 2.5f, 0.0001f,
              "note volume scales overlapping synthesized sample");
 
-  project.blendSynthesizedRangeIntoAuditionBuffer(synthesized, 0, 3, 4);
+  IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+      project, synthesized, 0, 3, 4);
 
-  expectNear(project.getAuditionBuffer().getSample(0, 4), 2.5f, 0.0001f,
+  expectNear(audioData.finalWaveform.getSample(0, 4), 2.5f, 0.0001f,
              "note volume affects direct blended amplitude");
 }
 
@@ -1242,12 +1221,11 @@ int main()
   testRecomputeFromMarkersIsIdempotent();
   testPreviewRecomputeCanAdvanceAndCancel();
   testRefreshNoteCachesUsesNonRestAnalysisSegments();
-  testComposeWaveformFollowsOutputFrameCount();
-  testBlendSynthesizedRangeIntoAuditionBuffer();
+  testBlendSynthesizedRangeWritesFinalWaveformOnly();
   testBlendSynthesizedRangeResizesToOutputDuration();
   testBlendSynthesizedRangeWritesAllChannels();
   testBlendSynthesizedRangeOffsetsClampedNegativeStart();
-  testBlendUsesCurrentWaveformWhenAuditionBufferIsStale();
+  testBlendUsesCurrentFinalWaveformWhenPresent();
   testApplyNoteVolumeToSynthesizedRangeBeforeBlend();
   testClearSynthesisDirtyForRangeOnlyClearsOverlappingSynthDirty();
   testCompletedSynthesisDirtyCleanupUsesCapturedSnapshot();
