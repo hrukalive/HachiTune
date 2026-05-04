@@ -708,6 +708,20 @@ void testRecomputeFromMarkersPreservesSourceTunedF0()
              "recompute stretches final f0 from source tunedF0");
 }
 
+void testRecomputeFromMarkersKeepsVadOnOutputTimeline()
+{
+  auto project = makeProject();
+  const std::vector<Project::WarpMarker> current = {
+      {0, 0}, {4, 4}};
+  const std::vector<Project::WarpMarker> target = {
+      {0, 0}, {4, 6}};
+
+  WarpMarkerProcessor::recomputeFromMarkers(project, current, target, false);
+
+  expect(project.getEditedData().vadMask.size() == 6,
+         "recompute keeps vad mask on output timeline");
+}
+
 void testRefreshNotePitchCachesFromFinalF0ClampsNegativeFrames()
 {
   Project project;
@@ -935,6 +949,30 @@ void testBlendRefreshesFinalBaselineFromMappedSource()
 
   expectNear(audioData.finalWaveform.getSample(0, 5), 2.0f, 0.0001f,
              "blend refreshes dirty baseline from mapped source waveform");
+}
+
+void testBlendRefreshesStereoBaselinePerChannel()
+{
+  Project project;
+  auto& audioData = project.getAudioData();
+  audioData.waveform.setSize(2, 16);
+  audioData.finalWaveform.setSize(2, 16);
+  for (int i = 0; i < 16; ++i)
+  {
+    audioData.waveform.setSample(0, i, 1.0f);
+    audioData.waveform.setSample(1, i, 2.0f);
+    audioData.finalWaveform.setSample(0, i, 9.0f);
+    audioData.finalWaveform.setSample(1, i, 9.0f);
+  }
+
+  resizeEditedData(project.getEditedData(), 4);
+  IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
+      project, std::vector<float>(8, 5.0f), 1, 3, 4);
+
+  expectNear(audioData.finalWaveform.getSample(0, 5), 2.0f, 0.0001f,
+             "blend refreshes channel 0 baseline");
+  expectNear(audioData.finalWaveform.getSample(1, 5), 2.75f, 0.0001f,
+             "blend refreshes channel 1 baseline");
 }
 
 void testBlendSynthesizedRangeResizesToOutputDuration()
@@ -1235,6 +1273,7 @@ int main()
   testWarpEndpoints();
   testRecomputeFromMarkersBuildsMelFromEditedAdjustedMel();
   testRecomputeFromMarkersPreservesSourceTunedF0();
+  testRecomputeFromMarkersKeepsVadOnOutputTimeline();
   testRefreshNotePitchCachesFromFinalF0ClampsNegativeFrames();
   testRebuildSourceDerivedOutputBackfillsAdjustedMelFromFinalMel();
   testNormalizePreservesEndpointOutputLength();
@@ -1243,6 +1282,7 @@ int main()
   testRefreshNoteCachesUsesNonRestAnalysisSegments();
   testBlendSynthesizedRangeWritesFinalWaveformOnly();
   testBlendRefreshesFinalBaselineFromMappedSource();
+  testBlendRefreshesStereoBaselinePerChannel();
   testBlendSynthesizedRangeResizesToOutputDuration();
   testBlendSynthesizedRangeWritesAllChannels();
   testBlendSynthesizedRangeOffsetsClampedNegativeStart();

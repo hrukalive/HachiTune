@@ -327,40 +327,6 @@ namespace
         return result;
     }
 
-    void rebuildVadMaskFromWaveform(Project& project)
-    {
-        constexpr float kVadThreshold = 0.008f;
-
-        auto& audioData = project.getAudioData();
-        auto& editedData = project.getEditedData();
-        const int numFrames = audioData.getNumFrames();
-        editedData.vadMask.assign(static_cast<size_t>(numFrames), false);
-        if (numFrames <= 0 || audioData.waveform.getNumSamples() <= 0)
-            return;
-
-        const float* samples = audioData.waveform.getReadPointer(0);
-        const int numSamples = audioData.waveform.getNumSamples();
-        for (int frame = 0; frame < numFrames; ++frame)
-        {
-            const int sampleStart = frame * HOP_SIZE;
-            const int sampleEnd = std::min(sampleStart + HOP_SIZE, numSamples);
-            if (sampleStart >= numSamples || sampleEnd <= sampleStart)
-                continue;
-
-            double sumSq = 0.0;
-            for (int sample = sampleStart; sample < sampleEnd; ++sample)
-            {
-                const double value = samples[sample];
-                sumSq += value * value;
-            }
-
-            const float rms = static_cast<float>(
-                std::sqrt(sumSq /
-                          static_cast<double>(sampleEnd - sampleStart)));
-            editedData.vadMask[static_cast<size_t>(frame)] =
-                rms > kVadThreshold;
-        }
-    }
 } // namespace
 
 namespace WarpMarkerProcessor
@@ -680,8 +646,6 @@ void recomputeFromMarkers(Project& project,
         project.setParamDirtyRange(0,
                                    static_cast<int>(editedData.mel.size()));
     }
-    rebuildVadMaskFromWaveform(project);
-
     if (updateProjectMarkers)
     {
         project.setWarpMarkers(warpMap);

@@ -272,6 +272,11 @@ void IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
        sourceWaveform.getNumSamples() > 0) ||
       (originalWaveform.getNumChannels() > 0 &&
        originalWaveform.getNumSamples() > 0);
+  const auto* baselineWaveform =
+      (originalWaveform.getNumChannels() > 0 &&
+       originalWaveform.getNumSamples() > 0)
+          ? &originalWaveform
+          : &sourceWaveform;
   const bool needsFullBaseline =
       finalWaveform.getNumChannels() == 0 ||
       finalWaveform.getNumSamples() == 0;
@@ -301,15 +306,21 @@ void IncrementalSynthesizer::blendSynthesizedRangeIntoFinalWaveform(
     if (!hasSourceBaseline || sampleCount <= 0)
       return;
 
-    auto baseline =
-        project.renderMappedBaseWaveformSegment(sampleStart, sampleCount);
-    if (baseline.empty())
+    const int sourceChannels = baselineWaveform->getNumChannels();
+    if (sourceChannels <= 0)
       return;
 
-    const int samplesToCopy =
-        std::min(sampleCount, static_cast<int>(baseline.size()));
     for (int ch = 0; ch < numChannels; ++ch)
     {
+      const int sourceChannel = std::min(ch, sourceChannels - 1);
+      auto baseline = project.renderMappedSourceSegment(
+          baselineWaveform->getReadPointer(sourceChannel),
+          baselineWaveform->getNumSamples(), sampleStart, sampleCount);
+      if (baseline.empty())
+        continue;
+
+      const int samplesToCopy =
+          std::min(sampleCount, static_cast<int>(baseline.size()));
       float* dst = finalWaveform.getWritePointer(ch, sampleStart);
       std::copy_n(baseline.data(), samplesToCopy, dst);
     }
